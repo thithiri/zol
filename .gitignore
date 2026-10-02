@@ -1,0 +1,9 @@
+target/
+node_modules/
+.DS_Store
+# Program deploy keypairs: keep out of version control.
+keys/
+spikes/**/target/
+spikes/**/out/
+spikes/**/node_modules/
+spikes/**/*-keypair.json
