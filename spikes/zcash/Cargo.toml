@@ -1,0 +1,34 @@
+# Phase 0 spikes 0.3-0.8 (ZOL). Standalone workspace: not part of any parent workspace.
+[workspace]
+
+[package]
+name = "zol-zcash-spikes"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+# Pinned, coherent stack (orchard 0.16 / reddsa 0.6 dropped FROST; do not mix).
+orchard = { version = "=0.15.5", features = ["circuit"] }
+reddsa = { version = "=0.5.2", features = ["frost"] }
+frost-rerandomized = "=3.0.0"            # same version reddsa 0.5.2 uses; needed for sign(Randomizer)
+pczt = { version = "=0.9.3", features = ["orchard", "io-finalizer", "prover", "signer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+zcash_primitives = "=0.30.1"
+zcash_protocol = "0.10"
+zcash_note_encryption = "0.4"
+incrementalmerkletree = "0.8"
+pasta_curves = "0.5"
+rand = "0.8"
+rand_core = { version = "0.6", features = ["getrandom"] }
+blake2b_simd = "1"
+ff = "0.13"
+group = "0.13"
+hex = "0.4"
+
+[profile.dev]
+opt-level = 1
+
+# Halo2 proving is very slow unoptimised.
+[profile.dev.package."*"]
+opt-level = 3
