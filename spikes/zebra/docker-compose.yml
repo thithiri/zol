@@ -1,0 +1,31 @@
+# ZOL Phase 0 spike: Zebra regtest (pinned image). See docs/spikes/0.2-zebra-infra.md.
+#   scripts/up.sh [a|pair]   scripts/mine.sh N [node]   scripts/height.sh [node]   scripts/down.sh
+name: zol-zebra
+
+x-zebra: &zebra
+  image: zfnd/zebra:6.4.2   # Docker Hub tag of zebrad v6.4.2 (git e3eef2f, 2026-09-25)
+  command: ["zebrad", "-c", "/etc/zebra/regtest.toml", "start"]
+  volumes:
+    - ./regtest.toml:/etc/zebra/regtest.toml:ro
+  environment:
+    ZEBRA_TRACING__FILTER: "info"
+  networks: [p2p]
+  restart: "no"
+
+services:
+  zebra-a:
+    <<: *zebra
+    container_name: zol-zebra-a
+    ports:
+      - "127.0.0.1:${ZOL_ZEBRA_RPC_PORT:-18232}:18232"
+
+  zebra-b:
+    <<: *zebra
+    container_name: zol-zebra-b
+    profiles: ["pair"]
+    ports:
+      - "127.0.0.1:${ZOL_ZEBRA_B_RPC_PORT:-18242}:18232"
+
+networks:
+  p2p:
+    name: zol-zebra-p2p

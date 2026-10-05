@@ -1,0 +1,11 @@
+== prefix: a=48 b=48
+converged after 2s at height 50
+common base height=50 hash=ff234721c421f37f75a12e8df17fb43e75ef7d82e7e9d160c758e67541fa5f89
+b partitioned
+partitioned: a height=55 tip=bcb8658ef05ff5b76085c33bb9a1bc442585a566acc8a276e0de015611381997 | b height=55 tip=4b4e94575af2066881b5fac3f5551e16a4acc5a51143e7e5528281606db23047 (b fork first=4d025183439959bb4c0d1cd3a9a58e98aad5b58b6d52fa3f437d810187bfbdef) mined in 1s
+after 75s partition: a height=55 tip=bcb8658ef05ff5b76085c33bb9a1bc442585a566acc8a276e0de015611381997 | b height=55 tip=4b4e94575af2066881b5fac3f5551e16a4acc5a51143e7e5528281606db23047 peers_b=0
+== heal
+TIMEOUT: a=55/bcb8658ef05ff5b76085c33bb9a1bc442585a566acc8a276e0de015611381997 b=55/4b4e94575af2066881b5fac3f5551e16a4acc5a51143e7e5528281606db23047
+== tie-break: a mines 1 block
+after 1s: a=56 6be0596e655472f8bebb7e91f16c3c4522781167b9fa009e5f8d0a1ff1d15aa0 b=56 6be0596e655472f8bebb7e91f16c3c4522781167b9fa009e5f8d0a1ff1d15aa0
+2026-10-09T21:26:29.960891Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(56)

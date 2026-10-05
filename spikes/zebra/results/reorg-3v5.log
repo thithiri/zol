@@ -1,0 +1,17 @@
+== prefix: a=41 b=41
+converged after 1s at height 43
+common base height=43 hash=8b6da82aebeda6478033e12594a46d8907de495a02550fd3c6a22aca2f6d6493
+b partitioned
+partitioned: a height=48 tip=901578fe7b4e85ea2a6708d73111d7bd96e94af696286679c4c3bc46585a9493 | b height=46 tip=795dcf2e0693ffd67583197435fa4ea3d7fcf7ac48f974eb014fe1ae696df042 (b fork first=3e527eae5b01ce33412382bfb447bbaa76b366f72411201d58cfc346688d0c33) mined in 0s
+after 75s partition: a height=48 tip=901578fe7b4e85ea2a6708d73111d7bd96e94af696286679c4c3bc46585a9493 | b height=46 tip=795dcf2e0693ffd67583197435fa4ea3d7fcf7ac48f974eb014fe1ae696df042 peers_b=0
+== heal
+converged after 40s at height 48
+-- b log during heal:
+2026-10-09T21:22:20.940316Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:22:21.142994Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:22:21.240818Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:22:21.950592Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:22:28.968973Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(47)
+2026-10-09T21:22:28.969004Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+b block 3e527eae5b01ce33412382bfb447bbaa76b366f72411201d58cfc346688d0c33 now: {'code': -5, 'message': 'block height not in best chain'}
+b height at base+1 now: 345668afc66cca57aa6cfb2fc157cb14d2c77cdf32981517b96764d033dfefeb (a: 345668afc66cca57aa6cfb2fc157cb14d2c77cdf32981517b96764d033dfefeb)

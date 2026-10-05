@@ -1,0 +1,18 @@
+== prefix: a=14 b=14
+converged after 3s at height 16
+common base height=16 hash=dc818eebefad498c4f7f0b8441170710b53fc6f2d71b380c27d33c9573f5b265
+b partitioned
+partitioned: a height=41 tip=766aa751174c0ef48ff3ccf0995342634c63c24fca2e5d3adf8570ce4df10b39 | b height=36 tip=fd8bff442d78e5a947c013e47fec0f06ada0e49cb8e6b90bd4d31d41ba7a7535 (b fork first=e306f1b1f6294ee5f2df60bd17f69980091b2eb78273aa66b8c09ad38625fe50) mined in 3s
+after 75s partition: a height=41 tip=766aa751174c0ef48ff3ccf0995342634c63c24fca2e5d3adf8570ce4df10b39 | b height=36 tip=fd8bff442d78e5a947c013e47fec0f06ada0e49cb8e6b90bd4d31d41ba7a7535 peers_b=0
+== heal
+converged after 42s at height 41
+-- b log during heal:
+2026-10-09T21:20:15.946366Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:20:18.941067Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:20:19.139426Z  INFO crawl_and_dial{new_peer_interval=61s}:dial{network=Regtest { activation_heights: {Height(0): Genesis, Height(1): Nu6_3}, funding_streams: [], lockbox_disbursements: [], checkpoints: Chec
+2026-10-09T21:20:25.066523Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(37)
+2026-10-09T21:20:25.066565Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+2026-10-09T21:20:25.109250Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(41)
+2026-10-09T21:20:25.109268Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+b block e306f1b1f6294ee5f2df60bd17f69980091b2eb78273aa66b8c09ad38625fe50 now: {'code': -5, 'message': 'block height not in best chain'}
+b height at base+1 now: 8e44dc9de4f05ea384af37e426c78a5abc164cb10ee66dbc8f97c02372b05f1b (a: 8e44dc9de4f05ea384af37e426c78a5abc164cb10ee66dbc8f97c02372b05f1b)

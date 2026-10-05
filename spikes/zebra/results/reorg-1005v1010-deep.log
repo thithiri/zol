@@ -1,0 +1,39 @@
+== prefix: a=56 b=56
+converged after 3s at height 58
+common base height=58 hash=c169d37ed5cdfc95db59007db3771a3e3066874fab5f284655a74b4609ec656d
+b partitioned
+partitioned: a height=1068 tip=f0c5e608c84098c6ffbe7b7e88beddd4eeb7a578dc961dbf383f5c2306a8d3e3 | b height=1063 tip=e11910d77e2cdea299aa8c34e8537d4ab821cb2f87207f6fa6d83ef25ae3dc2f (b fork first=c76fe9c56f9b38140b76364e278cb1b957e6cc6f1c41784f625e3716be9e2c2a) mined in 4s
+after 75s partition: a height=1068 tip=f0c5e608c84098c6ffbe7b7e88beddd4eeb7a578dc961dbf383f5c2306a8d3e3 | b height=1063 tip=e11910d77e2cdea299aa8c34e8537d4ab821cb2f87207f6fa6d83ef25ae3dc2f peers_b=1
+== heal
+TIMEOUT: a=1068/f0c5e608c84098c6ffbe7b7e88beddd4eeb7a578dc961dbf383f5c2306a8d3e3 b=1063/e11910d77e2cdea299aa8c34e8537d4ab821cb2f87207f6fa6d83ef25ae3dc2f
+-- b log since heal (filtered, deduped):
+  12 INFO sync:try_to_sync: zebrad::components::sync: starting sync, obtaining new tips state_tip=Some(Height(55))
+  12 INFO sync: zebrad::components::sync: waiting to restart sync timeout=2s state_tip=Some(Height(55))
+   2 INFO sync:try_to_sync: zebrad::components::sync: starting sync, obtaining new tips state_tip=Some(Height(1063))
+   2 INFO sync: zebrad::components::sync: waiting to restart sync timeout=2s state_tip=Some(Height(1063))
+   1 WARN zebra_network::address_book: all peer addresses have failed. Hint: check your network connection address_metrics=AddressMetrics { responded: 0, never_attempted_gossiped: 0, failed: 6, attempt_pending: 0, recently_live: 0, recently_stopped_responding:
+   1 WARN sync:try_to_sync:obtain_tips: zebra_network::peer_set::set: network request with no peer connections. Hint: check your network connection address_metrics=AddressMetrics { responded: 0, never_attempted_gossiped: 0, failed: 6, attempt_pending: 0, recen
+   1 INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(56)
+   1 INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+   1 INFO sync:try_to_sync: zebrad::components::sync: temporary error obtaining tips: deadline has elapsed
+   1 INFO sync:try_to_sync: zebrad::components::sync: starting sync, obtaining new tips state_tip=Some(Height(56))
+   1 INFO sync:try_to_sync: zebrad::components::sync: starting sync, obtaining new tips state_tip=Some(Height(460))
+   1 INFO sync: zebrad::components::sync: waiting to restart sync timeout=2s state_tip=Some(Height(56))
+== a mines 20 more blocks; watch b for 120s
+after 121s: a=1088 b=1063 b_peers=['172.21.0.2:36884']
+-- b log (non-crawler) since a mined:
+   1 WARN sync:try_to_sync:try_to_sync_once: zebrad::components::sync: error downloading and verifying block e=ValidationRequestError { error: Elapsed(()), height: Height(101), hash: block::Hash("021fb82b8bb2db4437e49c3dfd8da031f3e51636c0ddae36f291594db0d3cd71
+   1 INFO zebrad::components::sync::progress: initial sync is very slow, or estimated tip is wrong. Hint: check your network connection, and your computer clock and time zone sync_percent=0.016% current_height=Height(1063) network_upgrade=Nu6_3 remaining_sync_
+   1 INFO zebrad::components::sync::progress: initial sync is very slow, or estimated tip is wrong. Hint: check your network connection, and your computer clock and time zone sync_percent=0.016% current_height=Height(1063) network_upgrade=Nu6_3 remaining_sync_
+   1 INFO zebra_network::peer::handshake: rejecting self-connection attempt connected_addr=Out("v4redacted:18233")
+   1 INFO zebra_network::peer::handshake: rejecting self-connection attempt connected_addr=In("v4redacted:45560")
+   1 INFO sync:try_to_sync: zebrad::components::sync: starting sync, obtaining new tips state_tip=Some(Height(1063))
+   1 INFO sync: zebrad::components::sync: waiting to restart sync timeout=2s state_tip=Some(Height(1063))
+   1 INFO peer_cache_updater: zebra_network::config: updated cached peer IP addresses cached_ip_count=7 peer_cache_file="/home/zebra/.cache/zebra/network/regtest.peers"
+-- b getblockchaininfo:
+{'blocks': 1063, 'bestblockhash': 'e11910d77e2cdea299aa8c34e8537d4ab821cb2f87207f6fa6d83ef25ae3dc2f', 'estimatedheight': 6599639, 'verificationprogress': 1.0, 'initial_block_download_complete': None}
+== invalidateblock on b's FIRST fork block (height base+1=59, finalized on b):
+{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"block hash c76fe9c56f9b38140b76364e278cb1b957e6cc6f1c41784f625e3716be9e2c2a not found in any non-finalized chain"}}
+b finalized-ish check: getblock 59 on b: {"jsonrpc":"2.0","id":1,"result":"c76fe9c56f9b38140b76364e278cb1b957e6cc6f1c41784f625e3716be9e2c2a"}
+2026-10-09T21:38:28.016617Z  WARN sync:try_to_sync:try_to_sync_once: zebrad::components::sync: error downloading and verifying block e=ValidationRequestError { error: Elapsed(()), height: Height(101), hash:021fb82b8bb2… }
+a block 101: 021fb82b8bb2db4437e49c3dfd8da031f3e51636c0ddae36f291594db0d3cd71  b block 101: cb98008c61f934dcbf3b333361c8e3cc55c977f5165855076a003b32b1b2a029

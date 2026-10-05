@@ -1,0 +1,16 @@
+== prefix: a=165 b=165
+converged after 1s at height 167
+common base height=167 hash=db71640c32b53ccb8472da053aef883f44b024a9ddafce41bf77ce49163a1021
+b partitioned
+partitioned: a height=1167 tip=bd65c51d9682d8c999d648a5871f918482a6e468a66e34a692c41d74dfbe5bd6 | b height=1162 tip=1d7e569fad17937679b4e7f29c11c665f5034f4cbef357c971487f1a5803b200 (b fork first=80aa6f241b5db246d169cbb8535545a47aaab2d1a8ee6128f6fc92e05b9d7f82) mined in 5s
+after 75s partition: a height=1167 tip=bd65c51d9682d8c999d648a5871f918482a6e468a66e34a692c41d74dfbe5bd6 | b height=1162 tip=1d7e569fad17937679b4e7f29c11c665f5034f4cbef357c971487f1a5803b200 peers_b=1
+== heal
+converged after 60s at height 1167
+-- b log during heal:
+2026-10-09T21:45:34.526124Z  WARN zebra_network::address_book: all peer addresses have failed. Hint: check your network connection address_metrics=AddressMetrics { responded: 0, never_attempted_gossiped: 0, failed: 4, at
+2026-10-09T21:45:34.527620Z  WARN zebra_network::peer_set::set: network request with no peer connections. Hint: check your network connection address_metrics=AddressMetrics { responded: 0, never_attempted_gossiped: 0, fa
+2026-10-09T21:46:02.713986Z  INFO sync:try_to_sync: zebrad::components::sync: temporary error obtaining tips: deadline has elapsed
+2026-10-09T21:46:05.662755Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(1163)
+2026-10-09T21:46:05.662814Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+b block 80aa6f241b5db246d169cbb8535545a47aaab2d1a8ee6128f6fc92e05b9d7f82 now: {'code': -5, 'message': 'block height not in best chain'}
+b height at base+1 now: 75c36fd3de7c875b3b05ab999d39254b25647f3865252a75ab3d5d8863a4ebcd (a: 75c36fd3de7c875b3b05ab999d39254b25647f3865252a75ab3d5d8863a4ebcd)

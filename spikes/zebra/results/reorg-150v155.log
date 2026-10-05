@@ -1,0 +1,16 @@
+== prefix: a=8 b=0
+converged after 48s at height 10
+common base height=10 hash=6835d361f5b6ef63486d75c0bad6d0a8507f4cfd313d123101f925426d3d5dc9
+b partitioned
+partitioned: a height=165 tip=fd0a75e8014be2987a11ead972d305f51820fa61201f3a0b7f3642b42d779e06 | b height=160 tip=3f1bcdab617e725bee90730f5501d03d5390c1c2b0c4dab20d2bcfe4d31d1a15 (b fork first=962bad18885169e6d97ee9d5ed429da42dfde9f7be92edbbf068f01ff471af1b) mined in 1s
+after 75s partition: a height=165 tip=fd0a75e8014be2987a11ead972d305f51820fa61201f3a0b7f3642b42d779e06 | b height=160 tip=3f1bcdab617e725bee90730f5501d03d5390c1c2b0c4dab20d2bcfe4d31d1a15 peers_b=2
+== heal
+converged after 60s at height 165
+-- b log during heal:
+2026-10-09T21:42:47.543985Z  WARN sync:try_to_sync:obtain_tips: zebra_network::peer_set::set: network request with no peer connections. Hint: check your network connection address_metrics=AddressMetrics { responded: 1, n
+2026-10-09T21:43:42.653173Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(161)
+2026-10-09T21:43:42.653218Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+2026-10-09T21:43:42.655178Z  INFO zebrad::components::mempool: resetting mempool: switched best chain, skipped blocks, or activated network upgrade tip_height=Height(164)
+2026-10-09T21:43:42.655193Z  INFO zebrad::components::mempool: re-verifying mempool transactions after a chain fork transactions=0
+b block 962bad18885169e6d97ee9d5ed429da42dfde9f7be92edbbf068f01ff471af1b now: {'code': -5, 'message': 'block height not in best chain'}
+b height at base+1 now: 29afc878d9e966254404bcadd8cfd3d8a7f5e0cf0df03b67fd2249a87375285e (a: 29afc878d9e966254404bcadd8cfd3d8a7f5e0cf0df03b67fd2249a87375285e)

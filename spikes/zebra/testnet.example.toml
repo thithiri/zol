@@ -1,0 +1,28 @@
+# NOT RUN in Phase 0 (disk budget). Operator config for a ZOL signer/attestor Zebra on Testnet.
+# zebrad 6.4.2. See docs/spikes/0.2-zebra-infra.md for disk, sync time and the snapshot path.
+#
+# docker run -d --name zebra-testnet \
+#   -v zebra-testnet-state:/home/zebra/.cache/zebra \
+#   -v $PWD/testnet.example.toml:/etc/zebra/zebrad.toml:ro \
+#   -p 18233:18233 -p 127.0.0.1:18232:18232 \
+#   zfnd/zebra:6.4.2 zebrad -c /etc/zebra/zebrad.toml start
+
+[network]
+network = "Testnet"
+listen_addr = "0.0.0.0:18233"        # publish 18233 for inbound peers (optional but recommended)
+# initial_testnet_peers: keep Zebra's defaults (DNS seeders)
+
+[state]
+cache_dir = "/home/zebra/.cache/zebra"   # persistent volume; ~11 GiB compressed snapshot, more extracted
+ephemeral = false
+
+[rpc]
+listen_addr = "0.0.0.0:18232"        # bind to localhost on the host side only (-p 127.0.0.1:...)
+enable_cookie_auth = true            # scanner reads the cookie from cache_dir
+# indexer_listen_addr = "127.0.0.1:8230"   # optional indexer RPC server (not evaluated)
+
+[sync]
+# defaults are fine; checkpoint sync is on by default
+
+[tracing]
+use_color = false
