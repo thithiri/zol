@@ -1,0 +1,13 @@
+DLP=devnet sha256=38e86d4b26e1b357 TICKS=8
+✔ mb-test-validator (base L1) ready: rpc http://127.0.0.1:28899, ws ws://127.0.0.1:28900
+✔ ephemeral-validator ready: rpc http://127.0.0.1:27799, ws ws://127.0.0.1:27800
+✔ query-filtering-service ready: rpc http://127.0.0.1:26699, ws ws://127.0.0.1:26700
+
+MagicBlock stack is ready.
+Stop: press Ctrl-C to shut down all nodes.
+
+er | [2m2026-10-09T21:48:36.89789Z[0m [31mERROR[0m [2mmagicblock_chainlink::chainlink::fetch_cloner[0m[2m:[0m Failed to fetch companion account [3mprimary_pubkey[0m[2m=[0m7jYdScKCyQoyvbjV19YDycq5SCgoMGqiG5s5YXW6mAvC [3mcompanion_pubkey[0m[2m=[0m5qQP6LvzMbiQdKU1cw6dnbAu1HoqL3KUEKb6uYByKJF [3mcompanion_kind[0m[2m=[0mdelegation_record [3morigin_entrypoint[0m[2m=[0msubscription_update [3morigin_reason[0m[2m=[0msubscription_update_clone [3mcontext_slot[0m[2m=[0m439 [3merror[0m[2m=[0mFailed to find account that was just resolved 7jYdScKCyQoyvbjV19YDycq5SCgoMGqiG5s5YXW6mAvC
+er | [2m2026-10-09T21:48:44.954535Z[0m [31mERROR[0m [1mexecute[0m[1m{[0m[3mintent_id[0m[2m=[0m69[1m}[0m[2m:[0m [2mmagicblock_committor_service::intent_execution_manager::intent_execution_engine[0m[2m:[0m Failed to execute intent bundle [3mintent_id[0m[2m=[0m69 [3merror[0m[2m=[0mTaskBuilderError(FinalizedTasksBuildError(AccountNotFoundError(4FDaNZMmFRaYwMXnweEXdGSifoHDL1BBf73GySfjwotm)))
+er | [2m2026-10-09T21:48:44.955459Z[0m [31mERROR[0m [1mresult_processor[0m[2m:[0m [2mmagicblock_committor_service::service::intent_client[0m[2m:[0m Failed to commit intent: 69, slot: 34671, blockhash: 62DNEZR19cwUdENQZstZMN5t47HN6LPpDW7KAYxzxUkS. TaskBuilderError(FinalizedTasksBuildError(AccountNotFoundError(4FDaNZMmFRaYwMXnweEXdGSifoHDL1BBf73GySfjwotm)))
+er | [2m2026-10-09T21:48:44.956956Z[0m [31mERROR[0m [1mresult_processor[0m[2m:[0m [2mmagicblock_committor_service::service::intent_client[0m[2m:[0m Failed to signal sent commit [3merror[0m[2m=[0mInstructionError(0, Custom(1952539503))
+er | [2m2026-10-09T21:48:44.957163Z[0m [31mERROR[0m [1mresult_processor[0m[2m:[0m [2mmagicblock_committor_service::service[0m[2m:[0m Failed process intent execution results [3merror[0m[2m=[0mTransactionError(InstructionError(0, Custom(1952539503)))

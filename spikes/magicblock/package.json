@@ -1,0 +1,10 @@
+{
+  "name": "zol-magicblock-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.17.3",
+    "@magicblock-labs/ephemeral-validator": "^0.14.10",
+    "@solana/web3.js": "^1.99.0"
+  }
+}

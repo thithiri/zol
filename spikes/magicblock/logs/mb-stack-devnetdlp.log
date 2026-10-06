@@ -1,0 +1,8 @@
+DLP=devnet sha256=38e86d4b26e1b357 TICKS=64
+✔ mb-test-validator (base L1) ready: rpc http://127.0.0.1:28899, ws ws://127.0.0.1:28900
+✔ ephemeral-validator ready: rpc http://127.0.0.1:27799, ws ws://127.0.0.1:27800
+✔ query-filtering-service ready: rpc http://127.0.0.1:26699, ws ws://127.0.0.1:26700
+
+MagicBlock stack is ready.
+Stop: press Ctrl-C to shut down all nodes.
+

@@ -1,0 +1,4 @@
+{"ms":489,"ok":true,"sig":"5h8YzGeAXQFWRZaRqjMrfgKwCaxaLK93kAMJxys1LAb7c6q5eqW3U8d5CDmgS75SJGRKjJDHz6cWVDHsHdEzpHD8","step":"initialize"}
+{"ms":497,"ok":true,"sig":"MGruHhCnPGcPZvDSHPoYh7bnQ5EBEXDzoGLt7q9Jf9KDWf7pGWqH7XaQKbae2fupvm78CP1S4cCQ3hwTU97vNfF","step":"register_app (forward)"}
+{"ms":542,"ok":true,"sig":"5qMUVmFkjEsHQgdDXH5FM1VbAgsCZJMEcvuzT3HR9ZymVEUKfYuLmWQ6kM9v7ry6oa1agg2izCkgRJKyrRbh7owg","step":"activate_app"}
+{"activation_delay_secs":3600,"app_state":"Activating","chain_now":1791583861}

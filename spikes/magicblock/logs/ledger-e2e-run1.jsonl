@@ -1,0 +1,21 @@
+{"chain_now":1791587502,"er_identity":"mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev","nosol_base_lamports":0}
+{"ms":500,"ok":true,"sig":"3DEkYAwHeKFm44W7n22vazDHHg9JntUD3QLAVgoQMcZp7S95QWDuGagfv4AFFmxF4ZLqKjtaVziS8NWvzmmKiFsz","step":"set_cap"}
+{"ms":510,"ok":true,"sig":"44FGnDADuxt8nVzrX1iW7DPFY9EuJfC2Ncr9HgGczX2hkYZrzVPVCuYEh6dwhKU8PD7mh768S65ADL9fX7a3RRRw","step":"credit_deposit p0"}
+{"ms":565,"ok":true,"sig":"DeEpHxbP16nvC4TDQ9BvQLTV43qPYvnJCfoW9W7cggY2gzK7tsGH4hv2FjJaMrebNpi3JN15HfyBQiNa4cTsocP","step":"credit_deposit p1"}
+{"ms":487,"ok":true,"sig":"2nLiwxBVLjqMbTyK8Hayf7yCTuGF2xzzBGcZu86T5xb3S7fzpHrZaQR5gJaMdyMPqzahSNkCiRPgcBEbBwaYaSUt","step":"open_pot (forward)"}
+{"ms":565,"ok":true,"sig":"3Yxh9xwc4JKC3TpTto718jK2wmfFSRRpyNp5w12Q8g3hheWbN1o9rw8aWcEF4ZsbszQftzA7NEbSUS4aojWtVS2T","step":"buy_in p0 (forward + session key)"}
+{"ms":502,"ok":true,"sig":"5xDHVPEvBcyR5LfMLhBrMiQUqBzepiBDY4A47gJoiLEdETAAVdapn1FGe7PDvuGqwFQHVN5g5VssDUe5cs6kJJF2","step":"buy_in p1 (forward + session key)"}
+{"ms":452,"ok":true,"sig":"4okHzWNob2AB3RtaTm97TSJ6fs2KGaoywYGH2vUgcX8MSQjXyFHga4BsnpLRfv9vGSLAG5tVrcXBHJqvncJf5y6m","step":"delegate_pot (forward)"}
+{"base_owner_while_delegated":"DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh","er_visible_ms":0,"pot":"6bKeGYLZzwZvHPZUdG1M1pAHYXHp36nfwdVHaKw6SstJ"}
+{"ms":60,"ok":true,"sig":"4PpJXxML9LLE5oJQu5KTcPMTEzt4fRFUDfxXgrZXeP1unvsXba2Us9gBVcLgMspWCHA31ezDRjHd3EcGujLx8WvA","step":"move_seat in ER (forward, fee payer nosol)"}
+{"er_pot_amounts":[300000,700000],"er_pot_delegated":true}
+{"ms":57,"ok":true,"sig":"XCkdS53ew3dkFxfDbi6zNX4oPR4r7DqUKiaGGWrf4hzUJVk3JEBDErcJnYF69x884jMMQcsN2kuk9sUeoR5nf2t","step":"close_pot in ER (forward, payer nosol)"}
+{"close_pot_er_logs":["Program Ha1wtAhZUABES7f97hq5sFLgrJva5TLggAmkfNmhdcG2 invoke [1]","Program log: Instruction: Forward","Program 3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y invoke [2]","Program log: Instruction: ClosePot","Program Magic11111111111111111111111111111111111111 invoke [3]","ScheduleCommit: parent program id: 3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y","Scheduling undelegation for accounts: 6bKeGYLZzwZvHPZUdG1M1pAHYXHp36nfwdVHaKw6SstJ","Scheduled commit with ID: 1","ScheduledCommitSent signature: 442UHZGmwks6ZMjnoZgPKTExqwxKSTtZzxyGEHnZgJSNyfKzukj1JXj57HSXyHyhRbmevZNPktZ3UM8jJqRdgi7J","Program Magic11111111111111111111111111111111111111 success","Program 3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y consumed 33475 of 173172 compute units","Program 3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y success","Program Ha1wtAhZUABES7f97hq5sFLgrJva5TLggAmkfNmhdcG2 consumed 60684 of 200000 compute units","Program Ha1wtAhZUABES7f97hq5sFLgrJva5TLggAmkfNmhdcG2 success"]}
+{"base_pot_amounts":[300000,700000],"base_pot_delegated":false,"close_to_owner_ledger_ms":452,"ok":true,"step":"return"}
+{"ms":510,"ok":true,"sig":"32ti4CMQ8XbW6CeuLgKezbaTxnFERnR7EGrau3Rrt4fk2B3toUVExXhfBjGvMsPzuAevjTS88xQ7W8Xr3WdaF2gJ","step":"cash_out"}
+{"close_to_cash_out_confirmed_ms":963}
+{"balances_after_cash_out":[797000,1197000],"expected":[797000,1197000],"match":true}
+{"ms":521,"ok":true,"sig":"26KxoPCtB9JsXueaHHXy9VJ8cWHfE9PqRSQ2HrrSsxjGVFh971VdeCSGJ88XXVnFVUDNPj7aevTAJQYmeiNid6w6","step":"request_exit p0"}
+{"ms":560,"ok":true,"sig":"5jCnvkLxscc1e1YL2XEHScYZnKSXj2KDynM3egKqQx7ti2XYwVuhGWwgTuWDmeejNVKpov5Y3QkdW2ymRRn49mhq","step":"request_exit p1"}
+{"ms":518,"ok":true,"sig":"3GVy1xboiF5aQuCSwMg7bxFTXLZETyqdaL6kizqzaYTTtQxkMqpmXK4VgXuUjrEoFte7W6BydgYUfN2x9eQeLKCT","step":"settle"}
+{"app":{"credited_total":4000000,"deposit_count":4,"fee_pool":63964,"liability":0,"unpaid_total":3936036},"balances_after_settle":[0,0],"conservation_credited_eq_liability_fee_settled":false,"expected_payouts":[784609,1183409],"payouts":[784609,1183409],"payouts_match":true,"settlement_seq":1,"settlement_state":"Unpaid","settlement_total":1968018}
