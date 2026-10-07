@@ -1,0 +1,20 @@
+[toolchain]
+anchor_version = "1.2.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+zol_ledger = "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+zol_test_app = "Ha1wtAhZUABES7f97hq5sFLgrJva5TLggAmkfNmhdcG2"
+
+[programs.devnet]
+zol_ledger = "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test -p zol-tests"

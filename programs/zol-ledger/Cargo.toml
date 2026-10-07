@@ -1,0 +1,30 @@
+[package]
+name = "zol-ledger"
+version = "0.3.0"
+description = "ZOL kernel ledger: deposits, balances, pots, settlements"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "zol_ledger"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+ephemeral-rollups-sdk = { workspace = true }
+zol-wire = { workspace = true }
+solana-sha256-hasher = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

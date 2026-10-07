@@ -1,0 +1,27 @@
+[package]
+name = "zol-test-app"
+version = "0.3.0"
+description = "Test-only app: forwards ledger calls signed with its zol-app address"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "zol_test_app"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
