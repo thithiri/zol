@@ -1,0 +1,3655 @@
+{
+  "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y",
+  "metadata": {
+    "name": "zol_ledger",
+    "version": "0.3.0",
+    "spec": "0.1.0",
+    "description": "ZOL kernel ledger: deposits, balances, pots, settlements"
+  },
+  "instructions": [
+    {
+      "name": "activate_app",
+      "discriminator": [
+        144,
+        123,
+        209,
+        87,
+        79,
+        119,
+        244,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_address",
+          "type": {
+            "array": [
+              "u8",
+              43
+            ]
+          }
+        },
+        {
+          "name": "genesis_head",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "buy_in",
+      "discriminator": [
+        126,
+        94,
+        133,
+        165,
+        163,
+        236,
+        161,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Nobody enters a pot except through the app."
+          ],
+          "signer": true,
+          "relations": [
+            "app"
+          ]
+        },
+        {
+          "name": "session_key",
+          "signer": true
+        },
+        {
+          "name": "balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "session_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "pot.pot_id",
+                "account": "Pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cash_out",
+      "discriminator": [
+        1,
+        110,
+        57,
+        58,
+        159,
+        157,
+        243,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "docs": [
+            "checked by hand because it may still belong to the delegation program."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "receipt.pot_id",
+                "account": "PotReceipt"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_pot",
+      "discriminator": [
+        214,
+        103,
+        62,
+        202,
+        132,
+        229,
+        27,
+        86
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "credit_deposit",
+      "discriminator": [
+        4,
+        82,
+        10,
+        16,
+        162,
+        151,
+        85,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deposit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.deposit_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "arg",
+                "path": "args.session_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreditArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "delegate_pot",
+      "discriminator": [
+        45,
+        235,
+        235,
+        203,
+        190,
+        24,
+        118,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "app"
+          ]
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                42,
+                48,
+                149,
+                95,
+                198,
+                186,
+                249,
+                5,
+                37,
+                32,
+                231,
+                26,
+                187,
+                244,
+                83,
+                12,
+                66,
+                6,
+                121,
+                212,
+                204,
+                178,
+                19,
+                173,
+                213,
+                32,
+                180,
+                78,
+                39,
+                66,
+                52,
+                35
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pot",
+          "docs": [
+            "after delegation it belongs to the delegation program."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "expected",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "SeatStake"
+              }
+            }
+          }
+        },
+        {
+          "name": "session_deadline",
+          "type": "i64"
+        },
+        {
+          "name": "validator",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "freeze_app",
+      "discriminator": [
+        176,
+        146,
+        28,
+        170,
+        85,
+        35,
+        107,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "guardian",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "leave_pot",
+      "discriminator": [
+        28,
+        114,
+        70,
+        10,
+        121,
+        65,
+        40,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "session_key",
+          "signer": true
+        },
+        {
+          "name": "balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "receipt.app",
+                "account": "PotReceipt"
+              },
+              {
+                "kind": "account",
+                "path": "session_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "receipt.app",
+                "account": "PotReceipt"
+              },
+              {
+                "kind": "account",
+                "path": "receipt.pot_id",
+                "account": "PotReceipt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "mark_paid",
+      "discriminator": [
+        51,
+        120,
+        9,
+        160,
+        70,
+        29,
+        18,
+        205
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "settlement.sequence",
+                "account": "Settlement"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "move_seat",
+      "discriminator": [
+        93,
+        43,
+        84,
+        88,
+        205,
+        99,
+        181,
+        232
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot.app",
+                "account": "Pot"
+              },
+              {
+                "kind": "account",
+                "path": "pot.pot_id",
+                "account": "Pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_authority",
+          "relations": [
+            "pot"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "from",
+          "type": "u8"
+        },
+        {
+          "name": "to",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "open_pot",
+      "discriminator": [
+        199,
+        125,
+        132,
+        148,
+        93,
+        55,
+        11,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "app"
+          ]
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "arg",
+                "path": "pot_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "open_deadline",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "refund_pot",
+      "discriminator": [
+        43,
+        38,
+        238,
+        255,
+        48,
+        213,
+        224,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "docs": [
+            "checked by hand because it may still belong to the delegation program."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "receipt.pot_id",
+                "account": "PotReceipt"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_app",
+      "discriminator": [
+        5,
+        248,
+        20,
+        126,
+        12,
+        159,
+        9,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_program"
+        },
+        {
+          "name": "app_authority",
+          "docs": [
+            "The app's consent: only the app program can sign for this address."
+          ],
+          "signer": true
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "request_exit",
+      "discriminator": [
+        121,
+        186,
+        203,
+        74,
+        138,
+        218,
+        135,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "session_key",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "balance.app",
+                "account": "Balance"
+              },
+              {
+                "kind": "account",
+                "path": "session_key"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_cap",
+      "discriminator": [
+        209,
+        207,
+        121,
+        129,
+        115,
+        39,
+        220,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_config",
+      "discriminator": [
+        108,
+        158,
+        154,
+        175,
+        212,
+        98,
+        52,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_guardians",
+      "discriminator": [
+        166,
+        69,
+        140,
+        183,
+        157,
+        169,
+        253,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "guardians",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app"
+              },
+              {
+                "kind": "account",
+                "path": "app.next_settlement",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unfreeze_app",
+      "discriminator": [
+        129,
+        45,
+        88,
+        68,
+        154,
+        119,
+        11,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "void_deposit",
+      "discriminator": [
+        4,
+        225,
+        248,
+        184,
+        84,
+        190,
+        247,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "app",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "app.program_id",
+                "account": "App"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deposit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "deposit_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "deposit_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "App",
+      "discriminator": [
+        67,
+        135,
+        84,
+        79,
+        153,
+        49,
+        239,
+        169
+      ]
+    },
+    {
+      "name": "Balance",
+      "discriminator": [
+        127,
+        71,
+        25,
+        157,
+        105,
+        157,
+        241,
+        182
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Deposit",
+      "discriminator": [
+        148,
+        146,
+        121,
+        66,
+        207,
+        173,
+        21,
+        227
+      ]
+    },
+    {
+      "name": "Pot",
+      "discriminator": [
+        238,
+        118,
+        60,
+        175,
+        178,
+        191,
+        59,
+        58
+      ]
+    },
+    {
+      "name": "PotReceipt",
+      "discriminator": [
+        203,
+        65,
+        27,
+        238,
+        80,
+        91,
+        50,
+        148
+      ]
+    },
+    {
+      "name": "Settlement",
+      "discriminator": [
+        55,
+        11,
+        219,
+        33,
+        36,
+        136,
+        40,
+        182
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ActivationCancelled",
+      "discriminator": [
+        211,
+        107,
+        225,
+        187,
+        24,
+        60,
+        175,
+        92
+      ]
+    },
+    {
+      "name": "AppActivating",
+      "discriminator": [
+        54,
+        159,
+        81,
+        143,
+        178,
+        233,
+        136,
+        243
+      ]
+    },
+    {
+      "name": "AppFrozen",
+      "discriminator": [
+        36,
+        128,
+        217,
+        167,
+        208,
+        254,
+        152,
+        6
+      ]
+    },
+    {
+      "name": "AppRegistered",
+      "discriminator": [
+        99,
+        12,
+        19,
+        34,
+        85,
+        60,
+        170,
+        229
+      ]
+    },
+    {
+      "name": "AppUnfrozen",
+      "discriminator": [
+        94,
+        118,
+        52,
+        135,
+        139,
+        56,
+        120,
+        55
+      ]
+    },
+    {
+      "name": "BoughtIn",
+      "discriminator": [
+        44,
+        138,
+        37,
+        163,
+        140,
+        223,
+        18,
+        41
+      ]
+    },
+    {
+      "name": "ConfigChanged",
+      "discriminator": [
+        147,
+        25,
+        86,
+        98,
+        98,
+        77,
+        78,
+        192
+      ]
+    },
+    {
+      "name": "DepositCredited",
+      "discriminator": [
+        44,
+        173,
+        31,
+        122,
+        40,
+        72,
+        132,
+        147
+      ]
+    },
+    {
+      "name": "DepositVoided",
+      "discriminator": [
+        149,
+        62,
+        214,
+        247,
+        205,
+        203,
+        243,
+        138
+      ]
+    },
+    {
+      "name": "ExitRequested",
+      "discriminator": [
+        92,
+        125,
+        6,
+        23,
+        233,
+        196,
+        149,
+        70
+      ]
+    },
+    {
+      "name": "LeftPot",
+      "discriminator": [
+        38,
+        141,
+        185,
+        17,
+        80,
+        36,
+        45,
+        129
+      ]
+    },
+    {
+      "name": "PotCashedOut",
+      "discriminator": [
+        198,
+        74,
+        14,
+        169,
+        203,
+        7,
+        25,
+        82
+      ]
+    },
+    {
+      "name": "PotDelegated",
+      "discriminator": [
+        170,
+        26,
+        54,
+        161,
+        172,
+        53,
+        246,
+        9
+      ]
+    },
+    {
+      "name": "PotOpened",
+      "discriminator": [
+        138,
+        214,
+        86,
+        188,
+        9,
+        36,
+        193,
+        33
+      ]
+    },
+    {
+      "name": "PotRefunded",
+      "discriminator": [
+        66,
+        2,
+        75,
+        132,
+        143,
+        206,
+        8,
+        187
+      ]
+    },
+    {
+      "name": "Settled",
+      "discriminator": [
+        232,
+        210,
+        40,
+        17,
+        142,
+        124,
+        145,
+        238
+      ]
+    },
+    {
+      "name": "SettlementPaid",
+      "discriminator": [
+        194,
+        171,
+        149,
+        129,
+        111,
+        229,
+        61,
+        129
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "FeeTooHigh",
+      "msg": "Fee rate or allowance above the program's constant cap"
+    },
+    {
+      "code": 6001,
+      "name": "BadParams",
+      "msg": "Parameters out of range"
+    },
+    {
+      "code": 6002,
+      "name": "BadGuardians",
+      "msg": "Guardian set or threshold invalid"
+    },
+    {
+      "code": 6003,
+      "name": "GuardianThreshold",
+      "msg": "Not enough guardian signatures"
+    },
+    {
+      "code": 6004,
+      "name": "NotGuardian",
+      "msg": "Signer is not a guardian"
+    },
+    {
+      "code": 6005,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only the program upgrade authority can initialize"
+    },
+    {
+      "code": 6006,
+      "name": "Paused",
+      "msg": "Ledger is paused"
+    },
+    {
+      "code": 6007,
+      "name": "AppFrozen",
+      "msg": "App is frozen"
+    },
+    {
+      "code": 6008,
+      "name": "AppNotActive",
+      "msg": "App is not active"
+    },
+    {
+      "code": 6009,
+      "name": "BadAppState",
+      "msg": "App is in the wrong state for this instruction"
+    },
+    {
+      "code": 6010,
+      "name": "NotAProgram",
+      "msg": "Account is not an executable program"
+    },
+    {
+      "code": 6011,
+      "name": "BadAppAuthority",
+      "msg": "App authority is not the app program's zol-app address"
+    },
+    {
+      "code": 6012,
+      "name": "BadAttestation",
+      "msg": "Previous instruction is not a matching Ed25519 attestation"
+    },
+    {
+      "code": 6013,
+      "name": "OverCap",
+      "msg": "Deposit would exceed the app's cap"
+    },
+    {
+      "code": 6014,
+      "name": "PayoutCommitmentMismatch",
+      "msg": "Payout commitment differs from this balance's"
+    },
+    {
+      "code": 6015,
+      "name": "ZeroAmount",
+      "msg": "Amount must be positive"
+    },
+    {
+      "code": 6016,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6017,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 6018,
+      "name": "BalanceExiting",
+      "msg": "Balance is marked for exit"
+    },
+    {
+      "code": 6019,
+      "name": "BadPotState",
+      "msg": "Pot is in the wrong state"
+    },
+    {
+      "code": 6020,
+      "name": "BadDeadline",
+      "msg": "Deadline out of range"
+    },
+    {
+      "code": 6021,
+      "name": "OpenDeadlinePassed",
+      "msg": "Open deadline has passed"
+    },
+    {
+      "code": 6022,
+      "name": "PotFull",
+      "msg": "Pot is full"
+    },
+    {
+      "code": 6023,
+      "name": "NoSeat",
+      "msg": "Player has no seat in this pot"
+    },
+    {
+      "code": 6024,
+      "name": "ReceiptMismatch",
+      "msg": "Expected players and buy-ins differ from the receipt"
+    },
+    {
+      "code": 6025,
+      "name": "PotNotReturned",
+      "msg": "Pot has not returned from the rollup"
+    },
+    {
+      "code": 6026,
+      "name": "PotInvalid",
+      "msg": "Pot does not match its receipt"
+    },
+    {
+      "code": 6027,
+      "name": "BadSeat",
+      "msg": "Seat index out of range"
+    },
+    {
+      "code": 6028,
+      "name": "RefundNotAllowed",
+      "msg": "Refund conditions not met"
+    },
+    {
+      "code": 6029,
+      "name": "BadAccount",
+      "msg": "Wrong account passed"
+    },
+    {
+      "code": 6030,
+      "name": "DuplicateAccount",
+      "msg": "Duplicate account"
+    },
+    {
+      "code": 6031,
+      "name": "BelowMinExit",
+      "msg": "Balance below the minimum exit"
+    },
+    {
+      "code": 6032,
+      "name": "NotExiting",
+      "msg": "Balance is not marked for exit"
+    },
+    {
+      "code": 6033,
+      "name": "BadPayoutCount",
+      "msg": "Nothing to settle, or too many payouts"
+    },
+    {
+      "code": 6034,
+      "name": "OutOfOrder",
+      "msg": "Settlement is not the next unpaid one"
+    },
+    {
+      "code": 6035,
+      "name": "AlreadyPaid",
+      "msg": "Settlement already paid"
+    },
+    {
+      "code": 6036,
+      "name": "AppDataTooLong",
+      "msg": "App data too long"
+    },
+    {
+      "code": 6037,
+      "name": "BadFlags",
+      "msg": "Unknown deposit flags"
+    }
+  ],
+  "types": [
+    {
+      "name": "ActivationCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardian",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "App",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "program_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "The app program's address with seed `zol-app`; signs on the app's behalf."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "registrant",
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "AppState"
+              }
+            }
+          },
+          {
+            "name": "activates_at",
+            "type": "i64"
+          },
+          {
+            "name": "vault_address",
+            "type": {
+              "array": [
+                "u8",
+                43
+              ]
+            }
+          },
+          {
+            "name": "genesis_head",
+            "docs": [
+              "Note commitment (cmx) of the vault's genesis head."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deposit_cap",
+            "docs": [
+              "Credits are refused once liability plus unpaid would exceed this."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "liability",
+            "docs": [
+              "sum(Balance.amount) + sum(live PotReceipt.total)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deposit_count",
+            "type": "u64"
+          },
+          {
+            "name": "credited_total",
+            "docs": [
+              "sum(Deposit.amount) over credited deposits"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fee_pool",
+            "type": "u64"
+          },
+          {
+            "name": "next_settlement",
+            "type": "u64"
+          },
+          {
+            "name": "paid_count",
+            "type": "u64"
+          },
+          {
+            "name": "unpaid_total",
+            "type": "u64"
+          },
+          {
+            "name": "bond",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AppActivating",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_address",
+            "type": {
+              "array": [
+                "u8",
+                43
+              ]
+            }
+          },
+          {
+            "name": "genesis_head",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "activates_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AppFrozen",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardian",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AppRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AppState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Activating"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Frozen"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AppUnfrozen",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Balance",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "payout_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "exiting",
+            "type": "bool"
+          },
+          {
+            "name": "auto_exit",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BoughtIn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "attestor",
+            "docs": [
+              "FROST Ed25519 group key of the attestors."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "type": {
+              "array": [
+                "pubkey",
+                7
+              ]
+            }
+          },
+          {
+            "name": "guardian_count",
+            "type": "u8"
+          },
+          {
+            "name": "guardian_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "network",
+            "docs": [
+              "Zcash network, as `zol_wire::Network`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "Params"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "attestor",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreditArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "deposit_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "flags",
+            "type": "u8"
+          },
+          {
+            "name": "pot_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "app_data",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deposit",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "DepositState"
+              }
+            }
+          },
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "docs": [
+              "Position among this app's credited deposits; meaningless when voided."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "pot_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "digest",
+            "docs": [
+              "Digest the attestors signed (credit or void)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositCredited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Credited"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExitRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "attestor",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "guardian_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "network",
+            "type": "u8"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "Params"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeftPot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Params",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entry_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "exit_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "network_fee_allowance",
+            "type": "u64"
+          },
+          {
+            "name": "min_exit",
+            "type": "u64"
+          },
+          {
+            "name": "max_seats",
+            "type": "u8"
+          },
+          {
+            "name": "max_open_secs",
+            "type": "i64"
+          },
+          {
+            "name": "min_session_secs",
+            "type": "i64"
+          },
+          {
+            "name": "max_session_secs",
+            "type": "i64"
+          },
+          {
+            "name": "refund_grace_secs",
+            "docs": [
+              "Must exceed the longest commit-to-return time of MagicBlock."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "activation_delay_secs",
+            "type": "i64"
+          },
+          {
+            "name": "registration_bond",
+            "docs": [
+              "Lamports moved into the App account at registration."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "app_authority",
+            "docs": [
+              "Copy of `App.authority`, so rollup instructions need no undelegated account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "seat_count",
+            "type": "u8"
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "delegated",
+            "docs": [
+              "Set at delegation; only then may seats move."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotCashedOut",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotDelegated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "open_deadline",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotReceipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "PotState"
+              }
+            }
+          },
+          {
+            "name": "seat_count",
+            "type": "u8"
+          },
+          {
+            "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buy_ins",
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          },
+          {
+            "name": "open_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "session_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "validator",
+            "docs": [
+              "Rollup validator named at delegation; the delegation program accepts commits",
+              "only from it, so it is trusted for this pot's outcome."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotRefunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Delegated"
+          },
+          {
+            "name": "CashedOut"
+          },
+          {
+            "name": "Refunded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatStake",
+      "docs": [
+        "One expected stake passed to `delegate_pot`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "new_admin",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "attestor",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "params",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Params"
+                }
+              }
+            }
+          },
+          {
+            "name": "paused",
+            "type": {
+              "option": "bool"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Settled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "sequence",
+            "type": "u64"
+          },
+          {
+            "name": "count",
+            "type": "u8"
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Settlement",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "sequence",
+            "type": "u64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "SettlementState"
+              }
+            }
+          },
+          {
+            "name": "count",
+            "type": "u8"
+          },
+          {
+            "name": "payouts",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PayoutEntry"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettlementPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "app",
+            "type": "pubkey"
+          },
+          {
+            "name": "sequence",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettlementState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Unpaid"
+          },
+          {
+            "name": "Paid"
+          }
+        ]
+      }
+    }
+  ]
+}
