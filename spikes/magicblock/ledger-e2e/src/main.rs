@@ -43,8 +43,8 @@ fn params() -> Params {
         max_open_secs: 3_600,
         min_session_secs: 60,
         max_session_secs: 7_200,
-        refund_grace_secs: 3_900,
-        activation_delay_secs: 3_600,
+        refund_grace_secs: if dev_timings() { 10 } else { 3_900 },
+        activation_delay_secs: if dev_timings() { 5 } else { 3_600 },
         registration_bond: 0,
     }
 }
@@ -528,4 +528,10 @@ fn main() {
         }
         _ => eprintln!("usage: ledger-e2e setup|run|airdrop"),
     }
+}
+
+/// `ZOL_DEV_TIMINGS=1` with a ledger from target/deploy-dev (`dev-timings` build):
+/// 5 s activation delay and 10 s refund grace instead of an hour.
+fn dev_timings() -> bool {
+    std::env::var("ZOL_DEV_TIMINGS").is_ok_and(|v| v == "1")
 }

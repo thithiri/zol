@@ -133,8 +133,13 @@ impl Default for Env {
 impl Env {
     /// Fresh SVM with both programs and the delegation program loaded, but no config.
     pub fn bare() -> Self {
+        Self::bare_from(&deploy_dir())
+    }
+
+    /// Like `bare`, with the ledger build from `dir` (e.g. target/deploy-dev).
+    pub fn bare_from(dir: &std::path::Path) -> Self {
         let mut svm = LiteSVM::new();
-        let ledger = std::fs::read(deploy_dir().join("zol_ledger.so")).expect("run scripts/build-sbf.sh");
+        let ledger = std::fs::read(dir.join("zol_ledger.so")).expect("run scripts/build-sbf.sh");
         let app = std::fs::read(deploy_dir().join("zol_test_app.so")).expect("run scripts/build-sbf.sh");
         let dlp = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/dlp.so")).unwrap();
         svm.add_program(LEDGER, &ledger).unwrap();
@@ -231,6 +236,10 @@ impl Env {
     }
 
     pub fn initialize_as(&mut self, payer: &Keypair, program_data: Pubkey) -> TxResult {
+        self.initialize_with(payer, program_data, params())
+    }
+
+    pub fn initialize_with(&mut self, payer: &Keypair, program_data: Pubkey, params: Params) -> TxResult {
         let ix = ledger_ix(
             zol_ledger::accounts::Initialize {
                 payer: payer.pubkey(),
@@ -246,7 +255,7 @@ impl Env {
                     guardians: self.guardians.iter().map(|g| g.pubkey()).collect(),
                     guardian_threshold: 2,
                     network: self.network,
-                    params: params(),
+                    params,
                 },
             },
         );

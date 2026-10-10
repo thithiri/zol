@@ -37,6 +37,8 @@ pub fn handle_initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Resu
     args.params.validate()?;
     validate_guardians(&args.guardians, args.guardian_threshold)?;
     require!(zol_wire::Network::from_u8(args.network).is_some(), ZolError::BadParams);
+    // A dev-timings build has short safety windows: never on mainnet.
+    require!(!limits::DEV_TIMINGS || args.network != zol_wire::Network::Mainnet as u8, ZolError::BadParams);
     let c = &mut ctx.accounts.config;
     c.admin = args.admin;
     c.attestor = args.attestor;

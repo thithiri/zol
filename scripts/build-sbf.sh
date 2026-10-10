@@ -7,7 +7,13 @@ TOOLS="${SBF_TOOLS_VERSION:-v1.52}"
 for p in zol-ledger zol-test-app zol-coinflip; do
   (cd "programs/$p" && CARGO_TARGET_DIR="$PWD/../../target/sbf" cargo build-sbf --tools-version "$TOOLS" --sbf-out-dir ../../target/deploy)
 done
+# Local-development ledger (short activation and refund-grace floors) next to the
+# other programs in target/deploy-dev. Never deploy it anywhere real.
+(cd programs/zol-ledger && CARGO_TARGET_DIR="$PWD/../../target/sbf-dev" cargo build-sbf --tools-version "$TOOLS" --features dev-timings --sbf-out-dir ../../target/deploy-dev)
+cp target/deploy/zol_test_app.so target/deploy/zol_coinflip.so target/deploy-dev/
+cp keys/zol_ledger-keypair.json keys/zol_test_app-keypair.json keys/zol_coinflip-keypair.json target/deploy-dev/
 cp keys/zol_ledger-keypair.json target/deploy/zol_ledger-keypair.json
 cp keys/zol_test_app-keypair.json target/deploy/zol_test_app-keypair.json
 cp keys/zol_coinflip-keypair.json target/deploy/zol_coinflip-keypair.json
-ls -la target/deploy
+ls -la target/deploy target/deploy-dev
+shasum -a 256 target/deploy/zol_ledger.so target/deploy-dev/zol_ledger.so

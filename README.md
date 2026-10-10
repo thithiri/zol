@@ -88,9 +88,18 @@ An app is an Anchor program plus a web page; it holds no ZEC and no keys. `progr
 5. **Randomness.** `#[vrf]` and `#[vrf_callback]` from `ephemeral-rollups-sdk` (feature `vrf`). The callback is safe only if the queue is pinned: accept MagicBlock's queues only.
 6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zebra regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
 
+## Release and dev builds of the ledger
+
+`scripts/build-sbf.sh` builds two ledgers:
+
+- **`target/deploy/`**: the release build. It is the only one to deploy, and its hash (below) is what signers pin.
+- **`target/deploy-dev/`**: the `dev-timings` feature, for local stacks. It lowers the activation-delay floor from 3,600 s to 5 s and the refund-grace floor from 3,900 s to 10 s, so local runs don't wait an hour, and it refuses to initialize for mainnet. Use it with `ZOL_DIR=../../target/deploy-dev` and `ZOL_DEV_TIMINGS=1` in `spikes/magicblock`.
+
+`tests/tests/dev_timings.rs` checks both: the dev build allows the short windows, and the release build rejects them.
+
 ## Program hash
 
-Signers pin the ledger's code hash (design rule 2). Build `e5800526b27f417b814d75f8ad1d8fa1eea2bddfa3288de1f496e2e030dcd490` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
+Signers pin the ledger's code hash (design rule 2). Build `600a1cc76ea6b40dc27ead106c654d44a79b3db6e730db78b8c07a9ec4f0ab7c` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
 
 ## Ledger notes
 

@@ -19,6 +19,10 @@ idl-build = ["anchor-lang/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
+# Local development only: short activation-delay and refund-grace floors so local
+# stacks do not wait an hour. Never in a release build; signers pin the release hash,
+# and a dev build refuses to initialize for mainnet.
+dev-timings = []
 
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }

@@ -9,12 +9,20 @@ pub mod limits {
     pub const MAX_FEE_BPS: u16 = 100;
     /// 0.001 ZEC cap on the per-payout network fee allowance.
     pub const MAX_NETWORK_FEE_ALLOWANCE: u64 = 100_000;
+    /// True in a `dev-timings` build (local development only).
+    pub const DEV_TIMINGS: bool = cfg!(feature = "dev-timings");
     /// Floor on the activation delay so guardians always get a window to cancel.
+    #[cfg(not(feature = "dev-timings"))]
     pub const MIN_ACTIVATION_DELAY_SECS: i64 = 3_600;
+    #[cfg(feature = "dev-timings")]
+    pub const MIN_ACTIVATION_DELAY_SECS: i64 = 5;
     /// Floor on the refund grace. A normal return takes about a second, but a forced
     /// undelegation only completes after 9,000 slots (about 60 minutes; spike 0.9), so
     /// nothing shorter is guaranteed to outlast a result that is on its way back.
+    #[cfg(not(feature = "dev-timings"))]
     pub const MIN_REFUND_GRACE_SECS: i64 = 3_900;
+    #[cfg(feature = "dev-timings")]
+    pub const MIN_REFUND_GRACE_SECS: i64 = 10;
     pub const MAX_APP_DATA: usize = zol_wire::memo::APP_DATA_MAX;
 }
 

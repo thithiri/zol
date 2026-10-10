@@ -172,6 +172,9 @@ With that, MagicBlock's own dice example got its callback 314 ms after the reque
 
 ## Running it locally
 
+To skip the hour-long activation wait in run B, use the dev ledger build: `ZOL_DIR=../../target/deploy-dev` for `start-local.sh`, and `ZOL_DEV_TIMINGS=1` for `coinflip setup/play`. With those, activation takes 5 s and refund grace 10 s. Never deploy that build.
+
+
 ### A. Everything, with Zcash
 
 ```sh
