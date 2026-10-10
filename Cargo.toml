@@ -4,6 +4,7 @@ members = [
     "crates/zol-wire",
     "programs/zol-ledger",
     "programs/zol-test-app",
+    "programs/zol-coinflip",
     "tests",
     "gateway",
     "crates/zol-types",

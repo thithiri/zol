@@ -4,7 +4,7 @@ Real-time apps for shielded ZEC: the ZEC stays in per-app Zcash vaults, a Solana
 ledger records who is owed what, and sessions run in MagicBlock ephemeral rollups.
 Design: [docs/design-v0.3.md](docs/design-v0.3.md). Plan: [docs/plan-v0.3.md](docs/plan-v0.3.md).
 
-Status: Phases 0–4 of the plan. Spike findings: [docs/spikes/](docs/spikes/). Gateway: [phase3-gateway.md](docs/phase3-gateway.md), [phase3-zol-zcash.md](docs/phase3-zol-zcash.md). Payouts: [phase4-gateway.md](docs/phase4-gateway.md), [phase4-zol-zcash.md](docs/phase4-zol-zcash.md).
+Status: Phases 0–4 of the plan, and the flagship app (Phase 5.3). Spike findings: [docs/spikes/](docs/spikes/). Gateway: [phase3-gateway.md](docs/phase3-gateway.md), [phase3-zol-zcash.md](docs/phase3-zol-zcash.md). Payouts: [phase4-gateway.md](docs/phase4-gateway.md), [phase4-zol-zcash.md](docs/phase4-zol-zcash.md).
 
 ## Layout
 
@@ -16,6 +16,8 @@ Status: Phases 0–4 of the plan. Spike findings: [docs/spikes/](docs/spikes/). 
 | `crates/zol-zcash` | Zcash side (own workspace): per-app vault keys, Zebra RPC, Ironwood scanner, refund and genesis builders, Pallas FROST; the `zol-zcashd` daemon |
 | `gateway` | Solana side: decisions, Ed25519 FROST attestor, reconciliation, guardians, halt, RPC relayer; the `zol-gateway` binary |
 | `programs/zol-test-app` | Test-only app that forwards ledger calls signed with its `zol-app` address |
+| `programs/zol-coinflip` | Flagship app: two-player coin flip on a ledger pot with MagicBlock VRF ([phase5-coinflip.md](docs/phase5-coinflip.md)) |
+| `web` | The coin flip page: session key, payout address (UA decoding), signed memo, ZIP 321 link and QR, table actions, exit |
 | `tests` | LiteSVM harness and test suites: flow, lifecycle, adversarial, invariant fuzzing |
 | `spikes/` | Phase 0 throwaway code (standalone workspaces) |
 | `idl/zol_ledger.json` | Generated IDL |
@@ -38,6 +40,10 @@ PROPTEST_CASES=2000 cargo test -p zol-tests --test invariants --release
 
 ```bash
 cd crates/zol-wire/ts && bun test
+```
+
+```bash
+cd web && npm install && npm test
 ```
 
 ```bash
@@ -65,6 +71,22 @@ cd crates/zol-zcash && cargo test --release -- --ignored --test-threads=1
 ```
 
 `tests/fixtures/dlp.so` is MagicBlock's delegation program (`DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`), dumped from devnet with `solana program dump`. `delegate_pot` runs the real delegation CPI against it. A return from the rollup is simulated by restoring the pot's ledger ownership with the data a validator would commit, including faulty data. The real rollup path (`move_seat` and `close_pot` in an ephemeral validator) is exercised by `spikes/magicblock/ledger-e2e` on MagicBlock's local stack; see `docs/spikes/0.9-magicblock.md`.
+
+## App quickstart
+
+An app is an Anchor program plus a web page; it holds no ZEC and no keys. `programs/zol-coinflip` and `web/` are the worked example; [docs/phase5-coinflip.md](docs/phase5-coinflip.md) has the full walkthrough and how to run it locally end to end.
+
+1. **Sign as the app.** Every ledger call that needs the app's consent is a CPI signed with `find_program_address(["zol-app"], app_program)`, via `invoke_signed` (`CpiContext::new_with_signer(zol_ledger::ID, …, &[&[b"zol-app", &[bump]]])`). Depend on `zol-ledger` with `features = ["cpi"]`.
+2. **Register.** Add an instruction that CPIs `register_app` (anyone pays); the ledger admin activates the app after the vault and genesis head exist, and it becomes usable after the activation delay.
+3. **Tables.**
+   - `open_pot(pot_id, open_deadline)`.
+   - `buy_in(amount)`: the player's **session key** signs alongside the app.
+   - `delegate_pot(expected, session_deadline, validator)`: `expected` is the receipt's seats and buy-ins, read from the `PotReceipt`, never from app state. `validator` must be the rollup's identity, or the pot never reaches it.
+   - In the rollup: `move_seat(from, to, amount)` by seat index, then `close_pot`.
+   - `cash_out` is permissionless.
+4. **Your own state** can be delegated with the pot (`#[delegate]`) and committed with it (`MagicIntentBundleBuilder::commit_and_undelegate`). Keep player keys out of it; the receipt is the source of truth.
+5. **Randomness.** `#[vrf]` and `#[vrf_callback]` from `ephemeral-rollups-sdk` (feature `vrf`). The callback is safe only if the queue is pinned: accept MagicBlock's queues only.
+6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zebra regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
 
 ## Program hash
 

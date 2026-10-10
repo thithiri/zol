@@ -7,7 +7,7 @@ const hex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 const toHex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const i = v.inputs;
 
-test("memo, signature and credit digest match Rust vectors", () => {
+test("memo, signature and credit digest match Rust vectors", async () => {
   const memo = {
     flags: i.flags, sessionKey: hex(i.session_key), payoutAddress: hex(i.payout_address),
     expiryHeight: i.expiry_height, potId: new Uint8Array(32), signature: new Uint8Array(64),
@@ -22,7 +22,7 @@ test("memo, signature and credit digest match Rust vectors", () => {
   expect(encodeMemoText(memo)).toBe(v.memo_text);
   const link = depositLink("utest1vault", "0.1", memo);
   expect(link.length).toBeLessThan(800);
-  const d = creditDigest({
+  const d = await creditDigest({
     network: i.network, app: hex(i.app), depositId: hex(v.deposit_id), amount: BigInt(i.amount),
     sessionKey: hex(i.session_key), payoutCommitment: hex(v.payout_commitment), flags: i.flags,
     potId: new Uint8Array(32), appData: memo.appData,

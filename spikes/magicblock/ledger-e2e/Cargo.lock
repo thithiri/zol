@@ -865,6 +865,7 @@ dependencies = [
  "ephemeral-rollups-sdk-attribute-ephemeral",
  "ephemeral-rollups-sdk-attribute-ephemeral-accounts",
  "ephemeral-vrf-sdk",
+ "ephemeral-vrf-sdk-vrf-macro",
  "five8 0.2.1",
  "getrandom 0.2.17",
  "magicblock-delegation-program-api",
@@ -1423,6 +1424,7 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "ureq",
+ "zol-coinflip",
  "zol-ledger",
  "zol-test-app",
  "zol-wire",
@@ -4617,6 +4619,15 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zol-coinflip"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "ephemeral-rollups-sdk",
+ "zol-ledger",
+]
 
 [[package]]
 name = "zol-ledger"

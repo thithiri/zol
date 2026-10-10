@@ -7,3 +7,4 @@ keys/
 .warp-test/
 .local-ledger*/
 ledger-e2e/artifacts/*.json
+zcash-leg/work/

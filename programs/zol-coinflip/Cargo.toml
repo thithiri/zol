@@ -1,0 +1,29 @@
+[package]
+name = "zol-coinflip"
+version = "0.1.0"
+description = "Flagship ZOL app: two-player coin flip on a ledger pot, settled with MagicBlock VRF"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "zol_coinflip"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "zol-ledger/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { workspace = true }
+ephemeral-rollups-sdk = { workspace = true, features = ["vrf"] }
+zol-ledger = { path = "../zol-ledger", features = ["cpi"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

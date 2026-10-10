@@ -1,0 +1,17 @@
+[package]
+name = "ua-vectors"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Own workspace; links the Zcash side only to call its encode_ua for test vectors.
+[workspace]
+
+[dependencies]
+zol-zcash = { path = "../../../crates/zol-zcash" }
+orchard = "=0.15.5"
+zcash_address = "=0.13.0"
+zcash_protocol = { version = "=0.10.6", features = ["local-consensus"] }
+rand = "0.8"
+hex = "0.4"
+serde_json = "1"

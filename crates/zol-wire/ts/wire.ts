@@ -1,6 +1,6 @@
 // TypeScript twin of zol-wire's deposit memo and credit digest, for the web page.
 // Byte-exact with crates/zol-wire; checked against vectors/v0.3.json.
-import { createHash } from "node:crypto";
+// No imports: runs unchanged in browsers (web/ symlinks this file), bun and node >= 20.
 
 export const MEMO_LEN = 512;
 export const APP_DATA_MAX = 329;
@@ -64,14 +64,22 @@ export function memoSigningMessage(m: DepositMemo, network: number, vaultAddress
   return concat(TAGS.memoSig, new Uint8Array([network]), vaultAddress, e.subarray(0, 117), e.subarray(181));
 }
 
-export function creditDigest(a: {
+/** SHA-256 credit digest (WebCrypto, hence async). */
+export async function creditDigest(a: {
   network: number; app: Uint8Array; depositId: Uint8Array; amount: bigint; sessionKey: Uint8Array;
   payoutCommitment: Uint8Array; flags: number; potId: Uint8Array; appData: Uint8Array;
-}): Uint8Array {
+}): Promise<Uint8Array> {
   const len = new Uint8Array([a.appData.length & 0xff, a.appData.length >> 8]);
   const bytes = concat(TAGS.credit, new Uint8Array([a.network]), a.app, a.depositId, le64(a.amount),
     a.sessionKey, a.payoutCommitment, new Uint8Array([a.flags]), a.potId, len, a.appData);
-  return new Uint8Array(createHash("sha256").update(bytes).digest());
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
+}
+
+/** Unpadded base64url (RFC 4648 section 5). */
+export function base64url(b: Uint8Array): string {
+  let s = "";
+  for (const x of b) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /** Text transport form ("ZOL1:" + base64url of the canonical memo minus its 0xFF byte,
@@ -81,13 +89,13 @@ export function encodeMemoText(m: DepositMemo): string {
   const canon = encodeMemo(m);
   let end = canon.length;
   while (end > 1 && canon[end - 1] === 0) end--;
-  const text = "ZOL1:" + Buffer.from(canon.subarray(1, end)).toString("base64url");
+  const text = "ZOL1:" + base64url(canon.subarray(1, end));
   if (text.length > TEXT_MAX) throw new Error("memo too long for the text form");
   return text;
 }
 
 /** ZIP 321 payment link for a deposit. `memo` is the base64url of the text memo bytes. */
 export function depositLink(vaultUa: string, amountZec: string, m: DepositMemo): string {
-  const memo = Buffer.from(encodeMemoText(m), "utf8").toString("base64url");
+  const memo = base64url(enc.encode(encodeMemoText(m)));
   return `zcash:${vaultUa}?amount=${amountZec}&memo=${memo}`;
 }

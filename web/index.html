@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZOL Coin Flip</title>
+  <style>
+    :root { --fg: #1b1b1b; --bg: #fafaf7; --muted: #666; --line: #ddd; --accent: #1f6feb; --err: #b42318; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e3; --bg: #151515; --muted: #9a9a9a; --line: #333; --accent: #58a6ff; --err: #ff7b72; } }
+    body { font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 760px; margin: 0 auto; padding: 16px; }
+    section { border-top: 1px solid var(--line); padding: 12px 0; }
+    h1 { font-size: 22px; } h2 { font-size: 16px; margin: 0 0 8px; }
+    input, select, button { font: inherit; padding: 4px 8px; }
+    input { width: 100%; box-sizing: border-box; }
+    button { margin: 4px 4px 4px 0; cursor: pointer; }
+    code, #link { word-break: break-all; font-size: 12px; }
+    .muted { color: var(--muted); } .err { color: var(--err); }
+    #settings label { display: block; font-size: 12px; margin: 4px 0; }
+    #log { font-size: 12px; max-height: 220px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>ZOL Coin Flip</h1>
+  <p class="muted">Two players, one shielded ZEC pot, a MagicBlock VRF coin. ZEC stays in the app's Zcash vault; the Solana ledger records who is owed what.</p>
+
+  <section>
+    <h2>Session</h2>
+    <div>Session key <code id="session"></code></div>
+    <div>Ledger balance: <b id="balance">…</b></div>
+    <div class="muted" id="sol"></div>
+  </section>
+
+  <section>
+    <h2>1. Deposit</h2>
+    <div class="muted" id="app-info">loading app…</div>
+    <label>Payout (refund) address: unified address or 43-byte receiver in hex
+      <input id="payout" placeholder="u1… / utest1… / uregtest1…" /></label>
+    <div>
+      <select id="amount"></select>
+      <label><input type="checkbox" id="auto-exit" style="width:auto" /> auto-exit after cash-out</label>
+      <button id="deposit-btn">Create deposit link</button>
+    </div>
+    <div id="deposit-out" hidden>
+      <div id="qr"></div>
+      <a id="link"></a>
+    </div>
+    <h2>Deposits</h2>
+    <ul id="deposits"><li class="muted">none yet</li></ul>
+  </section>
+
+  <section>
+    <h2>2. Table</h2>
+    <div>
+      <input id="stake" type="number" value="500000" style="width:10em" /> zat
+      <button id="create-btn">Create table</button>
+    </div>
+    <div><input id="table-id" placeholder="table pot ID (hex)" /><button id="open-btn">Open</button></div>
+    <div id="table" class="muted">no table</div>
+    <button id="join-btn">Join</button>
+    <button id="start-btn">Start</button>
+    <button id="flip-btn">Flip</button>
+    <button id="finish-btn">Finish</button>
+    <button id="cashout-btn">Cash out</button>
+  </section>
+
+  <section>
+    <h2>3. Exit</h2>
+    <button id="exit-btn">Request exit</button>
+    <span class="muted">Your balance goes into the app's next settlement and is paid to your payout address on Zcash.</span>
+  </section>
+
+  <section>
+    <details><summary>Settings</summary>
+      <form id="settings" onsubmit="return false"></form>
+      <button id="settings-save">Save and reload</button>
+      <button id="airdrop-btn">Airdrop 1 SOL to fee payer (local validator only)</button>
+    </details>
+    <ul id="log"></ul>
+  </section>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

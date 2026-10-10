@@ -10,6 +10,7 @@ publish = false
 anchor-lang = { workspace = true }
 zol-ledger = { path = "../programs/zol-ledger", features = ["no-entrypoint"] }
 zol-test-app = { path = "../programs/zol-test-app", features = ["no-entrypoint"] }
+zol-coinflip = { path = "../programs/zol-coinflip", features = ["no-entrypoint"] }
 zol-wire = { path = "../crates/zol-wire" }
 litesvm = { version = "0.18", features = ["precompiles"] }
 solana-keypair = "3.1"
@@ -28,3 +29,5 @@ bincode = "1"
 proptest = "1"
 rand = "0.8"
 solana-transaction-error = "3"
+serde_json = "1"
+base64 = "0.22"

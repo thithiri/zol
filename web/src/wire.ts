@@ -1,0 +1,1 @@
+../../crates/zol-wire/ts/wire.ts

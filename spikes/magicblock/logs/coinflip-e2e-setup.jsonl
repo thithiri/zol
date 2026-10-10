@@ -1,0 +1,4 @@
+{"ms":432,"ok":true,"sig":"2eM8Di5eyfEwCe6Vd2iMvqFKycvJaPFFyTKqzZKmBHBqGbArf4S6URkDQ3TKtBo4ytAoBxn4iwGQ1AXdL2Vyvc5j","step":"initialize"}
+{"ms":539,"ok":true,"sig":"2AydABbKtFc4zPm3J2PZ9a3AcdJ5fHtLMgx5mhYDWMkQbtLSaooHv74xgbpm7EgAxvVNxdf8zT5YAfoQtuJjLc2g","step":"coinflip.register (CPI register_app)"}
+{"ms":488,"ok":true,"sig":"2uDLCHafN63Fnd9dMxL42us88Lf2S7qBYcfgi2YHw72dYyi1n5A4hS8mrxipp6bP41weMpSCrqjjM68DuFgiBpZn","step":"activate_app"}
+{"active_after":1791621458,"chain_now":1791617858}

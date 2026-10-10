@@ -657,8 +657,13 @@ impl Env {
 
     /// Checks invariant 1 and 2 by scanning every ledger account of the test app.
     pub fn check_invariants(&self) {
-        let app_key = app_pda(&TEST_APP);
-        let app = self.app_state();
+        self.check_invariants_for(&TEST_APP)
+    }
+
+    /// Invariants 1 and 2 and conservation for any registered app.
+    pub fn check_invariants_for(&self, app_program: &Pubkey) {
+        let app_key = app_pda(app_program);
+        let app: st::App = self.account(&app_key);
         let mut balances: u128 = 0;
         let mut live: u128 = 0;
         let mut credited: u128 = 0;

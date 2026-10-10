@@ -7,3 +7,5 @@ spikes/**/target/
 spikes/**/out/
 spikes/**/node_modules/
 spikes/**/*-keypair.json
+web/dist/
+__pycache__/
