@@ -174,13 +174,13 @@ they logged `nu7: None` and the tip branch was `37a5165b`.
 
 **Applied 2026-10-10:**
 
-- gateway `Depths::default()` is now `Depths::NU7` (30/300/300), with `Depths::PRE_NU7` (10/100/100) for a pre-NU7 deployment;
+- gateway depths are counted in 25 s blocks and default to `Depths::NU7` (30/300/300). A block below the network's NU7 height counts three times (`policy::DepthRule`), so the same config gives 10/100/100 blocks before activation and switches by itself;
 - `DEFAULT_EXPIRY_DELTA` is 120 (refunds, genesis, dev sends), and payouts keep the gateway's 40;
 - `MAX_EXPIRY_DELTA` is 300;
 - the payout verifier's anchor window is `ANCHOR_WINDOW` = 300;
 - the example serve config uses the NU7 depths.
 
-Depths are not yet height-dependent, so a mainnet deployment switches its config at NU7 activation. Zcash difficulty retargets to 25 s, so a block
+Zcash difficulty retargets to 25 s, so a block
 carries about a third of the work and wall-clock time of a pre-NU7 block. Keeping today's
 security and timing needs about 3× the block counts.
 
@@ -196,10 +196,16 @@ security and timing needs about 3× the block counts.
 | Zakura `tx_retention` (docs/ops/zcash-node.md) | ≥ 10,000 | 8.7 d | 69 h | 30,000 (≈ 8.7 days), as recommended there |
 | Gateway time-based settings (`interval_secs`, `large_delay_secs`, …) | seconds | — | — | unchanged |
 
-- **Effective dates:** testnet switched at 4,465,026. Mainnet switches at its NU7 height, so
-  the gateway should make the depths height-dependent or switch them at activation.
-- **A parameter change is needed in the gateway or zol-types.** Depths are plain
-  configuration, so no type changes. Raising `MAX_EXPIRY_DELTA` is a zol-zcash constant.
+- **Effective dates:** testnet switched at 4,465,026 (`gateway::config::TESTNET_NU7_HEIGHT`).
+  Mainnet switches at `gateway::config::MAINNET_NU7_HEIGHT`, which is `None` until the height
+  is announced; until then every mainnet block counts as a 75 s block. On the 20th, set it
+  together with the zol-zcash constant.
+- **Across activation** confirmations are a sum: pre-NU7 blocks × 3 plus post-NU7 blocks. The
+  count only grows as the tip advances, so no credit or top-up drops back from full depth at
+  the switch. `zol-zcashd` still counts plain blocks; the gateway converts (`DepthRule::blocks`)
+  for the plan's `full_depth` and for the page's `AppInfo`.
+- `GatewayConfig.nu7_height` overrides the network's height (tests, private chains). Regtest
+  counts every block once.
 
 ## What the full port to the pre-release crates is still needed for
 

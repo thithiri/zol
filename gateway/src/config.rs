@@ -23,10 +23,28 @@ impl Depths {
 }
 
 impl Default for Depths {
-    /// NU7 is active on testnet and scheduled for mainnet; a pre-NU7 mainnet
-    /// deployment should configure `Depths::PRE_NU7` explicitly.
+    /// Depths are counted in 25 s blocks; blocks before NU7 count three times
+    /// (`policy::DepthRule`), so these values hold on both sides of activation.
     fn default() -> Self {
         Self::NU7
+    }
+}
+
+/// NU7 activation on testnet (ZIP 218: 75 s -> 25 s blocks from here).
+pub const TESTNET_NU7_HEIGHT: u32 = 4_465_026;
+
+/// NU7 activation on mainnet. Not announced yet (decision due 2026-10-20).
+/// Until it is set, every mainnet block counts as a 75 s block. Setting the
+/// height is the whole change (docs/ops/nu7.md).
+pub const MAINNET_NU7_HEIGHT: Option<u32> = None;
+
+/// First height of 25 s blocks; earlier blocks are 75 s. Regtest has no block
+/// time to speak of, so every block counts once.
+pub fn nu7_height(network: Network) -> u32 {
+    match network {
+        Network::Mainnet => MAINNET_NU7_HEIGHT.unwrap_or(u32::MAX),
+        Network::Testnet => TESTNET_NU7_HEIGHT,
+        Network::Regtest => 0,
     }
 }
 
@@ -82,11 +100,20 @@ pub struct GatewayConfig {
     pub tip_stall_secs: i64,
     #[serde(default)]
     pub payout: PayoutPolicy,
+    /// First height of 25 s blocks, overriding the network's (`nu7_height`).
+    /// For tests and private chains; 0 counts every block once.
+    #[serde(default)]
+    pub nu7_height: Option<u32>,
 }
 
 impl GatewayConfig {
     pub fn network(&self) -> Network {
         Network::from_u8(self.network).expect("valid network")
+    }
+
+    /// The confirmation policy for this network: `depths` in 25 s blocks.
+    pub fn rule(&self) -> crate::policy::DepthRule {
+        crate::policy::DepthRule { depths: self.depths, nu7_height: self.nu7_height.unwrap_or_else(|| nu7_height(self.network())) }
     }
 }
 

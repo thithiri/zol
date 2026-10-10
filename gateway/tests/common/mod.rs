@@ -137,6 +137,8 @@ pub fn gw_config() -> GatewayConfig {
         early_credit_cap: 5_000_000,
         tip_stall_secs: 1_800,
         payout: Default::default(),
+        // The scripted chain starts low: count its blocks once.
+        nu7_height: Some(0),
     }
 }
 

@@ -170,11 +170,11 @@ impl Node {
             ChainEvent::Rewind { to_height } => {
                 let tip = self.store.tip()?.unwrap_or(*to_height);
                 // Disconnecting a block that had full-depth confirmations.
-                if confirmations(to_height + 1, tip) >= self.cfg.depths.full {
+                if self.cfg.rule().confirmations(to_height + 1, tip) >= self.cfg.depths.full {
                     self.halt(HaltReason::DeepReorg { from_height: to_height + 1, tip })?;
                 }
                 for n in self.store.rewind(*to_height)? {
-                    if n.state == NoteState::Credited && depth(n.note.height, tip, &self.cfg.depths) == Depth::Full {
+                    if n.state == NoteState::Credited && depth(n.note.height, tip, &self.cfg.rule()) == Depth::Full {
                         self.halt(HaltReason::FullDepthCreditRolledBack { deposit_id: n.deposit_id })?;
                     }
                 }
@@ -188,7 +188,7 @@ impl Node {
     /// keys) every round.
     pub fn chain_report(&self) -> Result<Option<(u32, [u8; 32])>> {
         let Some(tip) = self.store.tip()? else { return Ok(None) };
-        let h = tip.saturating_sub(self.cfg.depths.early - 1);
+        let h = tip.saturating_sub(self.cfg.rule().blocks(self.cfg.depths.early, tip).saturating_sub(1));
         Ok(self.store.block(h)?.map(|hash| (h, hash)))
     }
 
@@ -198,7 +198,7 @@ impl Node {
     pub fn check_agreement(&self, peer_reports: &[(u32, [u8; 32])]) -> Result<()> {
         let Some(tip) = self.store.tip()? else { return Ok(()) };
         for (h, hash) in peer_reports {
-            if confirmations(*h, tip) < self.cfg.depths.early {
+            if self.cfg.rule().confirmations(*h, tip) < self.cfg.depths.early {
                 continue;
             }
             if let Some(mine) = self.store.block(*h)? {
@@ -269,7 +269,7 @@ impl Node {
         let mut seq = acc.paid_count;
         while seq < acc.next_settlement {
             let Some(link) = head.chain.iter().find(|l| l.paid_count > seq) else { break };
-            if confirmations(link.height, tip) < self.cfg.depths.payout {
+            if self.cfg.rule().confirmations(link.height, tip) < self.cfg.depths.payout {
                 break;
             }
             out.push(Statement::Paid { app: *app, sequence: seq });
@@ -335,14 +335,14 @@ impl Node {
         let status = app_status(&app_acc, &cfg, ledger.now()?);
         let denominations: Vec<u64> = cfg.params.denominations.iter().copied().filter(|d| *d > 0).collect();
         let notes = self.store.notes(app)?;
-        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.depths, self.head(app).as_ref());
-        let mut pending = pending_early(&notes, tip, &self.cfg.depths);
+        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref());
+        let mut pending = pending_early(&notes, tip, &self.cfg.rule());
         let mut out = Vec::new();
         for n in notes {
             if n.kind != NoteKind::Deposit || n.rolled_back || !matches!(n.state, NoteState::Seen | NoteState::Held) {
                 continue;
             }
-            let d = depth(n.note.height, tip, &self.cfg.depths);
+            let d = depth(n.note.height, tip, &self.cfg.rule());
             if d == Depth::Unconfirmed || ledger.deposit(&n.deposit_id)?.is_some() {
                 continue;
             }
@@ -416,10 +416,10 @@ impl Node {
                         vault_address: rt.vault_address,
                         secrets: &rt.secrets,
                         tip,
-                        depths: &self.cfg.depths,
+                        depths: &self.cfg.rule(),
                     };
                     let mismatches = reconcile(&acc, &deposits, &notes, &intents, &ctx, self.head(app).as_ref());
-                    if compute_reserve(&acc, &notes, tip, &self.cfg.depths, self.head(app).as_ref()).is_short() {
+                    if compute_reserve(&acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref()).is_short() {
                         self.halt(HaltReason::ReserveShort { app: *app })?;
                     }
                     if !mismatches.is_empty() {
@@ -470,7 +470,7 @@ pub fn check_genesis(app: &App, app_id: &AppId, notes: &[NoteRecord], tip: u32, 
         Ok(m) if m.is_genesis() && m.app == *app_id && m.network == node.network() => {}
         _ => return Err(GenesisProblem::NotGenesisMemo),
     }
-    let c = confirmations(n.note.height, tip);
+    let c = node.cfg.rule().confirmations(n.note.height, tip);
     if c < node.cfg.depths.full {
         return Err(GenesisProblem::Shallow { confirmations: c });
     }

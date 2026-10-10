@@ -13,9 +13,9 @@ use zol_ledger::state::{App, Deposit, DepositState};
 use zol_wire::{HeadMemo, Network, ORCHARD_ADDR_LEN};
 
 use crate::chain::Scope;
-use crate::config::{AppSecrets, Depths};
+use crate::config::AppSecrets;
 use crate::decide::{recompute_credit_digest, resolve_memo};
-use crate::policy::{depth, Depth, Reserve};
+use crate::policy::{depth, Depth, DepthRule, Reserve};
 use crate::store::{NoteKind, NoteRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,11 +37,11 @@ pub struct ReconcileCtx<'a> {
     pub vault_address: [u8; ORCHARD_ADDR_LEN],
     pub secrets: &'a AppSecrets,
     pub tip: u32,
-    pub depths: &'a Depths,
+    pub depths: &'a DepthRule,
 }
 
 /// Value of credits not yet at full depth (rolled-back ones count as lost, not pending).
-pub fn pending_early(notes: &[NoteRecord], tip: u32, depths: &Depths) -> u128 {
+pub fn pending_early(notes: &[NoteRecord], tip: u32, depths: &DepthRule) -> u128 {
     notes
         .iter()
         .filter(|n| n.kind == NoteKind::Deposit && n.state == crate::store::NoteState::Credited && !n.rolled_back)
@@ -63,7 +63,7 @@ pub fn current_head(notes: &[NoteRecord]) -> Option<(&NoteRecord, HeadMemo)> {
 /// Reserve position from this operator's scan and the finalized ledger. The
 /// head comes from the nullifier-chain walk when one is known (`chain`), else
 /// from the latest unspent head note in the scan.
-pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &Depths, chain: Option<&zol_types::api::HeadChain>) -> Reserve {
+pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &DepthRule, chain: Option<&zol_types::api::HeadChain>) -> Reserve {
     let live = |n: &&NoteRecord| !n.rolled_back && n.spent.is_none();
     let walked = chain.and_then(|c| c.chain.last());
     let scanned = current_head(notes);

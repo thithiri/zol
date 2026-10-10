@@ -117,7 +117,7 @@ pub fn plan(node: &Node, ledger: &dyn Ledger, app: &AppId, now: i64) -> Result<s
         vault_address: rt.vault_address,
         secrets: &rt.secrets,
         tip,
-        depths: &node.cfg.depths,
+        depths: &node.cfg.rule(),
     };
     let intents = |_idx: u128| None;
     if !reconcile(&acc, &deposits, &notes, &intents, &ctx, Some(&head)).is_empty() {
@@ -218,7 +218,8 @@ pub fn plan(node: &Node, ledger: &dyn Ledger, app: &AppId, now: i64) -> Result<s
         claims_after: acc.liability.saturating_add(unpaid_after),
         action_target: target,
         max_inputs: pol.max_inputs.min(target.saturating_sub(1)),
-        full_depth: node.cfg.depths.full,
+        // zol-zcashd counts plain blocks.
+        full_depth: node.cfg.rule().blocks(node.cfg.depths.full, tip),
         head_depth: 1,
         expiry_delta: pol.expiry_delta,
     };

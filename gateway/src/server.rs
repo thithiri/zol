@@ -202,6 +202,7 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
                 Some(AppState::Frozen) => "frozen",
                 None => "unregistered",
             };
+            let tip = node.store.tip().ok().flatten().unwrap_or(0);
             json(
                 200,
                 &page::AppInfo {
@@ -214,9 +215,10 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
                     .into(),
                     vault_address: hex::encode(rt.vault_address),
                     denominations,
-                    tip: node.store.tip().ok().flatten().unwrap_or(0),
-                    early_depth: node.cfg.depths.early,
-                    full_depth: node.cfg.depths.full,
+                    tip,
+                    // In blocks at the current tip, as the page counts them.
+                    early_depth: node.cfg.rule().blocks(node.cfg.depths.early, tip),
+                    full_depth: node.cfg.rule().blocks(node.cfg.depths.full, tip),
                     state: state.into(),
                 },
             )
