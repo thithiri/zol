@@ -250,6 +250,7 @@ $D status
 | Flip on MagicBlock devnet (`devnet-as`, VRF queue `5hBR571x…`) | 21:11:48 | Flip to landed 963 ms; finish to pot back on Solana 2.3 s |
 | Cash-out, table closed, exit, settle | 21:11:52–21:11:55 | Winner 1,994,000; settlement 0 pays 1,968,018 after the exit fee and network allowance |
 | Payout mined on Zcash | 21:15:13 | Height 4,486,495, coordinator op0; head value 3,011,982; no fault. The payout reached the funding wallet |
+| Settlement 0 marked paid on Solana | 23:16:59 | At payout depth (300 blocks), coordinator op0; `paid_count` 1, `unpaid_total` 0. The loop is closed |
 
 - **Books:** credited 3,000,000 = liability 997,000 + fee pool 34,982 + unpaid 1,968,018.
 - **Health:** no halts or failed polls, and no restarts of Zakura, the daemons or the gateways. Memory peaked at about 1.6 GB of 2 GB with 91 MB of swap, so the payout proof fits the $18 droplet.
