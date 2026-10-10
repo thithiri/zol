@@ -239,3 +239,18 @@ $D status
   - **Check any faucet first:** its height must match your node's.
 - **Genesis:** a 0.05 TAZ float, mined at 4,486,000 with a 10,000 zat fee. All three daemons showed the same `chain[0]` and no fault.
   - **Activation:** activate only after 300 confirmations (about 2 h at 24 s/block). Guardians cancel an activation whose genesis is shallower. The ledger then waits `activation_delay_secs` (1 h) before taking deposits.
+
+### The first game (2026-10-10, `web/scripts/testnet-smoke.ts`)
+
+| Step | Time (UTC) | Notes |
+| --- | --- | --- |
+| App active | 20:54:38 | Page API flipped at `activates_at` (lazy activation reported correctly) |
+| Two deposits of 0.01 TAZ from the funding wallet | 20:56:59, 20:57:36 | p0 with its ZOL1 memo; p1 memo dropped, intent registered with op0 only and gossiped to op1 and op2 at once |
+| Credited at early depth (30 blocks) | 21:10:18, 21:11:39 | 12.7 min after the first payment; coordinators op2 and op1 |
+| Flip on MagicBlock devnet (`devnet-as`, VRF queue `5hBR571x…`) | 21:11:48 | Flip to landed 963 ms; finish to pot back on Solana 2.3 s |
+| Cash-out, table closed, exit, settle | 21:11:52–21:11:55 | Winner 1,994,000; settlement 0 pays 1,968,018 after the exit fee and network allowance |
+| Payout mined on Zcash | 21:15:13 | Height 4,486,495, coordinator op0; head value 3,011,982; no fault. The payout reached the funding wallet |
+
+- **Books:** credited 3,000,000 = liability 997,000 + fee pool 34,982 + unpaid 1,968,018.
+- **Health:** no halts or failed polls, and no restarts of Zakura, the daemons or the gateways. Memory peaked at about 1.6 GB of 2 GB with 91 MB of swap, so the payout proof fits the $18 droplet.
+- **A stranded 0.01 TAZ.** The first run of the script crashed before its second deposit. Its single-note funding wallet had the change still unmined, so `/admin/send` correctly returned 422. The script had kept the sessions' keys only in memory, so p0's deposit was credited to a session nobody holds: the 997,000 of liability above. The script now writes session seeds to `keys/smoke-sessions-*.json` before any money moves, and waits for spendable change before each send. **A page must do the same: the session key is the only way to use or exit a balance.** The web page keeps it in the browser, so losing browser storage strands the balance in the same way.

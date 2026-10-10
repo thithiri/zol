@@ -12,7 +12,7 @@
 import { Buffer } from "buffer";
 (globalThis as any).Buffer ??= Buffer;
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Gateway } from "../src/gateway";
 import { prepareDeposit } from "../src/deposit";
@@ -57,11 +57,19 @@ out({ step: "AppInfo (op0)", state: app.state, network: app.network, tip: app.ti
 if (app.state !== "active") throw new Error(`app is ${app.state}; wait for activation`);
 const funding = await http(`${ZCASHD}/admin/funding`);
 out({ step: "funding wallet", spendable: funding.spendable, ua: funding.ua });
-if (funding.spendable < 2_100_000) throw new Error("funding wallet needs at least 0.021 TAZ");
+if (funding.balance < 2_100_000) throw new Error("funding wallet needs at least 0.021 TAZ");
+// Change from an earlier send is spendable once its transaction is mined.
+await until("funding wallet spendable", 600, async () => (await http(`${ZCASHD}/admin/funding`)).spendable >= 2_100_000, 10_000);
 out({ step: "fee payer", key: payer.publicKey.toBase58(), sol: (await base.getBalance(payer.publicKey)) / 1e9 });
 
 // 1. Page: two sessions; intents registered with op0 only (gossip carries them to op1, op2).
-const players = [0, 1].map(() => sessionFromSeed(crypto.getRandomValues(new Uint8Array(32))));
+// Session seeds are written to keys/ before any money moves: a credited balance can only be
+// played, exited or recovered with its session key.
+const seeds = [0, 1].map(() => crypto.getRandomValues(new Uint8Array(32)));
+const seedFile = `${root}keys/smoke-sessions-${new Date().toISOString().replace(/[:.]/g, "")}.json`;
+writeFileSync(seedFile, JSON.stringify(seeds.map((x) => hex(x))), { mode: 0o600 });
+out({ step: "session seeds saved", file: seedFile });
+const players = seeds.map((x) => sessionFromSeed(x));
 const deps = [];
 for (const [i, p] of players.entries()) {
   const d = await prepareDeposit([gws[0]], APP, p, funding.ua, 1_000_000n);
@@ -79,6 +87,8 @@ for (const i of [1, 2]) {
 // 2. Wallet: pay each session's address from the funding wallet. p0 keeps the ZOL1 text memo
 // from the link; p1's memo is dropped, so only the registered intent binds the deposit.
 for (const [i, d] of deps.entries()) {
+  // The wallet may hold a single note: wait until the change from the last send is mined.
+  await until(`funding spendable for p${i}`, 600, async () => (await http(`${ZCASHD}/admin/funding`)).spendable >= 1_010_000, 10_000);
   const link = new URL(d.link.replace("zcash:", "zcash://x/"));
   const memo = i === 0 ? Buffer.from(link.searchParams.get("memo")!, "base64url").toString("utf8") : undefined;
   const r = await http(`${ZCASHD}/admin/send`, { to: d.session.ua, value: 1_000_000, ...(memo ? { memo } : {}) });
