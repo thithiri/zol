@@ -1,14 +1,17 @@
-{"t":"07:35:20","step":"gateway AppInfo","app":"7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo","network":"regtest","vault_address":"b768710cb410c358c960a1eb804097eda4fe0437a333198f589922526d1c254dc7c3aa284c736d5374bd93","denominations":[1000000,10000000],"tip":1675,"early_depth":10,"full_depth":100,"state":"active"}
-{"t":"07:35:20","step":"page deposit link p0","session":"ea6c524fa3a64fc8a65e9a0ab4607c2de0547e809ffec52328220883f5da89b8","session_ua":"uregtest1dpkakndfwsgwdys749sxvvc302j8cxduqv3vv4naaf2c6pgjyjscfwcdsv8x4pxqq4m6gkqx7eqrcncs2q4dgxy3ymu5v57vtuymr800","receiver_index":"309410132442223097795615711","link_len":464,"link":"zcash:uregtest1dpkakndfwsgwdys749sxvvc302j8cxduqv3vv4naaf2c6pgjyjscfwcdsv8x4pxqq…","registered_at":3}
-{"t":"07:35:20","step":"page deposit link p1","session":"ecf5cd2a83f77a3938f366374ccb7a2bfb3beedc0ee95b304a491dba661a1c45","session_ua":"uregtest1sfgjgtnq3janaxkdesr5ghqsaugvdyd6uyyqt07tmgkp5qzyrzjc2kz9knf8h8hdnn7h3qu2dljtt5ejtwp0nne7yu59qarcvyqua6pl","receiver_index":"193463078615841075821271835","link_len":464,"link":"zcash:uregtest1sfgjgtnq3janaxkdesr5ghqsaugvdyd6uyyqt07tmgkp5qzyrzjc2kz9knf8h8hdn…","registered_at":3}
-{"t":"07:35:20","step":"intent held by operator 2","intent_registered":true}
-{"t":"07:35:21","step":"wallet pays p0","memo":"ZOL1 text","txid":"c409839c21fad8d1"}
-{"t":"07:35:23","step":"wallet pays p1","memo":"dropped","txid":"d7df188f0a3be2e8"}
-{"t":"07:35:44","step":"p0 credited","ms":20626,"deposit":{"cmx":"f72251e34030e4144bbbf2c4dc54d3056e84ef073119b245669cec7b7a7af421","value":1000000,"height":1676,"confirmations":30,"state":"credited"},"ledger_balance":"997000"}
-{"t":"07:35:44","step":"p1 credited","ms":7,"deposit":{"cmx":"c00b96c1e4e001170426c06e374cfea91f25ccfda1b09d13f718806d8f098e3b","value":1000000,"height":1676,"confirmations":30,"state":"credited"},"ledger_balance":"997000"}
-{"t":"07:35:47","step":"coin landed","winner_seat":0,"er_amounts":["1000000","0"]}
-{"t":"07:36:16","step":"cashed out","balances":["1497000","497000"],"winner":"Gn6CgTWDDc5qgk7mnM2D2bpGKR6apBd31zdAtfQQjBJP"}
-{"t":"07:36:18","step":"settled","out":[{"ms":370,"ok":true,"sig":"ErZVojfpvRrSSfdQYdvB34VUDuiQT1urpN3wjwDAADxo386PYFMgfT7W43GJ2DzdrFvur9kaVVyYSEmXiM6znyF","step":"settle"},{"payouts":[1472509,475509],"settlement":0,"settlement_pda":"5ZWUarRoBrNfzaWPUjm1dUhoauVfyDBHEJ4DZJXWPLVc","total":1948018}]}
-{"t":"07:37:05","step":"settlement paid on Zcash and marked on Solana","ms":47195,"app":{"credited_total":2000000,"deposit_count":2,"fee_pool":51982,"liability":0,"paid_count":1,"unpaid_total":0},"seq":0,"state":"Paid"}
-{"t":"07:37:05","step":"p0 deposits view","deposits":[{"cmx":"f72251e34030e4144bbbf2c4dc54d3056e84ef073119b245669cec7b7a7af421","value":1000000,"height":1676,"confirmations":250,"state":"credited"}]}
-{"t":"07:37:05","step":"p1 deposits view","deposits":[{"cmx":"c00b96c1e4e001170426c06e374cfea91f25ccfda1b09d13f718806d8f098e3b","value":1000000,"height":1676,"confirmations":250,"state":"credited"}]}
+{"t":"10:31:37","step":"gateway AppInfo","app":"7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo","network":"regtest","vault_address":"130f33ab3e076ad3ff0be13b6a9594d20d234614312e66a4b7c677085551f2a3c3245568a782116db53b9f","denominations":[1000000,10000000],"tip":3307,"early_depth":10,"full_depth":100,"state":"active"}
+{"t":"10:31:37","step":"page deposit link p0","session":"c0636142b10d8058d33c187053c5f14abbc9969389af498ff667123076bd8cef","session_ua":"uregtest179s6s06uscp5xuum4gl2cyc4qdyengmmhjplennuzmxz0mw9yx92ygyax88jthula3fxf8hqtexyyq7q057vays2p2hyn07u5s9lrdmt","receiver_index":"115410256276852320088311662","link_len":464,"link":"zcash:uregtest179s6s06uscp5xuum4gl2cyc4qdyengmmhjplennuzmxz0mw9yx92ygyax88jthula…","registered_at":3}
+{"t":"10:31:37","step":"page deposit link p1","session":"8108e9f69b25ada581f97688ebf7b383914a73791fcdfaec92a35694a569d279","session_ua":"uregtest1w4ph2ase4d09ru0mrykqumwa02p4asg8fgrd82mk6ypuwn59pc3nul9scsq748ywsydx2zxwv4g0rk7d0n683a2v3y6gyqm9wynx7xp9","receiver_index":"88470936198770344615358058","link_len":464,"link":"zcash:uregtest1w4ph2ase4d09ru0mrykqumwa02p4asg8fgrd82mk6ypuwn59pc3nul9scsq748yws…","registered_at":3}
+{"t":"10:31:37","step":"intent held by operator 2","intent_registered":true}
+{"t":"10:31:38","step":"wallet pays p0","memo":"ZOL1 text","txid":"07581aac9f58aa6b"}
+{"t":"10:31:39","step":"wallet pays p1","memo":"dropped","txid":"4428d22c3d08c54b"}
+{"t":"10:32:02","step":"p0 credited","ms":22260,"deposit":{"cmx":"6b2a00c94eb980809ae1601af899363c9b436817e1744768ce17d08a85367032","value":1000000,"height":3308,"confirmations":30,"state":"credited"},"ledger_balance":"997000"}
+{"t":"10:32:02","step":"p1 credited","ms":5,"deposit":{"cmx":"209d00a47440285d6789d8a4ef03a913db9edf9f3e75f907fe8472bd8581c406","value":1000000,"height":3308,"confirmations":30,"state":"credited"},"ledger_balance":"997000"}
+{"t":"10:32:03","step":"table created","stake":"997000"}
+{"t":"10:32:05","step":"coin landed","winner_seat":0,"er_amounts":["1994000","0"]}
+{"t":"10:32:35","step":"returned","finish_confirm_ms":29499,"finish_to_return_ms":29500}
+{"t":"10:32:35","step":"cashed out","balances":["1994000","0"],"winner":"Dx1As9PDDZoXZqmdCpAy8ZzF3rJ6cSwmncmaoCecMyJ6"}
+{"t":"10:32:36","step":"close_table (anyone; rent to the creator)","table_rent":2136720,"creator_gain":2136720,"table_gone":true}
+{"t":"10:32:37","step":"settled","out":[{"ms":525,"ok":true,"sig":"5Dv9cd4135EVwMvc4ig9ms8ojPTDuikCJCgRMdGqJzRudUrCS3pwn1xSPFLFpwt4mV1aRu7L3iDu7UZRGgSbVgYY","step":"settle"},{"payouts":[1968018],"settlement":0,"settlement_pda":"5ZWUarRoBrNfzaWPUjm1dUhoauVfyDBHEJ4DZJXWPLVc","total":1968018}]}
+{"t":"10:38:17","step":"settlement paid on Zcash and marked on Solana","ms":339802,"app":{"credited_total":2000000,"deposit_count":2,"fee_pool":31982,"liability":0,"paid_count":1,"unpaid_total":0},"seq":0,"state":"Paid"}
+{"t":"10:38:17","step":"p0 deposits view","deposits":[{"cmx":"6b2a00c94eb980809ae1601af899363c9b436817e1744768ce17d08a85367032","value":1000000,"height":3308,"confirmations":139,"state":"credited"}]}
+{"t":"10:38:17","step":"p1 deposits view","deposits":[{"cmx":"209d00a47440285d6789d8a4ef03a913db9edf9f3e75f907fe8472bd8581c406","value":1000000,"height":3308,"confirmations":139,"state":"credited"}]}

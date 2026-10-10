@@ -1,6 +1,6 @@
-[2026-10-10T07:37:39Z INFO  vrf_oracle] HTTP server listening on 0.0.0.0:28181 (try: curl http://localhost:28181/stats)
-[2026-10-10T07:37:39Z INFO  vrf_oracle::oracle::client] Starting VRF Oracle with public key: paywJiVATrVDLYLmowJqzG6MsaCt77L8WyTnBb2754t
-[2026-10-10T07:37:39Z INFO  vrf_oracle::oracle::client] Connecting to WebSocket: ws://127.0.0.1:27800
-[2026-10-10T07:37:39Z INFO  vrf_oracle::oracle::client] Update source connected successfully
-[2026-10-10T08:38:19Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
-[2026-10-10T08:38:25Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
+[2026-10-10T10:04:26Z INFO  vrf_oracle] HTTP server listening on 0.0.0.0:28181 (try: curl http://localhost:28181/stats)
+[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Starting VRF Oracle with public key: paywJiVATrVDLYLmowJqzG6MsaCt77L8WyTnBb2754t
+[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Connecting to WebSocket: ws://127.0.0.1:27800
+[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Update source connected successfully
+[2026-10-10T10:04:38Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
+[2026-10-10T10:04:46Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1

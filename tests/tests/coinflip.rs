@@ -38,7 +38,8 @@ const OTHER_QUEUE: Pubkey = solana_pubkey::pubkey!("GKE6d7iv8kCBrsxr78W3xVdjGLLL
 const MAGIC_PROGRAM: Pubkey = solana_pubkey::pubkey!("Magic11111111111111111111111111111111111111");
 const MAGIC_CONTEXT: Pubkey = solana_pubkey::pubkey!("MagicContext1111111111111111111111111111111");
 const SLOT_HASHES: Pubkey = solana_pubkey::pubkey!("SysvarS1otHashes111111111111111111111111111");
-const STAKE: u64 = 500_000;
+/// One 1,000,000-zatoshi deposit's net credited value at the 30 bps entry fee.
+const STAKE: u64 = 997_000;
 const POT_ID: [u8; 32] = [0xC0; 32];
 
 fn cf_ix(accounts: impl ToAccountMetas, data: impl InstructionData) -> Instruction {
@@ -155,11 +156,15 @@ impl Cf {
     }
 
     fn create_table_for(&mut self, stake: u64, validator: Pubkey) -> TxResult {
-        let pot = cf_pot();
+        self.create_table_at(POT_ID, stake, validator)
+    }
+
+    fn create_table_at(&mut self, pot_id: [u8; 32], stake: u64, validator: Pubkey) -> TxResult {
+        let pot = pot_pda(&cf_app(), &pot_id);
         let ix = cf_ix(
             zol_coinflip::accounts::CreateTable {
                 payer: self.env.relayer.pubkey(),
-                table: cf_table(),
+                table: zol_coinflip::table_address(&pot_id),
                 app_authority: cf_authority(),
                 config: config_pda(),
                 app: cf_app(),
@@ -168,7 +173,7 @@ impl Cf {
                 ledger_program: LEDGER,
                 system_program: SYSTEM,
             },
-            zol_coinflip::instruction::CreateTable { pot_id: POT_ID, stake, open_secs: 600, validator },
+            zol_coinflip::instruction::CreateTable { pot_id, stake, open_secs: 600, validator },
         );
         let r = self.relayer();
         self.env.send(&[ix], &[&r])
@@ -331,6 +336,39 @@ impl Cf {
         self.env.send(&[ix], &[&relayer])
     }
 
+    fn close_table_ix(&self, creator: Pubkey) -> Instruction {
+        cf_ix(
+            zol_coinflip::accounts::CloseTable { table: cf_table(), receipt: receipt_pda(&cf_pot()), creator },
+            zol_coinflip::instruction::CloseTable {},
+        )
+    }
+
+    /// Anyone may close: a stranger pays the fee, the rent goes to the creator.
+    fn close_table(&mut self) -> TxResult {
+        let ix = self.close_table_ix(self.env.relayer.pubkey());
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
+    fn refund(&mut self) -> TxResult {
+        let pot = cf_pot();
+        let r: st::PotReceipt = self.env.account(&receipt_pda(&pot));
+        let mut ix = ledger_ix(
+            zol_ledger::accounts::PotOutcome { config: config_pda(), app: cf_app(), receipt: receipt_pda(&pot), pot },
+            zol_ledger::instruction::RefundPot {},
+        );
+        for p in &r.players[..r.seat_count as usize] {
+            ix.accounts.push(AccountMeta::new(balance_pda(&cf_app(), p), false));
+        }
+        let relayer = self.relayer();
+        self.env.send(&[ix], &[&relayer])
+    }
+
+    fn lamports(&self, k: &Pubkey) -> u64 {
+        self.env.raw(k).map(|a| a.lamports).unwrap_or(0)
+    }
+
     fn table(&self) -> Table {
         self.env.account(&cf_table())
     }
@@ -386,7 +424,7 @@ fn full_game_create_join_start_flip_land_finish_cash_out() {
     assert_eq!(r.seat_count, 2);
     assert_eq!((r.players[0], r.players[1]), (alice.pubkey(), bob.pubkey()));
     assert_eq!((r.buy_ins[0], r.buy_ins[1], r.total), (STAKE, STAKE, 2 * STAKE));
-    assert_eq!(cf.balance(&alice.pubkey()), 497_000);
+    assert_eq!(cf.balance(&alice.pubkey()), 0, "one deposit's net value is exactly one stake");
 
     ok!(cf.start());
     assert_eq!(cf.env.raw(&cf_pot()).unwrap().owner, DLP, "pot delegated through the ledger");
@@ -413,8 +451,8 @@ fn full_game_create_join_start_flip_land_finish_cash_out() {
     // Return: accounts already belong to their programs with the committed bytes.
     ok!(cf.cash_out());
     assert_eq!(cf.receipt().state, PotState::CashedOut);
-    assert_eq!(cf.balance(&alice.pubkey()), 497_000);
-    assert_eq!(cf.balance(&bob.pubkey()), 1_497_000, "winner credited with the whole pot");
+    assert_eq!(cf.balance(&alice.pubkey()), 0);
+    assert_eq!(cf.balance(&bob.pubkey()), 2 * STAKE, "winner credited with the whole pot");
     cf.env.check_invariants_for(&COINFLIP);
 }
 
@@ -427,7 +465,7 @@ fn seat_zero_can_win() {
     assert_eq!(&cf.pot().amounts[..2], &[2 * STAKE, 0]);
     ok!(cf.finish());
     ok!(cf.cash_out());
-    assert_eq!((cf.balance(&alice.pubkey()), cf.balance(&bob.pubkey())), (1_497_000, 497_000));
+    assert_eq!((cf.balance(&alice.pubkey()), cf.balance(&bob.pubkey())), (2 * STAKE, 0));
 }
 
 // ------------------------------------------------------------------ adversarial
@@ -590,4 +628,119 @@ fn cash_out_waits_for_the_pot() {
     let (mut cf, _a, _b) = Cf::started();
     // Still delegated on Solana: the ledger refuses.
     assert_eq!(err_code(&cf.cash_out()), Some(zerr(zol_ledger::error::ZolError::PotNotReturned)));
+}
+
+// ------------------------------------------------------------------ close_table
+
+#[test]
+fn close_after_cash_out_returns_rent_to_the_creator() {
+    let (mut cf, _a, _b) = Cf::started();
+    cf.enter_rollup();
+    ok!(cf.flip());
+    ok!(cf.vrf_callback(randomness_for(0)));
+    ok!(cf.finish());
+    assert_eq!(cf.table().creator, cf.env.relayer.pubkey());
+    assert_cf_err(&cf.close_table(), CoinflipError::PotLive); // finished, but not cashed out yet
+    ok!(cf.cash_out());
+    let rent = cf.lamports(&cf_table());
+    let before = cf.lamports(&cf.env.relayer.pubkey());
+    ok!(cf.close_table());
+    assert_eq!(cf.lamports(&cf.env.relayer.pubkey()), before + rent, "all of the table's lamports, to the creator");
+    assert!(cf.env.raw(&cf_table()).is_none_or(|a| a.lamports == 0 && a.data.is_empty()));
+    // A double close fails: the table is gone.
+    assert!(cf.close_table().is_err());
+}
+
+#[test]
+fn close_a_refunded_table_that_never_started() {
+    let mut cf = Cf::new();
+    let a = cf.player(1_000_000);
+    ok!(cf.create_table(STAKE));
+    ok!(cf.join(&a));
+    assert_cf_err(&cf.close_table(), CoinflipError::PotLive);
+    cf.env.warp(601); // past the open deadline
+    ok!(cf.refund());
+    assert_eq!(cf.receipt().state, PotState::Refunded);
+    assert_eq!(cf.balance(&a.pubkey()), STAKE);
+    let rent = cf.lamports(&cf_table());
+    let before = cf.lamports(&cf.env.relayer.pubkey());
+    ok!(cf.close_table());
+    assert_eq!(cf.lamports(&cf.env.relayer.pubkey()), before + rent);
+}
+
+#[test]
+fn close_refused_while_the_pot_is_live_or_delegated() {
+    let (mut cf, _a, _b) = Cf::started();
+    // Delegated: the table belongs to the delegation program.
+    assert_eq!(err_code(&cf.close_table()), Some(anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram as u32));
+    // Back with its program but the receipt is still Delegated.
+    cf.enter_rollup();
+    assert_cf_err(&cf.close_table(), CoinflipError::PotLive);
+}
+
+#[test]
+fn close_rent_goes_only_to_the_creator() {
+    let mut cf = Cf::new();
+    ok!(cf.create_table(STAKE));
+    cf.env.warp(601);
+    ok!(cf.refund()); // nobody joined: an empty refund
+    let mallory = Keypair::new();
+    cf.env.svm.airdrop(&mallory.pubkey(), 1_000_000_000).unwrap();
+    let ix = cf.close_table_ix(mallory.pubkey());
+    assert_cf_err(&cf.env.send(&[ix], &[&mallory]), CoinflipError::BadAccount);
+    // A receipt that is not this table's is refused too.
+    let mut ix = cf.close_table_ix(cf.env.relayer.pubkey());
+    ix.accounts[1].pubkey = config_pda();
+    assert_cf_err(&cf.env.send(&[ix], &[&mallory]), CoinflipError::BadAccount);
+    ok!(cf.close_table());
+}
+
+// ------------------------------------------------------------------ stakes
+
+#[test]
+fn stake_must_be_a_denominations_net_value() {
+    let mut cf = Cf::new();
+    for bad in [500_000, 1_000_000, 996_999, 10_000_000, 1] {
+        assert_cf_err(&cf.create_table(bad), CoinflipError::BadStake);
+    }
+    // Both denominations at the configured 30 bps: 997,000 and 9,970,000.
+    assert_eq!(zol_coinflip::allowed_stakes(params().entry_fee_bps), [997_000, 9_970_000]);
+    ok!(cf.create_table_at([1; 32], 997_000, VALIDATOR));
+    ok!(cf.create_table_at([2; 32], 9_970_000, VALIDATOR));
+}
+
+#[test]
+fn stakes_follow_the_ledgers_entry_fee() {
+    let mut cf = Cf::new();
+    let mut p = params();
+    p.entry_fee_bps = 50;
+    ok!(cf.env.set_config(zol_ledger::SetConfigArgs { new_admin: None, attestor: None, params: Some(p), paused: None }));
+    assert_cf_err(&cf.create_table_at([1; 32], 997_000, VALIDATOR), CoinflipError::BadStake);
+    ok!(cf.create_table_at([1; 32], 995_000, VALIDATOR));
+    ok!(cf.create_table_at([2; 32], 9_950_000, VALIDATOR));
+}
+
+#[test]
+fn create_table_checks_the_config_account() {
+    let mut cf = Cf::new();
+    let pot = cf_pot();
+    // A look-alike Config at another address, or any other account, is refused.
+    let mut ix = cf_ix(
+        zol_coinflip::accounts::CreateTable {
+            payer: cf.env.relayer.pubkey(),
+            table: cf_table(),
+            app_authority: cf_authority(),
+            config: cf_app(),
+            app: cf_app(),
+            pot,
+            receipt: receipt_pda(&pot),
+            ledger_program: LEDGER,
+            system_program: SYSTEM,
+        },
+        zol_coinflip::instruction::CreateTable { pot_id: POT_ID, stake: STAKE, open_secs: 600, validator: VALIDATOR },
+    );
+    let r = cf.relayer();
+    assert_cf_err(&cf.env.send(&[ix.clone()], &[&r]), CoinflipError::BadAccount);
+    ix.accounts[3].pubkey = Keypair::new().pubkey();
+    assert!(cf.env.send(&[ix], &[&r]).is_err());
 }

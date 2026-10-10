@@ -9,6 +9,7 @@
 //! | `flip`         | Rollup  | Requests MagicBlock VRF randomness; the callback is `land` |
 //! | `land`         | Rollup  | VRF callback only: CPI `move_seat` so the winner's seat holds the whole pot |
 //! | `finish`       | Rollup  | CPI `close_pot` and commits and undelegates the table |
+//! | `close_table`  | Solana  | Anyone, once the ledger's receipt is terminal: closes the table, rent to its creator |
 //!
 //! `cash_out` is the ledger's and anyone may call it once the pot is back.
 //!
@@ -22,7 +23,7 @@ use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 use ephemeral_rollups_sdk::vrf::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use ephemeral_rollups_sdk::vrf::types::SerializableAccountMeta;
-use zol_ledger::state::{Pot, PotReceipt, PotState, SeatStake};
+use zol_ledger::state::{bps, Config, Pot, PotReceipt, PotState, SeatStake};
 
 declare_id!("7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo");
 
@@ -30,6 +31,16 @@ pub const APP_AUTHORITY_SEED: &[u8] = b"zol-app";
 pub const TABLE_SEED: &[u8] = b"table";
 pub const SEATS: u8 = 2;
 pub const NO_WINNER: u8 = u8::MAX;
+
+/// Deposit denominations in zatoshi. Must match the gateway's `denominations`
+/// (gateway/src/config.rs default). A table's stake is one deposit's net credited
+/// value, `d - floor(d * entry_fee_bps / 10_000)`, so a single deposit buys one seat.
+pub const STAKE_DENOMINATIONS: [u64; 2] = [1_000_000, 10_000_000];
+
+/// The stakes `create_table` accepts under an entry fee of `entry_fee_bps`.
+pub fn allowed_stakes(entry_fee_bps: u16) -> [u64; 2] {
+    STAKE_DENOMINATIONS.map(|d| d - bps(d, entry_fee_bps))
+}
 
 /// Oracle queues `flip` accepts: MagicBlock's ephemeral (rollup) queue and its local/test
 /// twin, both from ephemeral-vrf-sdk. Pinning them stops a caller from naming a queue
@@ -68,6 +79,15 @@ pub mod zol_coinflip {
     pub fn create_table(ctx: Context<CreateTable>, pot_id: [u8; 32], stake: u64, open_secs: i64, validator: Pubkey) -> Result<()> {
         require!(stake > 0, CoinflipError::ZeroStake);
         require_keys_neq!(validator, Pubkey::default(), CoinflipError::BadValidator);
+        let fee_bps = {
+            let info = &ctx.accounts.config;
+            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let (expected, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::CONFIG], &zol_ledger::ID);
+            require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
+            let data = info.try_borrow_data()?;
+            Config::try_deserialize(&mut &data[..])?.params.entry_fee_bps
+        };
+        require!(allowed_stakes(fee_bps).contains(&stake), CoinflipError::BadStake);
         let now = Clock::get()?.unix_timestamp;
         let open_deadline = now.checked_add(open_secs).ok_or(CoinflipError::Overflow)?;
         let a = &ctx.accounts;
@@ -94,6 +114,7 @@ pub mod zol_coinflip {
         t.pot_id = pot_id;
         t.stake = stake;
         t.validator = validator;
+        t.creator = ctx.accounts.payer.key();
         t.state = TableState::Open;
         t.winner = NO_WINNER;
         t.randomness = [0; 32];
@@ -292,6 +313,27 @@ pub mod zol_coinflip {
         emit!(Finished { table: a.table.key(), winner: a.table.winner });
         Ok(())
     }
+
+    /// Solana, anyone. Once the ledger's receipt for the table's pot is terminal
+    /// (cashed out or refunded), closes the table and returns its rent to the creator.
+    /// A delegated table (owned by the delegation program) fails the `Account<Table>`
+    /// owner check, so only a table that is back on Solana, or never left, can close.
+    pub fn close_table(ctx: Context<CloseTable>) -> Result<()> {
+        let info = &ctx.accounts.receipt;
+        require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+        let (expected, _) = Pubkey::find_program_address(
+            &[zol_ledger::state::seeds::RECEIPT, ctx.accounts.table.pot.as_ref()],
+            &zol_ledger::ID,
+        );
+        require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
+        let r = {
+            let data = info.try_borrow_data()?;
+            PotReceipt::try_deserialize(&mut &data[..])?
+        };
+        require!(matches!(r.state, PotState::CashedOut | PotState::Refunded), CoinflipError::PotLive);
+        emit!(TableClosed { table: ctx.accounts.table.key(), creator: ctx.accounts.creator.key(), pot_state: r.state as u8 });
+        Ok(())
+    }
 }
 
 /// Seat 0 or 1 from the oracle's randomness.
@@ -335,6 +377,8 @@ pub struct Table {
     pub stake: u64,
     /// Rollup validator both the pot and the table are delegated to.
     pub validator: Pubkey,
+    /// Paid the table's rent in `create_table`; `close_table` returns it here.
+    pub creator: Pubkey,
     pub state: TableState,
     /// Winning seat index after `land`, `NO_WINNER` before.
     pub winner: u8,
@@ -501,6 +545,17 @@ pub struct Finish<'info> {
     pub ledger_program: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct CloseTable<'info> {
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = creator @ CoinflipError::BadAccount, close = creator)]
+    pub table: Account<'info, Table>,
+    /// CHECK: owner and address checked in the handler
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: receives the rent; must be the table's creator
+    #[account(mut)]
+    pub creator: UncheckedAccount<'info>,
+}
+
 // ---------------------------------------------------------------- events and errors
 
 #[event]
@@ -533,6 +588,12 @@ pub struct Landed {
     pub amount: u64,
 }
 #[event]
+pub struct TableClosed {
+    pub table: Pubkey,
+    pub creator: Pubkey,
+    pub pot_state: u8,
+}
+#[event]
 pub struct Finished {
     pub table: Pubkey,
     pub winner: u8,
@@ -554,10 +615,12 @@ pub enum CoinflipError {
     TableFull,
     #[msg("the table needs two players")]
     NotFull,
-    #[msg("a seat does not hold the table stake")]
+    #[msg("stake is not a deposit denomination's net value, or a seat does not hold the table stake")]
     BadStake,
     #[msg("oracle queue is not one of MagicBlock's")]
     BadQueue,
     #[msg("a rollup validator must be named")]
     BadValidator,
+    #[msg("the pot is still live: not cashed out or refunded")]
+    PotLive,
 }

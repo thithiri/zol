@@ -39,6 +39,9 @@ if [ "${ZOL:-0}" = "1" ]; then
   EXTRA+=(--upgradeable-program "$ZD/zol_test_app-keypair.json" "$ZD/zol_test_app.so" "$AUTH")
 fi
 for a in ${EXTRA_ACCOUNTS:-}; do EXTRA+=(--account "${a%%=*}" "${a#*=}"); done
+# The spike 0.9 pot program, only if it is built (nothing else needs it).
+if [ -f target/deploy/zol_pot_spike.so ] && [ -f keys/program.json ]; then
+  EXTRA+=(--upgradeable-program keys/program.json target/deploy/zol_pot_spike.so "$AUTH")
+fi
 exec node_modules/.bin/mb-stack --reset "${EXTRA[@]}" \
-  --ledger ./.local-ledger --faucet-port 29900 --ticks-per-slot "${TICKS:-64}" \
-  --upgradeable-program keys/program.json target/deploy/zol_pot_spike.so "$AUTH"
+  --ledger ./.local-ledger --faucet-port 29900 --ticks-per-slot "${TICKS:-64}"

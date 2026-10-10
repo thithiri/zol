@@ -8,7 +8,7 @@ import { Buffer } from "buffer";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { Coinflip, decodeBalance, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "../src/chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "../src/chain";
 import { sessionFromSeed } from "../src/session";
 
 const root = new URL("../..", import.meta.url).pathname;
@@ -42,7 +42,8 @@ const potId = crypto.getRandomValues(new Uint8Array(32));
 const pot = cf.pdas.pot(potId);
 const table = cf.pdas.table(potId);
 const identity = new PublicKey((await (await fetch(ER, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getIdentity" }) })).json()).result.identity);
-out({ step: "create_table", sig: await sendTx(base, [cf.createTable(relayer.publicKey, potId, 500_000n, 1800n, identity)], relayer) });
+const stake = allowedStakes(decodeEntryFeeBps((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
+out({ step: "create_table", stake: String(stake), sig: await sendTx(base, [cf.createTable(relayer.publicKey, potId, stake, 1800n, identity)], relayer) });
 for (const [i, p] of players.entries()) {
   out({ step: `join p${i}`, sig: await sendTx(base, [cf.join(p.keypair.publicKey, potId)], relayer, [p.keypair]) });
 }
@@ -66,8 +67,19 @@ const r = decodeReceipt((await base.getAccountInfo(cf.pdas.receipt(pot)))!.data)
 out({ step: "cash_out", sig: await sendTx(base, [cf.cashOut(potId, r.players)], relayer), finish_to_cash_out_ms: Date.now() - t0 });
 const after = await Promise.all(players.map(async (p) => (await bal(p.keypair.publicKey)).amount));
 const winnerKey = r.players[landed.winner];
-const expect = players.map((p) => (p.keypair.publicKey.equals(winnerKey) ? 1_497_000n : 497_000n));
+const expect = players.map((p) => (p.keypair.publicKey.equals(winnerKey) ? 2n * stake : 0n));
 out({ step: "balances", after: after.map(String), expected: expect.map(String), match: after.every((a, i) => a === expect[i]) });
-for (const [i, p] of players.entries()) {
-  out({ step: `request_exit p${i}`, sig: await sendTx(base, [cf.requestExit(p.keypair.publicKey)], relayer, [p.keypair]), exiting: (await bal(p.keypair.publicKey)).exiting });
+
+// close_table: anyone; the table's rent goes back to its creator (the relayer here).
+{
+  const rent = (await base.getAccountInfo(table))!.lamports;
+  const before = await base.getBalance(relayer.publicKey);
+  const stranger = Keypair.generate();
+  await base.confirmTransaction(await base.requestAirdrop(stranger.publicKey, 1e9), "confirmed");
+  await sendTx(base, [cf.closeTable(potId, relayer.publicKey)], stranger);
+  out({ step: "close_table (anyone; rent to the creator)", table_rent: rent, creator_gain: (await base.getBalance(relayer.publicKey)) - before, table_gone: (await base.getAccountInfo(table)) === null });
 }
+const winner = players.find((p) => p.keypair.publicKey.equals(winnerKey))!;
+out({ step: "request_exit winner", sig: await sendTx(base, [cf.requestExit(winner.keypair.publicKey)], relayer, [winner.keypair]), exiting: (await bal(winner.keypair.publicKey)).exiting });
+const loser = players.find((p) => !p.keypair.publicKey.equals(winnerKey))!;
+out({ step: "request_exit loser (balance 0)", refused: await sendTx(base, [cf.requestExit(loser.keypair.publicKey)], relayer, [loser.keypair]).then(() => false, () => true) });

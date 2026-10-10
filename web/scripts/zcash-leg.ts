@@ -11,7 +11,7 @@ import { Gateway } from "../src/gateway";
 import { prepareDeposit } from "../src/deposit";
 import { hex, sessionFromSeed } from "../src/session";
 import { orchardReceiverFromUa } from "../src/ua";
-import { Coinflip, decodeBalance, decodePot, decodeReceipt, decodeTable, sendTx } from "../src/chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, sendTx } from "../src/chain";
 import vectors from "../test/ua-vectors.json";
 
 const root = new URL("../..", import.meta.url).pathname;
@@ -90,7 +90,9 @@ const identity = new PublicKey((await (await fetch("http://127.0.0.1:27799", { m
 const potId = crypto.getRandomValues(new Uint8Array(32));
 const pot = cf.pdas.pot(potId);
 const table = cf.pdas.table(potId);
-await sendTx(base, [cf.createTable(relayer.publicKey, potId, 500_000n, 1800n, identity)], relayer);
+const stake = allowedStakes(decodeEntryFeeBps((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
+await sendTx(base, [cf.createTable(relayer.publicKey, potId, stake, 1800n, identity)], relayer);
+out({ step: "table created", stake: String(stake) });
 for (const p of players) await sendTx(base, [cf.join(p.keypair.publicKey, potId)], relayer, [p.keypair]);
 await sendTx(base, [cf.start(relayer.publicKey, potId, 600n)], relayer, [], 400_000);
 await until("table in rollup", 30, async () => (await er.getAccountInfo(table))?.owner.equals(cf.p.app));
@@ -100,21 +102,38 @@ const landed = await until("land", 60, async () => {
   return t.state === "Landed" ? t : null;
 });
 out({ step: "coin landed", winner_seat: landed.winner, er_amounts: decodePot((await er.getAccountInfo(pot))!.data).amounts.map(String) });
+const tFinish = Date.now();
 await sendTx(er, [cf.finish(players[1].keypair.publicKey, potId)], players[1].keypair);
+const tFinished = Date.now();
 await until("pot back on Solana", 60, async () => (await base.getAccountInfo(pot))?.owner.equals(cf.p.ledger));
+out({ step: "returned", finish_confirm_ms: tFinished - tFinish, finish_to_return_ms: Date.now() - tFinish });
 const r = decodeReceipt((await base.getAccountInfo(cf.pdas.receipt(pot)))!.data);
 await sendTx(base, [cf.cashOut(potId, r.players)], relayer);
 const bal = await Promise.all(players.map(async (p) => decodeBalance((await base.getAccountInfo(cf.pdas.balance(p.keypair.publicKey)))!.data).amount));
 out({ step: "cashed out", balances: bal.map(String), winner: r.players[landed.winner].toBase58() });
 
-// 5. Exit and settle; the gateways pay the settlement on Zcash.
-for (const p of players) await sendTx(base, [cf.requestExit(p.keypair.publicKey)], relayer, [p.keypair]);
-const s = execFileSync(BIN, ["settle", ...players.map((p) => p.keypair.publicKey.toBase58())]).toString();
+
+// close_table: anyone; the table's rent goes back to its creator (the relayer here).
+{
+  const rent = (await base.getAccountInfo(table))!.lamports;
+  const before = await base.getBalance(relayer.publicKey);
+  const stranger = Keypair.generate();
+  await base.confirmTransaction(await base.requestAirdrop(stranger.publicKey, 1e9), "confirmed");
+  await sendTx(base, [cf.closeTable(potId, relayer.publicKey)], stranger);
+  out({ step: "close_table (anyone; rent to the creator)", table_rent: rent, creator_gain: (await base.getBalance(relayer.publicKey)) - before, table_gone: (await base.getAccountInfo(table)) === null });
+}
+
+// 5. Exit and settle; the gateways pay the settlement on Zcash. The loser holds nothing.
+const winner = players.find((p) => p.keypair.publicKey.equals(r.players[landed.winner]))!;
+await sendTx(base, [cf.requestExit(winner.keypair.publicKey)], relayer, [winner.keypair]);
+const s = execFileSync(BIN, ["settle", winner.keypair.publicKey.toBase58()]).toString();
 out({ step: "settled", out: s.trim().split("\n").map((l) => JSON.parse(l)) });
 const t0 = Date.now();
-const paid = await until("settlement Paid", 600, async () => {
+// Mine slowly: a payout is signed over several HTTP rounds and expires 40 blocks after it is
+// built, so a block every ~3 s leaves it about two minutes to reach the node.
+const paid = await until("settlement Paid", 1200, async () => {
   const st = JSON.parse(execFileSync(BIN, ["settlement", "0"]).toString());
   return st.state === "Paid" ? st : null;
-}, () => node("generate", [5]));
+}, () => node("generate", [1]).then(() => sleep(2000)));
 out({ step: "settlement paid on Zcash and marked on Solana", ms: Date.now() - t0, ...paid });
 for (const [i, p] of players.entries()) out({ step: `p${i} deposits view`, deposits: await gw.deposits(APP, hex(p.publicKey)) });

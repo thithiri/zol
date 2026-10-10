@@ -9,7 +9,7 @@ import { Gateway, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
 import { hex, loadOrCreateSession, unhex, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
-import { Coinflip, decodeBalance, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
 
 // ---------------------------------------------------------------- settings
 
@@ -134,7 +134,7 @@ async function readLive(key: PublicKey) {
 $("create-btn").onclick = () => act("create table", async () => {
   potId = crypto.getRandomValues(new Uint8Array(32));
   location.hash = `table=${hex(potId)}`;
-  const stake = BigInt($<HTMLInputElement>("stake").value);
+  const stake = BigInt($<HTMLSelectElement>("stake").value);
   return sendTx(base, [cf.createTable(feePayer().publicKey, potId, stake, 1800n, await validator())], feePayer());
 });
 $("open-btn").onclick = () => {
@@ -156,8 +156,23 @@ $("cashout-btn").onclick = () => act("cash out", async () => {
   const r = decodeReceipt((await base.getAccountInfo(cf.pdas.receipt(pot)))!.data);
   return sendTx(base, [cf.cashOut(need(), r.players)], feePayer());
 });
+$("close-btn").onclick = () => act("close table", async () => {
+  const t = decodeTable((await base.getAccountInfo(cf.pdas.table(need())))!.data);
+  return sendTx(base, [cf.closeTable(need(), t.creator)], feePayer());
+});
 $("exit-btn").onclick = () => act("request exit", () => sendTx(base, [cf.requestExit(session.keypair.publicKey)], feePayer(), [session.keypair]));
 $("airdrop-btn").onclick = () => act("airdrop (local only)", async () => base.requestAirdrop(feePayer().publicKey, 1e9));
+
+/** Stakes follow the ledger's entry fee: one deposit's net credited value per seat. */
+async function loadStakes() {
+  try {
+    const c = await base.getAccountInfo(cf.pdas.config());
+    const fee = decodeEntryFeeBps(c!.data);
+    $("stake").innerHTML = allowedStakes(fee).map((s) => `<option value="${s}">${Number(s) / 1e8} ZEC (one deposit, after the ${fee / 100}% entry fee)</option>`).join("");
+  } catch (e: any) {
+    log(`stakes: ${e.message}`, true);
+  }
+}
 
 async function refresh() {
   try {
@@ -209,6 +224,7 @@ $("settings-save").onclick = () => {
 };
 
 void loadApp();
+void loadStakes();
 void refresh();
 void pollDeposits();
 setInterval(pollDeposits, 5000);

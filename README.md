@@ -85,6 +85,7 @@ An app is an Anchor program plus a web page; it holds no ZEC and no keys. `progr
    - `delegate_pot(expected, session_deadline, validator)`: `expected` is the receipt's seats and buy-ins, read from the `PotReceipt`, never from app state. `validator` must be the rollup's identity, or the pot never reaches it.
    - In the rollup: `move_seat(from, to, amount)` by seat index, then `close_pot`.
    - `cash_out` is permissionless.
+   - Stakes: the coin flip accepts only one deposit's net value (`STAKE_DENOMINATIONS` less the ledger's entry fee), and `close_table` returns a finished or refunded table's rent to its creator.
 4. **Your own state** can be delegated with the pot (`#[delegate]`) and committed with it (`MagicIntentBundleBuilder::commit_and_undelegate`). Keep player keys out of it; the receipt is the source of truth.
 5. **Randomness.** `#[vrf]` and `#[vrf_callback]` from `ephemeral-rollups-sdk` (feature `vrf`). The callback is safe only if the queue is pinned: accept MagicBlock's queues only.
 6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zakura regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.

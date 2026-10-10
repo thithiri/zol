@@ -238,7 +238,8 @@ fn play() {
     let pot_id: [u8; 32] = rand::random();
     let pot = pot_pda(&pot_id);
     let table = zol_coinflip::table_address(&pot_id);
-    let stake = 500_000u64;
+    // One deposit's net credited value: the only stakes create_table accepts.
+    let stake = zol_coinflip::allowed_stakes(params().entry_fee_bps)[0];
     let ix = app_ix(
         zol_coinflip::accounts::CreateTable {
             payer: relayer.pubkey(),
@@ -373,13 +374,31 @@ fn play() {
     let ok = players.iter().zip(&bal).all(|(p, b)| b.1 == want(&p.pubkey()));
     println!("{}", json!({"winner": winner_key.to_string(), "balances_after_cash_out": bal, "match": ok}));
 
-    for (i, p) in players.iter().enumerate() {
-        let ix = ledger_ix(
-            zol_ledger::accounts::RequestExit { session_key: p.pubkey(), config: config_pda(), balance: balance_pda(&p.pubkey()) },
-            zol_ledger::instruction::RequestExit {},
-        );
-        step!(format!("request_exit p{i}"), send(BASE, &[ix], &[&relayer, p]));
-    }
+    // close_table: anyone (here the zero-SOL key cannot pay a Solana fee, so a fresh
+    // funded stranger does); the rent goes to the creator (the relayer).
+    let stranger = Keypair::new();
+    airdrop(&stranger.pubkey(), 1_000_000_000);
+    let rent = account(BASE, &table).map(|a| a.2).unwrap_or(0);
+    let before = account(BASE, &relayer.pubkey()).unwrap().2;
+    let ix = app_ix(
+        zol_coinflip::accounts::CloseTable { table, receipt: receipt_pda(&pot), creator: relayer.pubkey() },
+        zol_coinflip::instruction::CloseTable {},
+    );
+    step!("close_table (anyone; rent to the creator)", send(BASE, &[ix], &[&stranger]));
+    let after = account(BASE, &relayer.pubkey()).unwrap().2;
+    println!("{}", json!({"table_rent": rent, "creator_gain": after - before, "table_gone": account(BASE, &table).is_none()}));
+
+    // The loser has nothing left; only the winner can exit (minimum exit).
+    let winner = players.iter().find(|p| p.pubkey() == winner_key).unwrap();
+    let loser = players.iter().find(|p| p.pubkey() != winner_key).unwrap();
+    let exit_ix = |p: &Keypair| ledger_ix(
+        zol_ledger::accounts::RequestExit { session_key: p.pubkey(), config: config_pda(), balance: balance_pda(&p.pubkey()) },
+        zol_ledger::instruction::RequestExit {},
+    );
+    let refused = send(BASE, &[exit_ix(loser)], &[&relayer, loser]).is_err();
+    println!("{}", json!({"step": "request_exit loser (balance 0)", "refused": refused}));
+    step!("request_exit winner", send(BASE, &[exit_ix(winner)], &[&relayer, winner]));
+    let players = vec![winner.insecure_clone()];
     let a: st::App = load(BASE, &app_pda());
     let mut ix = ledger_ix(
         zol_ledger::accounts::Settle { payer: relayer.pubkey(), config: config_pda(), app: app_pda(), settlement: settlement_pda(a.next_settlement), system_program: SYSTEM },

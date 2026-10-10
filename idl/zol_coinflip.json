@@ -8,6 +8,61 @@
   },
   "instructions": [
     {
+      "name": "close_table",
+      "docs": [
+        "Solana, anyone. Once the ledger's receipt for the table's pot is terminal",
+        "(cashed out or refunded), closes the table and returns its rent to the creator.",
+        "A delegated table (owned by the delegation program) fails the `Account<Table>`",
+        "owner check, so only a table that is back on Solana, or never left, can close."
+      ],
+      "discriminator": [
+        149,
+        214,
+        44,
+        14,
+        190,
+        244,
+        132,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "relations": [
+            "table"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_table",
       "docs": [
         "The validator is fixed here, so players see which rollup will decide their pot",
@@ -957,6 +1012,19 @@
       ]
     },
     {
+      "name": "TableClosed",
+      "discriminator": [
+        187,
+        170,
+        71,
+        249,
+        213,
+        114,
+        159,
+        192
+      ]
+    },
+    {
       "name": "TableCreated",
       "discriminator": [
         164,
@@ -1009,7 +1077,7 @@
     {
       "code": 6007,
       "name": "BadStake",
-      "msg": "a seat does not hold the table stake"
+      "msg": "stake is not a deposit denomination's net value, or a seat does not hold the table stake"
     },
     {
       "code": 6008,
@@ -1020,6 +1088,11 @@
       "code": 6009,
       "name": "BadValidator",
       "msg": "a rollup validator must be named"
+    },
+    {
+      "code": 6010,
+      "name": "PotLive",
+      "msg": "the pot is still live: not cashed out or refunded"
     }
   ],
   "types": [
@@ -1144,6 +1217,13 @@
             "type": "pubkey"
           },
           {
+            "name": "creator",
+            "docs": [
+              "Paid the table's rent in `create_table`; `close_table` returns it here."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "state",
             "type": {
               "defined": {
@@ -1169,6 +1249,26 @@
           },
           {
             "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TableClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_state",
             "type": "u8"
           }
         ]

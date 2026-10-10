@@ -23,6 +23,8 @@ W="$HERE/work"
 [ -f "$W/pids" ] && xargs kill < "$W/pids" 2>/dev/null || true
 pkill -f "node_modules/.bin/mb-stack --reset" || true
 pkill -f "vrf-oracle-darwin-arm64" || true
+# Children orphaned by an earlier aborted stack would hold the ports.
+pkill -f "magicblock/node_modules/@magicblock-labs/(query-filtering-service|ephemeral-validator)-darwin" || true
 while pgrep -f "ledger ./.local-ledger" >/dev/null || pgrep -f "listen 127.0.0.1:27799" >/dev/null; do sleep 1; done
 rm -rf "$W" "$MB/.local-ledger" "$MB/magicblock-test-storage"; mkdir -p "$W/keys" "$W/logs"
 APP_HEX=$(python3 -c "
@@ -72,7 +74,7 @@ echo "attestor group key $GROUP"
 ACC=$("$CF" preload "$W/accounts" "$GROUP" "$VAULT" "$GEN" $G | awk '{printf "%s=%s ", $1, $2}')
 cd "$MB"
 (ZOL=1 ZOL_DIR="${ZOL_DIR:-../../target/deploy}" DLP=devnet VRF_CLEAN=1 EXTRA_ACCOUNTS="$ACC" RUST_LOG=info ./start-local.sh > "$W/logs/mb-stack.log" 2>&1 &)
-until grep -q -E "MagicBlock stack is ready|exited before|failed" "$W/logs/mb-stack.log"; do sleep 1; done
+until grep -q -E "MagicBlock stack is ready|exited|failed" "$W/logs/mb-stack.log"; do sleep 1; done
 grep -q "MagicBlock stack is ready" "$W/logs/mb-stack.log" || { tail -30 "$W/logs/mb-stack.log"; exit 1; }
 U=http://127.0.0.1:28899
 solana airdrop 100 -k keys/payer.json -u $U >/dev/null

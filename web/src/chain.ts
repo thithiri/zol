@@ -12,6 +12,10 @@ export const MAGIC_PROGRAM = new PublicKey("Magic1111111111111111111111111111111
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 export const MAX_SEATS = 16;
+/** Mirrors zol-coinflip's STAKE_DENOMINATIONS (zatoshi); the gateway's denominations. */
+export const STAKE_DENOMINATIONS = [1_000_000n, 10_000_000n];
+/** Stakes `create_table` accepts: one deposit's net credited value at the ledger's entry fee. */
+export const allowedStakes = (entryFeeBps: number) => STAKE_DENOMINATIONS.map((d) => d - (d * BigInt(entryFeeBps)) / 10_000n);
 
 const enc = new TextEncoder();
 const disc = (kind: "global" | "account", name: string) => sha256(enc.encode(`${kind}:${name}`)).subarray(0, 8);
@@ -119,6 +123,12 @@ export class Coinflip {
     );
   }
 
+  /** Anyone, once the pot is cashed out or refunded: the table's rent goes to its creator. */
+  closeTable(potId: Uint8Array, creator: PublicKey) {
+    const d = this.pdas;
+    return this.ix([m(d.table(potId), true), m(d.receipt(d.pot(potId))), m(creator, true)], disc("global", "close_table"));
+  }
+
   /** Ledger `cash_out`: anyone; balances in receipt order. */
   cashOut(potId: Uint8Array, players: PublicKey[]) {
     const d = this.pdas;
@@ -159,11 +169,11 @@ function checkDisc(data: Uint8Array, name: string) {
 export const TABLE_STATES = ["Open", "Started", "Flipping", "Landed", "Finished"] as const;
 export const POT_STATES = ["Open", "Delegated", "CashedOut", "Refunded"] as const;
 
-export interface TableAcc { pot: PublicKey; potId: Uint8Array; stake: bigint; validator: PublicKey; state: (typeof TABLE_STATES)[number]; winner: number }
+export interface TableAcc { pot: PublicKey; potId: Uint8Array; stake: bigint; validator: PublicKey; creator: PublicKey; state: (typeof TABLE_STATES)[number]; winner: number }
 export function decodeTable(data: Uint8Array): TableAcc {
   checkDisc(data, "Table");
   const r = new Reader(data);
-  return { pot: r.key(), potId: r.bytes(32), stake: r.u64(), validator: r.key(), state: TABLE_STATES[r.u8()], winner: r.u8() };
+  return { pot: r.key(), potId: r.bytes(32), stake: r.u64(), validator: r.key(), creator: r.key(), state: TABLE_STATES[r.u8()], winner: r.u8() };
 }
 
 export interface ReceiptAcc { state: (typeof POT_STATES)[number]; players: PublicKey[]; buyIns: bigint[]; total: bigint; validator: PublicKey }
@@ -188,6 +198,12 @@ export function decodePot(data: Uint8Array): PotAcc {
   const n = r.u8();
   const amounts = Array.from({ length: MAX_SEATS }, () => r.u64()).slice(0, n);
   return { seatCount: n, amounts, delegated: r.u8() === 1 };
+}
+
+/** Ledger Config: params.entry_fee_bps (after admin, attestor, 7 guardians and 4 one-byte fields). */
+export function decodeEntryFeeBps(data: Uint8Array): number {
+  checkDisc(data, "Config");
+  return new DataView(data.buffer, data.byteOffset).getUint16(8 + 32 + 32 + 7 * 32 + 4, true);
 }
 
 export interface BalanceAcc { amount: bigint; exiting: boolean; autoExit: boolean }
