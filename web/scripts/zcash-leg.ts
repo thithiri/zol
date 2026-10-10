@@ -11,7 +11,7 @@ import { Gateway } from "../src/gateway";
 import { prepareDeposit } from "../src/deposit";
 import { hex, sessionFromSeed } from "../src/session";
 import { orchardReceiverFromUa } from "../src/ua";
-import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, sendTx } from "../src/chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, sendTx } from "../src/chain";
 import vectors from "../test/ua-vectors.json";
 
 const root = new URL("../..", import.meta.url).pathname;
@@ -90,7 +90,7 @@ const identity = new PublicKey((await (await fetch("http://127.0.0.1:27799", { m
 const potId = crypto.getRandomValues(new Uint8Array(32));
 const pot = cf.pdas.pot(potId);
 const table = cf.pdas.table(potId);
-const stake = allowedStakes(decodeEntryFeeBps((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
+const stake = allowedStakes(decodeLedgerParams((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
 await sendTx(base, [cf.createTable(relayer.publicKey, potId, stake, 1800n, identity)], relayer);
 out({ step: "table created", stake: String(stake) });
 for (const p of players) await sendTx(base, [cf.join(p.keypair.publicKey, potId)], relayer, [p.keypair]);

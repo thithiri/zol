@@ -64,6 +64,9 @@ fn cf_table() -> Pubkey {
 fn scoped_vrf_identity() -> Pubkey {
     pda(&[b"identity", COINFLIP.as_ref()], &VRF)
 }
+fn rent_vault() -> Pubkey {
+    pda(&[zol_coinflip::RENT_VAULT_SEED], &COINFLIP)
+}
 fn cf_err(e: CoinflipError) -> u32 {
     6000 + e as u32
 }
@@ -223,6 +226,7 @@ impl Cf {
                 ledger_delegation_record_pot: tag(b"delegation", &pot),
                 ledger_delegation_metadata_pot: tag(b"delegation-metadata", &pot),
                 ledger_program: LEDGER,
+                rent_vault: rent_vault(),
                 owner_program: COINFLIP,
                 delegation_program: DLP,
                 system_program: SYSTEM,
@@ -349,6 +353,43 @@ impl Cf {
         let stranger = Keypair::new();
         self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
         self.env.send(&[ix], &[&stranger])
+    }
+
+    fn rescue_ix(&self) -> Instruction {
+        let t = cf_table();
+        let tag = |x: &[u8]| pda(&[x, t.as_ref()], &DLP);
+        let validator = self.table_any().validator;
+        cf_ix(
+            zol_coinflip::accounts::RescueTable {
+                table: t,
+                receipt: receipt_pda(&cf_pot()),
+                rent_vault: rent_vault(),
+                undelegation_request: tag(b"undelegation-request"),
+                delegation_record: tag(b"delegation"),
+                delegation_metadata: tag(b"delegation-metadata"),
+                commit_state: tag(b"state-diff"),
+                commit_record: tag(b"commit-state-record"),
+                validator,
+                this_program: COINFLIP,
+                delegation_program: DLP,
+                system_program: SYSTEM,
+            },
+            zol_coinflip::instruction::RescueTable {},
+        )
+    }
+
+    /// Anyone: a stranger pays the fee.
+    fn rescue(&mut self) -> TxResult {
+        let ix = self.rescue_ix();
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
+    /// The table's bytes whoever owns it (the delegation program keeps the last committed copy).
+    fn table_any(&self) -> Table {
+        let a = self.env.raw(&cf_table()).unwrap();
+        Table::try_deserialize(&mut &a.data[..]).unwrap()
     }
 
     fn refund(&mut self) -> TxResult {
@@ -704,7 +745,7 @@ fn stake_must_be_a_denominations_net_value() {
         assert_cf_err(&cf.create_table(bad), CoinflipError::BadStake);
     }
     // Both denominations at the configured 30 bps: 997,000 and 9,970,000.
-    assert_eq!(zol_coinflip::allowed_stakes(params().entry_fee_bps), [997_000, 9_970_000]);
+    assert_eq!(zol_coinflip::allowed_stakes(&params()), vec![997_000, 9_970_000]);
     ok!(cf.create_table_at([1; 32], 997_000, VALIDATOR));
     ok!(cf.create_table_at([2; 32], 9_970_000, VALIDATOR));
 }
@@ -743,4 +784,99 @@ fn create_table_checks_the_config_account() {
     assert_cf_err(&cf.env.send(&[ix.clone()], &[&r]), CoinflipError::BadAccount);
     ix.accounts[3].pubkey = Keypair::new().pubkey();
     assert!(cf.env.send(&[ix], &[&r]).is_err());
+}
+
+// ------------------------------------------------------------------ stakes from the ledger
+
+#[test]
+fn stakes_follow_the_ledgers_denominations() {
+    let mut cf = Cf::new();
+    let mut p = params();
+    p.denominations = [2_000_000, 0, 50_000_000, 0];
+    ok!(cf.env.set_config(zol_ledger::SetConfigArgs { new_admin: None, attestor: None, params: Some(p), paused: None }));
+    assert_eq!(zol_coinflip::allowed_stakes(&p), vec![1_994_000, 49_850_000]);
+    assert_cf_err(&cf.create_table_at([1; 32], 997_000, VALIDATOR), CoinflipError::BadStake);
+    ok!(cf.create_table_at([1; 32], 1_994_000, VALIDATOR));
+    ok!(cf.create_table_at([2; 32], 49_850_000, VALIDATOR));
+}
+
+// ------------------------------------------------------------------ rescue_table
+
+/// A started table whose rollup never answers: past the session deadline and the
+/// refund grace, the ledger refunds the pot while pot and table are still delegated.
+fn stuck_and_refunded() -> (Cf, Keypair, Keypair) {
+    let (mut cf, a, b) = Cf::started();
+    cf.env.warp(600 + params().refund_grace_secs + 1);
+    ok!(cf.refund());
+    assert_eq!(cf.receipt().state, PotState::Refunded);
+    assert_eq!((cf.balance(&a.pubkey()), cf.balance(&b.pubkey())), (STAKE, STAKE), "buy-ins back");
+    assert_eq!(cf.env.raw(&cf_table()).unwrap().owner, DLP, "the table is still out");
+    (cf, a, b)
+}
+
+#[test]
+fn start_delegates_the_table_with_the_rent_vault_as_rent_payer() {
+    let (cf, _a, _b) = Cf::started();
+    let meta = cf.env.raw(&pda(&[b"delegation-metadata", cf_table().as_ref()], &DLP)).unwrap();
+    // DelegationMetadata ends with the rent payer.
+    assert_eq!(&meta.data[meta.data.len() - 32..], rent_vault().as_ref());
+    assert_eq!(cf.env.raw(&rent_vault()).unwrap().owner, SYSTEM, "the vault holds lamports only");
+    assert_eq!(cf.table_any().state, TableState::Started, "the Solana copy keeps the committed bytes");
+}
+
+#[test]
+fn rescue_a_stuck_table_then_close_it() {
+    let (mut cf, _a, _b) = stuck_and_refunded();
+    assert_eq!(err_code(&cf.close_table()), Some(anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram as u32));
+    // 1. Request undelegation (ix 26), signed by the program for the table and the vault.
+    ok!(cf.rescue());
+    let req = pda(&[b"undelegation-request", cf_table().as_ref()], &DLP);
+    assert!(cf.env.raw(&req).is_some_and(|a| a.lamports > 0));
+    // 2. Before the timeout the delegation program refuses the rollback.
+    assert!(cf.rescue().is_err());
+    // 3. After 9,000 slots: rollback (ix 27) brings the table home with its committed bytes.
+    let slot = cf.env.svm.get_sysvar::<solana_clock::Clock>().slot;
+    cf.env.svm.warp_to_slot(slot + 9_001);
+    let vault_before = cf.lamports(&rent_vault());
+    ok!(cf.rescue());
+    assert_eq!(cf.env.raw(&cf_table()).unwrap().owner, COINFLIP);
+    let t = cf.table();
+    assert_eq!((t.state, t.pot), (TableState::Started, cf_pot()));
+    assert!(cf.lamports(&rent_vault()) > vault_before, "delegation deposit refunded to the vault");
+    // 4. Rent back to the creator.
+    let rent = cf.lamports(&cf_table());
+    let before = cf.lamports(&cf.env.relayer.pubkey());
+    ok!(cf.close_table());
+    assert_eq!(cf.lamports(&cf.env.relayer.pubkey()), before + rent);
+}
+
+#[test]
+fn rescue_refused_while_the_game_is_live() {
+    let (mut cf, _a, _b) = Cf::started();
+    assert_cf_err(&cf.rescue(), CoinflipError::NotRefunded);
+    // Even past the session deadline, until the ledger has actually refunded the pot.
+    cf.env.warp(600 + params().refund_grace_secs + 1);
+    assert_cf_err(&cf.rescue(), CoinflipError::NotRefunded);
+}
+
+#[test]
+fn rescue_refused_for_a_table_that_is_not_delegated() {
+    let mut cf = Cf::new();
+    ok!(cf.create_table(STAKE));
+    cf.env.warp(601);
+    ok!(cf.refund());
+    assert_cf_err(&cf.rescue(), CoinflipError::NotDelegated);
+}
+
+#[test]
+fn rescue_checks_the_receipt_and_validator_accounts() {
+    let (mut cf, _a, _b) = stuck_and_refunded();
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    let mut ix = cf.rescue_ix();
+    ix.accounts[1].pubkey = config_pda(); // not this table's receipt
+    assert_cf_err(&cf.env.send(&[ix], &[&stranger]), CoinflipError::BadAccount);
+    let mut ix = cf.rescue_ix();
+    ix.accounts[8].pubkey = stranger.pubkey(); // not the table's validator
+    assert_cf_err(&cf.env.send(&[ix], &[&stranger]), CoinflipError::BadAccount);
 }

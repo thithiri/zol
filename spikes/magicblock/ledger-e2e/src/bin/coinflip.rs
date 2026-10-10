@@ -240,7 +240,7 @@ fn play() {
     let pot = pot_pda(&pot_id);
     let table = zol_coinflip::table_address(&pot_id);
     // One deposit's net credited value: the only stakes create_table accepts.
-    let stake = zol_coinflip::allowed_stakes(params().entry_fee_bps)[0];
+    let stake = zol_coinflip::allowed_stakes(&params())[0];
     let ix = app_ix(
         zol_coinflip::accounts::CreateTable {
             payer: relayer.pubkey(),
@@ -294,6 +294,7 @@ fn play() {
             ledger_delegation_record_pot: tag(b"delegation", &pot),
             ledger_delegation_metadata_pot: tag(b"delegation-metadata", &pot),
             ledger_program: LEDGER,
+            rent_vault: pda(&[zol_coinflip::RENT_VAULT_SEED], &APPP),
             owner_program: APPP,
             delegation_program: DLP,
             system_program: SYSTEM,
@@ -414,6 +415,128 @@ fn play() {
     println!("{}", json!({"settlement_payouts": s.payouts[..s.count as usize].iter().map(|p| p.amount).collect::<Vec<_>>(),
         "app": {"credited_total": a.credited_total, "liability": a.liability, "fee_pool": a.fee_pool, "unpaid_total": a.unpaid_total},
         "conservation": a.credited_total == a.liability + a.fee_pool + a.unpaid_total}));
+}
+
+
+/// A table stuck in the rollup, then rescued. `honest`: the validator answers the
+/// undelegation request itself. `dead`: the rollup is frozen (SIGSTOP) and the table comes
+/// back by rollback after the 9,000-slot timeout (run the stack with TICKS=8).
+/// usage: stuck honest|dead
+fn stuck(mode: &str) {
+    let relayer = kp("payer");
+    let er_identity: Pubkey = rpc(ER, "getIdentity", json!([]))["identity"].as_str().unwrap().parse().unwrap();
+    let players: Vec<Keypair> = (0..2).map(|_| Keypair::new()).collect();
+    for p in &players {
+        credit(p.pubkey(), 1_000_000);
+    }
+    let pot_id: [u8; 32] = rand::random();
+    let pot = pot_pda(&pot_id);
+    let table = zol_coinflip::table_address(&pot_id);
+    let stake = zol_coinflip::allowed_stakes(&params())[0];
+    let ix = app_ix(
+        zol_coinflip::accounts::CreateTable {
+            payer: relayer.pubkey(), table, app_authority: app_authority(), config: config_pda(), app: app_pda(),
+            pot, receipt: receipt_pda(&pot), ledger_program: LEDGER, system_program: SYSTEM,
+        },
+        zol_coinflip::instruction::CreateTable { pot_id, stake, open_secs: 1_800, validator: er_identity },
+    );
+    step!("create_table", send(BASE, &[ix], &[&relayer]));
+    for (i, p) in players.iter().enumerate() {
+        let ix = app_ix(
+            zol_coinflip::accounts::Join {
+                session_key: p.pubkey(), table, app_authority: app_authority(), config: config_pda(), app: app_pda(),
+                balance: balance_pda(&p.pubkey()), pot, receipt: receipt_pda(&pot), ledger_program: LEDGER,
+            },
+            zol_coinflip::instruction::Join {},
+        );
+        step!(format!("join p{i}"), send(BASE, &[ix], &[&relayer, p]));
+    }
+    let tag = |t: &[u8], k: &Pubkey| pda(&[t, k.as_ref()], &DLP);
+    let vault = pda(&[zol_coinflip::RENT_VAULT_SEED], &APPP);
+    let session_secs = params().min_session_secs;
+    let ix = app_ix(
+        zol_coinflip::accounts::Start {
+            payer: relayer.pubkey(),
+            buffer_table: pda(&[b"buffer", table.as_ref()], &APPP),
+            delegation_record_table: tag(b"delegation", &table),
+            delegation_metadata_table: tag(b"delegation-metadata", &table),
+            table, app_authority: app_authority(), config: config_pda(), app: app_pda(), receipt: receipt_pda(&pot), pot,
+            ledger_buffer_pot: pda(&[b"buffer", pot.as_ref()], &LEDGER),
+            ledger_delegation_record_pot: tag(b"delegation", &pot),
+            ledger_delegation_metadata_pot: tag(b"delegation-metadata", &pot),
+            ledger_program: LEDGER, rent_vault: vault, owner_program: APPP, delegation_program: DLP, system_program: SYSTEM,
+        },
+        zol_coinflip::instruction::Start { session_secs },
+    );
+    step!("start (no flip follows)", send(BASE, &[cu(400_000), ix], &[&relayer]));
+    wait("table in ER", 30, || account(ER, &table).filter(|a| a.0 == APPP));
+    let er_pid = if mode == "dead" {
+        let pid = String::from_utf8(std::process::Command::new("pgrep").args(["-f", "ephemeral-validator-darwin-arm64/bin/ephemeral-validator"]).output().unwrap().stdout).unwrap();
+        let pid = pid.lines().next().unwrap().to_string();
+        std::process::Command::new("kill").args(["-STOP", &pid]).status().unwrap();
+        println!("{}", json!({"step": "rollup frozen (SIGSTOP)", "pid": pid}));
+        Some(pid)
+    } else {
+        None
+    };
+    // Past the session deadline and the refund grace, the ledger refunds the pot in place.
+    let r: st::PotReceipt = load(BASE, &receipt_pda(&pot));
+    let due = r.session_deadline + params().refund_grace_secs + 1;
+    while now_on_chain(BASE) < due {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let mut ix = ledger_ix(
+        zol_ledger::accounts::PotOutcome { config: config_pda(), app: app_pda(), receipt: receipt_pda(&pot), pot },
+        zol_ledger::instruction::RefundPot {},
+    );
+    for i in 0..r.seat_count as usize {
+        ix.accounts.push(AccountMeta::new(balance_pda(&r.players[i]), false));
+    }
+    step!("refund_pot (ledger; pot and table still delegated)", send(BASE, &[ix], &[&relayer]));
+    let rescue_ix = || {
+        app_ix(
+            zol_coinflip::accounts::RescueTable {
+                table, receipt: receipt_pda(&pot), rent_vault: vault,
+                undelegation_request: tag(b"undelegation-request", &table),
+                delegation_record: tag(b"delegation", &table),
+                delegation_metadata: tag(b"delegation-metadata", &table),
+                commit_state: tag(b"state-diff", &table),
+                commit_record: tag(b"commit-state-record", &table),
+                validator: er_identity, this_program: APPP, delegation_program: DLP, system_program: SYSTEM,
+            },
+            zol_coinflip::instruction::RescueTable {},
+        )
+    };
+    let stranger = Keypair::new();
+    airdrop(&stranger.pubkey(), 1_000_000_000);
+    let t0 = Instant::now();
+    step!("rescue_table: request undelegation (ix 26)", send(BASE, &[rescue_ix()], &[&stranger]));
+    if mode == "dead" {
+        let req = account(BASE, &tag(b"undelegation-request", &table)).unwrap().1;
+        let expires = u64::from_le_bytes(req[40..48].try_into().unwrap());
+        let slot0 = rpc(BASE, "getSlot", json!([])).as_u64().unwrap();
+        println!("{}", json!({"step": "waiting for the request timeout", "slot": slot0, "expires_at_slot": expires}));
+        while rpc(BASE, "getSlot", json!([{"commitment": "confirmed"}])).as_u64().unwrap() <= expires {
+            std::thread::sleep(Duration::from_secs(5));
+        }
+        step!("rescue_table: rollback after timeout (ix 27)", send(BASE, &[rescue_ix()], &[&stranger]));
+    }
+    let (_, ms) = wait("table back on Solana", 120, || account(BASE, &table).filter(|a| a.0 == APPP));
+    let tb: Table = load(BASE, &table);
+    println!("{}", json!({"step": "table back", "mode": mode, "ms_since_request": t0.elapsed().as_millis() as u64, "poll_ms": ms, "state": format!("{:?}", tb.state)}));
+    let rent = account(BASE, &table).unwrap().2;
+    let before = account(BASE, &relayer.pubkey()).unwrap().2;
+    let ix = app_ix(
+        zol_coinflip::accounts::CloseTable { table, receipt: receipt_pda(&pot), creator: relayer.pubkey() },
+        zol_coinflip::instruction::CloseTable {},
+    );
+    step!("close_table", send(BASE, &[ix], &[&stranger]));
+    let after = account(BASE, &relayer.pubkey()).unwrap().2;
+    println!("{}", json!({"table_rent": rent, "creator_gain": after - before, "table_gone": account(BASE, &table).is_none(),
+        "balances": players.iter().map(|p| load::<st::Balance>(BASE, &balance_pda(&p.pubkey())).amount).collect::<Vec<_>>()}));
+    if let Some(pid) = er_pid {
+        std::process::Command::new("kill").args(["-CONT", &pid]).status().unwrap();
+    }
 }
 
 /// Credits a deposit to any session key, as the gateway's attestor would (for the web page e2e).
@@ -557,6 +680,7 @@ fn main() {
         Some("preload") => preload(&args),
         Some("settle") => settle_cmd(&args[2..]),
         Some("settlement") => settlement_cmd(args[2].parse().unwrap()),
+        Some("stuck") => stuck(args.get(2).map(String::as_str).unwrap_or("honest")),
         Some("credit") => credit(args[2].parse().unwrap(), args.get(3).map(|a| a.parse().unwrap()).unwrap_or(1_000_000)),
         _ => eprintln!("usage: coinflip setup|play|credit <session> [amount]"),
     }

@@ -703,6 +703,104 @@
       "args": []
     },
     {
+      "name": "rescue_table",
+      "docs": [
+        "Solana, anyone. Rescues a table stuck in the rollup (the VRF never answered, or",
+        "nobody finished) once the ledger has refunded its pot. It uses the delegation",
+        "program's owner-requested undelegation, which exists on MagicBlock's devnet",
+        "delegation program only (spike 0.9):",
+        "",
+        "1. First call: `RequestUndelegation` (ix 26), signed with the table's seeds and the",
+        "rent vault (the table's delegation rent payer). An honest validator then",
+        "returns the table by itself within about a second.",
+        "2. If it does not, a second call after the request's timeout (9,000 slots, about an",
+        "hour) runs `UndelegateWithRollbackAfterTimeout` (ix 27): the table comes back to",
+        "this program with its last committed state.",
+        "",
+        "Then `close_table` returns the rent. Refused unless the receipt is `Refunded`, so a",
+        "live game can never be pulled out of its rollup."
+      ],
+      "discriminator": [
+        140,
+        158,
+        171,
+        204,
+        68,
+        217,
+        214,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "rent_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "undelegation_request",
+          "writable": true
+        },
+        {
+          "name": "delegation_record",
+          "writable": true
+        },
+        {
+          "name": "delegation_metadata",
+          "writable": true
+        },
+        {
+          "name": "commit_state",
+          "writable": true
+        },
+        {
+          "name": "commit_record",
+          "writable": true
+        },
+        {
+          "name": "validator",
+          "writable": true
+        },
+        {
+          "name": "this_program",
+          "address": "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "start",
       "docs": [
         "Anyone, once both seats hold the stake. Sends the pot and the table to the",
@@ -910,6 +1008,29 @@
           "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
         },
         {
+          "name": "rent_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "owner_program",
           "address": "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo"
         },
@@ -999,6 +1120,19 @@
       ]
     },
     {
+      "name": "RescueRequested",
+      "discriminator": [
+        197,
+        7,
+        57,
+        52,
+        167,
+        137,
+        123,
+        8
+      ]
+    },
+    {
       "name": "Started",
       "discriminator": [
         56,
@@ -1035,6 +1169,19 @@
         213,
         187,
         147
+      ]
+    },
+    {
+      "name": "TableRescued",
+      "discriminator": [
+        159,
+        81,
+        111,
+        113,
+        102,
+        248,
+        232,
+        118
       ]
     }
   ],
@@ -1093,6 +1240,16 @@
       "code": 6010,
       "name": "PotLive",
       "msg": "the pot is still live: not cashed out or refunded"
+    },
+    {
+      "code": 6011,
+      "name": "NotDelegated",
+      "msg": "the table is not delegated"
+    },
+    {
+      "code": 6012,
+      "name": "NotRefunded",
+      "msg": "rescue needs the pot refunded by the ledger"
     }
   ],
   "types": [
@@ -1160,6 +1317,18 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RescueRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
+            "type": "pubkey"
           }
         ]
       }
@@ -1293,6 +1462,18 @@
           },
           {
             "name": "validator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TableRescued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
             "type": "pubkey"
           }
         ]

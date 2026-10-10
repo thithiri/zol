@@ -12,10 +12,10 @@ export const MAGIC_PROGRAM = new PublicKey("Magic1111111111111111111111111111111
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 export const MAX_SEATS = 16;
-/** Mirrors zol-coinflip's STAKE_DENOMINATIONS (zatoshi); the gateway's denominations. */
-export const STAKE_DENOMINATIONS = [1_000_000n, 10_000_000n];
-/** Stakes `create_table` accepts: one deposit's net credited value at the ledger's entry fee. */
-export const allowedStakes = (entryFeeBps: number) => STAKE_DENOMINATIONS.map((d) => d - (d * BigInt(entryFeeBps)) / 10_000n);
+/** Stakes `create_table` accepts: one deposit's net credited value, for each denomination
+ *  the ledger permits (Config.params.denominations, nonzero), at the ledger's entry fee. */
+export const allowedStakes = (p: LedgerParams) =>
+  p.denominations.filter((d) => d > 0n).map((d) => d - (d * BigInt(p.entryFeeBps)) / 10_000n);
 
 const enc = new TextEncoder();
 const disc = (kind: "global" | "account", name: string) => sha256(enc.encode(`${kind}:${name}`)).subarray(0, 8);
@@ -57,6 +57,7 @@ export class Pdas {
   receipt(pot: PublicKey) { return this.pda([enc.encode("receipt"), pot.toBytes()], this.p.ledger); }
   table(potId: Uint8Array) { return this.pda([enc.encode("table"), potId], this.p.app); }
   identity() { return this.pda([enc.encode("identity")], this.p.app); }
+  rentVault() { return this.pda([enc.encode("rent-vault")], this.p.app); }
   dlp(tag: string, acc: PublicKey) { return this.pda([enc.encode(tag), acc.toBytes()], DLP); }
   buffer(acc: PublicKey, owner: PublicKey) { return this.pda([enc.encode("buffer"), acc.toBytes()], owner); }
 }
@@ -100,7 +101,7 @@ export class Coinflip {
       [m(payer, true, true), m(d.buffer(table, this.p.app), true), m(d.dlp("delegation", table), true),
         m(d.dlp("delegation-metadata", table), true), m(table, true), m(d.appAuthority()), m(d.config()), m(d.app(), true),
         m(d.receipt(pot), true), m(pot, true), m(d.buffer(pot, this.p.ledger), true), m(d.dlp("delegation", pot), true),
-        m(d.dlp("delegation-metadata", pot), true), m(this.p.ledger), m(this.p.app), m(DLP), m(SystemProgram.programId)],
+        m(d.dlp("delegation-metadata", pot), true), m(this.p.ledger), m(d.rentVault(), true), m(this.p.app), m(DLP), m(SystemProgram.programId)],
       cat(disc("global", "start"), i64le(sessionSecs)),
     );
   }
@@ -127,6 +128,19 @@ export class Coinflip {
   closeTable(potId: Uint8Array, creator: PublicKey) {
     const d = this.pdas;
     return this.ix([m(d.table(potId), true), m(d.receipt(d.pot(potId))), m(creator, true)], disc("global", "close_table"));
+  }
+
+  /** Anyone, for a table stuck delegated once the ledger refunded its pot: first call
+   *  requests undelegation, a call after the 9,000-slot timeout rolls the table back. */
+  rescueTable(potId: Uint8Array, validator: PublicKey) {
+    const d = this.pdas;
+    const t = d.table(potId);
+    return this.ix(
+      [m(t, true), m(d.receipt(d.pot(potId))), m(d.rentVault(), true), m(d.dlp("undelegation-request", t), true),
+        m(d.dlp("delegation", t), true), m(d.dlp("delegation-metadata", t), true), m(d.dlp("state-diff", t), true),
+        m(d.dlp("commit-state-record", t), true), m(validator, true), m(this.p.app), m(DLP), m(SystemProgram.programId)],
+      disc("global", "rescue_table"),
+    );
   }
 
   /** Ledger `cash_out`: anyone; balances in receipt order. */
@@ -200,10 +214,15 @@ export function decodePot(data: Uint8Array): PotAcc {
   return { seatCount: n, amounts, delegated: r.u8() === 1 };
 }
 
-/** Ledger Config: params.entry_fee_bps (after admin, attestor, 7 guardians and 4 one-byte fields). */
-export function decodeEntryFeeBps(data: Uint8Array): number {
+export interface LedgerParams { entryFeeBps: number; denominations: bigint[] }
+/** Ledger Config params the page needs. `params` starts after admin, attestor, 7 guardians
+ *  and 4 one-byte fields; `denominations` follows 2 u16, 2 u64, a u8, 5 i64 and a u64. */
+export function decodeLedgerParams(data: Uint8Array): LedgerParams {
   checkDisc(data, "Config");
-  return new DataView(data.buffer, data.byteOffset).getUint16(8 + 32 + 32 + 7 * 32 + 4, true);
+  const p = 8 + 32 + 32 + 7 * 32 + 4;
+  const dv = new DataView(data.buffer, data.byteOffset);
+  const d0 = p + 2 + 2 + 8 + 8 + 1 + 5 * 8 + 8;
+  return { entryFeeBps: dv.getUint16(p, true), denominations: [0, 1, 2, 3].map((i) => dv.getBigUint64(d0 + 8 * i, true)) };
 }
 
 export interface BalanceAcc { amount: bigint; exiting: boolean; autoExit: boolean }

@@ -1,0 +1,14 @@
+{"ms":110,"ok":true,"sig":"3RK6MuYbcHLmiaSnE7BTWrDsSW6AgmwHTtff88muNdaReHCChYfbaNZmH2cLtH7UEHTMv9StL1ufFVHuxQtCWgYj","step":"credit_deposit GGTAeStMtKZABLQFh8BwBbor5rhc4qbFXaZzEGFzoxBa"}
+{"ms":104,"ok":true,"sig":"Gujcgbm4QaDr8qWQNVzp42kDRqTQoi1RAc5Mm5xD6pZ47DSip8WACEiUuRsM4QGVXVEvMwN5a38bRJjNBgBnUPw","step":"credit_deposit CAESYFGC7s95wTiXvPDR6vgN5jjN3zcSC5QZYzLND73c"}
+{"ms":113,"ok":true,"sig":"1z1vWcrX6f1nh7qtJe2gNZ5LqZtbYLvUgzroLQumev3Yn3ALoD8VZPwQN8GF4Zrgw67bxhrTNtvcjZshjdzSLyt","step":"create_table"}
+{"ms":169,"ok":true,"sig":"EDKopaLrP8eCmSjS6j5ATNoQofbbny64b94SddN5WZpp9HUCr14CHnosrPhNvcydzmLJvQHvWCjJZQ1k9CmAy87","step":"join p0"}
+{"ms":61,"ok":true,"sig":"35Sh9yz9pjSzY79dMBvcBQV6q7eV8YmnMYUzdYpHM2ADPAUUm6xjLCDmFdWevn3XN8BFu5Sq9aRvxSrYQ8BAx6Wa","step":"join p1"}
+{"ms":61,"ok":true,"sig":"kRf61H5kYgp2RmEMVasYhRBhRH23ZE9men24RACXQYqxhHjxBVQvUHzWPhLM6XdDXsAkKAHgsAG5q9azSL6iSKP","step":"start (no flip follows)"}
+{"pid":"14488","step":"rollup frozen (SIGSTOP)"}
+{"ms":60,"ok":true,"sig":"57s2M7UfsS879Z5FMo7DP4TRD7mWa3Z61CxNS4mS5VTqeyyUiG7DFYNAWqNeiuFYynCeV5B1P6UayXa1khA6g3rQ","step":"refund_pot (ledger; pot and table still delegated)"}
+{"ms":119,"ok":true,"sig":"kJXy9bf5VfLyCfT7KZNXmMat8svc7CLKS5xCJeobxnkbQp3U3rXnSJ35G3GWwoVXXMMGBNBS9MV6LCET9cN8VDW","step":"rescue_table: request undelegation (ix 26)"}
+{"expires_at_slot":11645,"slot":2615,"step":"waiting for the request timeout"}
+{"ms":128,"ok":true,"sig":"4uvTofA7k1DqJfokcf533YwtBh53hHk8vxupPS98C1ciy77UWy4evgbA8xqRMR7tEPkL5rMRvNXv7i2hGTGjMXjk","step":"rescue_table: rollback after timeout (ix 27)"}
+{"mode":"dead","ms_since_request":656199,"poll_ms":0,"state":"Started","step":"table back"}
+{"ms":60,"ok":true,"sig":"5LTUe4xAZm5ihRGJBQSufPrNN6tYJrpxBzLFoCLLNzw8NkEd9dgKfheAh6EHoJ745Yv3fSKvKcVnyuZ8KZxsK9ey","step":"close_table"}
+{"balances":[997000,997000],"creator_gain":2136720,"table_gone":true,"table_rent":2136720}

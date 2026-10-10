@@ -1,17 +1,17 @@
-{"ms":266,"ok":true,"sig":"3WmbbpMAgKn3FPFmkAfvy4eR6oHnJVY1fHWFZQjHcfkUaTkGzkVXpeShUwS8f2oezfm6xGw7MpEKb964Tnd4BJhD","step":"credit_deposit 59AL6AsToAZ2CKmqWGdwtPhMs9yBA9QudeEPEy4MFbmc"}
-{"ms":433,"ok":true,"sig":"z8MnZd8NUz5QikyrZr2q5irXuzhQvV6YkcBYzNobVGyKTSjWQhhmcoM52kKTBY8wbWMJF858wAKstseeaBsNAs9","step":"credit_deposit 7EHyXu8mh8kaAKuF3gvWMMQ5Ze6RJn2LvauANi74qrMw"}
+{"ms":168,"ok":true,"sig":"2gc2BXmcwh9hfiVcfxW7pDb6y58Xm3sj6zAXoaaBh5jwoyBa86Cdw4iyx5JNgwRQcAYDhuMTdvdoTDiBFGz6qZwZ","step":"credit_deposit kmG9KTuMvN2YTghEtjU3jGEVGHRrfiAQD4btxDfspZ7"}
+{"ms":62,"ok":true,"sig":"xd1SfjQqmvG8hhj3H72NyLRAkdzimDtevnp2brKs5CDuS3MsUvYGnSysp8RPQHZAre9kjRRfj1khezm2YBhQJY4","step":"credit_deposit 9BtLKUayyyyYmnkZqwFrxJC29769x1iLxqQ7TtoLkAUo"}
 {"step":"credited","balances":["997000","997000"]}
-{"step":"create_table","stake":"997000","sig":"3ioP23oMMAXDfoTTgmG1RTe5WL9iaiHyaVFuHeDJ6qAv22Lx6i59H3iLpjKnLtqEqgqHmePp41ubPPYsGQkqofZU"}
-{"step":"join p0","sig":"2ubZyBwrX3M6diJ1SNwjsifLWJbsgDMgo8cxEQywe69chRVs5NMEjLFPjWTLN19swNUVjMqb9emi1BkZSmsxxtAC"}
-{"step":"join p1","sig":"42TMBgjxjwBMfcVGCrYDNDac9awJ9afArgFX36VzVMKfJfMzmm9paj6eRGx8KYHs9ZaDkEmxzQb1BShZWPRkWexc"}
-{"step":"start","sig":"5yByuv95bAHyPUJQf998dJT4zvdtLiot2knkdEk3B4i9aa4ZMSzT6HLQh3MJVGmHvszdJYHdDnbWsGW8tf4Pkpif"}
-{"step":"in rollup","ms":3,"base_owner":"delegation program"}
-{"step":"flip (session key pays, 0 SOL)","sol":0,"sig":"kfmqwYMca3p4BcZKYDkrqgKxSP9oJKJuxF4X5NhwfCiUp5gn5xyCymqZAXdLStDzCSZToxHQsV8TgMxQLEB3Cmy"}
-{"step":"land (VRF oracle callback)","ms":105,"winner":1,"amounts":["0","1994000"]}
-{"step":"finish (session key pays)","sig":"4von7jvtxuxPXtQrDZs2dfD6gLDk6aCFJM3UJh7W6THP9AVgS8XNazk7TijX8uW4upu3EH772xXC3zSdMK4pHpGu"}
-{"step":"returned","ms":314}
-{"step":"cash_out","sig":"4fSEjv3yhVDSzBoKqAbdscBV6YnEjs3q8mq9f86SAH8CdrZufN5eWtCV4WcXQ6BVGg8hm2G7RwSQh48Mz8wfy3ox","finish_to_cash_out_ms":745}
-{"step":"balances","after":["0","1994000"],"expected":["0","1994000"],"match":true}
+{"step":"create_table","stake":"997000","sig":"2aCsQ5V11fE8yPNKgo7xp1FUXGuiF6ErWq7ZGNciXUGPsYHbZoenqTzmLfYFBaxi8DkonJbs6SXH9DPRKwZGQtX9"}
+{"step":"join p0","sig":"4n1eCyJQrJoNRtrqQj4yjqg1VGrD8NFoSWfVY48mrvW5ZfYFfq1rzv68shap6yzeR7pFNcArfAnSJrX8a5o7kUyw"}
+{"step":"join p1","sig":"oWQcbev7dfTeRJFzhtsAhK7gNKZqsQ6zMDYkF3KQNuDDDDwqfjBdp8hGk3PpE9EGhHrscwZuwqoH4sLvKmwDxaP"}
+{"step":"start","sig":"56ZdR29mbpqBjtJdM6EfzWYZP5UKKTCQHGgqwy8XRAXaQxRZ8Xyjw8gJubeLmhxevDJxiLa3AXTLaCG6g5uF3Nkc"}
+{"step":"in rollup","ms":6,"base_owner":"delegation program"}
+{"step":"flip (session key pays, 0 SOL)","sol":0,"sig":"56BFKLVNdDtp3UWRULk8f7fex7CMBQdsh9wG9UnUsRAkBp6SxF2zfXTMw3ks88kSH66NjL1xX3reb48VVNmfBAvC"}
+{"step":"land (VRF oracle callback)","ms":138,"winner":0,"amounts":["1994000","0"]}
+{"step":"finish (session key pays)","sig":"675GG7kyLFQ3ZVDg5XuAbZ5K1GvrUYioaukpE6jsuF6ZZ1ekmAE8CAFuvyCqoB6LyPr5yjHDwxy6onKXiUNkaWjz"}
+{"step":"returned","ms":232}
+{"step":"cash_out","sig":"2sFQJQh6xnWzR93Wa1FQm69ttKZWUvbxeVwJeQsXbd4Jdbq8zGVqTsXiCbEXgpEMEwE9UEPJUu4Z6waxhS94UZyr","finish_to_cash_out_ms":417}
+{"step":"balances","after":["1994000","0"],"expected":["1994000","0"],"match":true}
 {"step":"close_table (anyone; rent to the creator)","table_rent":2136720,"creator_gain":2136720,"table_gone":true}
-{"step":"request_exit winner","sig":"4KkViKypNgZq6tpyC7nrn32b45iWJ7NMZBDZ1vAa5zuFEddnCbqq4o5ajBHEkJTiVicnnu8LpAn5RgTUr7UeMBZA","exiting":true}
+{"step":"request_exit winner","sig":"3bBWawCrF2QtPrF2YFCogFmrHxDeuqZVHNuZwMkphjTuncjBNjhdCwPi5SHShBJW1jkbw4zw5nb8QhME2edjGMgf","exiting":true}
 {"step":"request_exit loser (balance 0)","refused":true}

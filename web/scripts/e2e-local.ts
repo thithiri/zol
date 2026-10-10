@@ -8,7 +8,7 @@ import { Buffer } from "buffer";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "../src/chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "../src/chain";
 import { sessionFromSeed } from "../src/session";
 
 const root = new URL("../..", import.meta.url).pathname;
@@ -42,7 +42,7 @@ const potId = crypto.getRandomValues(new Uint8Array(32));
 const pot = cf.pdas.pot(potId);
 const table = cf.pdas.table(potId);
 const identity = new PublicKey((await (await fetch(ER, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getIdentity" }) })).json()).result.identity);
-const stake = allowedStakes(decodeEntryFeeBps((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
+const stake = allowedStakes(decodeLedgerParams((await base.getAccountInfo(cf.pdas.config()))!.data))[0]; // one deposit, net
 out({ step: "create_table", stake: String(stake), sig: await sendTx(base, [cf.createTable(relayer.publicKey, potId, stake, 1800n, identity)], relayer) });
 for (const [i, p] of players.entries()) {
   out({ step: `join p${i}`, sig: await sendTx(base, [cf.join(p.keypair.publicKey, potId)], relayer, [p.keypair]) });

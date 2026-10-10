@@ -1,4 +1,4 @@
-{"ms":479,"ok":true,"sig":"23pzGpQ1E3AHRJzNs6pVjxwVoW9URSvXMLxqQ87wwTL1HNivyg6Mgmf8zzRsSHp3nmiUgXeiergv7ohkuRA2AXjr","step":"initialize"}
-{"ms":485,"ok":true,"sig":"3a2WnZPD6gCXxTS45cSnLWXMoDtG4QAySjUcYCiiRe2f4kjFS9GusQ8fkZdSCMZvVG5eyXj6RNbQpzoRRFXdddNK","step":"coinflip.register (CPI register_app)"}
-{"ms":423,"ok":true,"sig":"5N8BqG6LbPgg5revmxkCQwJdEiwaPydF12dLYKCNoAsjEoQvaoVGAzKt8aecJZYVi9zrHjTua64UQbqTianySbm8","step":"activate_app"}
-{"active_after":1791626671,"chain_now":1791626666}
+{"ms":109,"ok":true,"sig":"3jVcRoBfCwKftoPnUU8ryk8uMNDGNabtatkDHDPTZunbv5Cd3W3Bo56t4iuJm7Gt6PAHbu7ijvuMKJ5WjXgYeBzb","step":"initialize"}
+{"ms":109,"ok":true,"sig":"v4BsLSo5i1LwMFFMWX1AEt4h1Rsm81ddRhZ3D813U3NpXavqLh5EvtxGTQ5JCHZnH9Z4o8XiDDxQqLt8XtyS3R6","step":"coinflip.register (CPI register_app)"}
+{"ms":109,"ok":true,"sig":"5f8g3oherE5h2m2t5wYPvPsaE38zeYpQLhXPe4DGs38Cny1wi1w5UTourSC4cDp1RGRTsy5wDvwbR9Lo4Pq8k5wU","step":"activate_app"}
+{"active_after":1791634827,"chain_now":1791634822}

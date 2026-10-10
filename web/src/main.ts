@@ -9,7 +9,7 @@ import { Gateway, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
 import { hex, loadOrCreateSession, unhex, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
-import { allowedStakes, Coinflip, decodeBalance, decodeEntryFeeBps, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
 
 // ---------------------------------------------------------------- settings
 
@@ -160,6 +160,10 @@ $("close-btn").onclick = () => act("close table", async () => {
   const t = decodeTable((await base.getAccountInfo(cf.pdas.table(need())))!.data);
   return sendTx(base, [cf.closeTable(need(), t.creator)], feePayer());
 });
+$("rescue-btn").onclick = () => act("rescue table", async () => {
+  const t = decodeTable((await base.getAccountInfo(cf.pdas.table(need())))!.data);
+  return sendTx(base, [cf.rescueTable(need(), t.validator)], feePayer());
+});
 $("exit-btn").onclick = () => act("request exit", () => sendTx(base, [cf.requestExit(session.keypair.publicKey)], feePayer(), [session.keypair]));
 $("airdrop-btn").onclick = () => act("airdrop (local only)", async () => base.requestAirdrop(feePayer().publicKey, 1e9));
 
@@ -167,8 +171,8 @@ $("airdrop-btn").onclick = () => act("airdrop (local only)", async () => base.re
 async function loadStakes() {
   try {
     const c = await base.getAccountInfo(cf.pdas.config());
-    const fee = decodeEntryFeeBps(c!.data);
-    $("stake").innerHTML = allowedStakes(fee).map((s) => `<option value="${s}">${Number(s) / 1e8} ZEC (one deposit, after the ${fee / 100}% entry fee)</option>`).join("");
+    const p = decodeLedgerParams(c!.data);
+    $("stake").innerHTML = allowedStakes(p).map((s) => `<option value="${s}">${Number(s) / 1e8} ZEC (one deposit, after the ${p.entryFeeBps / 100}% entry fee)</option>`).join("");
   } catch (e: any) {
     log(`stakes: ${e.message}`, true);
   }

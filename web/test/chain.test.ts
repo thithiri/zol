@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import cfIdl from "../../idl/zol_coinflip.json";
 import ledgerIdl from "../../idl/zol_ledger.json";
-import { allowedStakes, Coinflip, decodeEntryFeeBps, decodeTable } from "../src/chain";
+import { allowedStakes, Coinflip, decodeLedgerParams, decodeTable } from "../src/chain";
 
 const cf = new Coinflip({ ledger: new PublicKey(ledgerIdl.address), app: new PublicKey(cfIdl.address) });
 const payer = Keypair.generate().publicKey;
@@ -31,6 +31,7 @@ test("coinflip instruction builders match idl/zol_coinflip.json", () => {
   check(cfIdl, "flip", cf.flip(payer, potId, queue, new Uint8Array(32)));
   check(cfIdl, "finish", cf.finish(payer, potId));
   check(cfIdl, "close_table", cf.closeTable(potId, payer));
+  check(cfIdl, "rescue_table", cf.rescueTable(potId, payer));
 });
 
 test("ledger calls the page makes match idl/zol_ledger.json", () => {
@@ -59,12 +60,17 @@ test("Table decoder reads the Anchor layout", () => {
 });
 
 test("stakes are one deposit's net value at the ledger's entry fee", () => {
-  expect(allowedStakes(30)).toEqual([997_000n, 9_970_000n]);
-  expect(allowedStakes(50)).toEqual([995_000n, 9_950_000n]);
-  // Config layout: entry_fee_bps right after admin, attestor, 7 guardians and 4 bytes.
+  const two = [1_000_000n, 10_000_000n, 0n, 0n];
+  expect(allowedStakes({ entryFeeBps: 30, denominations: two })).toEqual([997_000n, 9_970_000n]);
+  expect(allowedStakes({ entryFeeBps: 50, denominations: two })).toEqual([995_000n, 9_950_000n]);
+  expect(allowedStakes({ entryFeeBps: 30, denominations: [2_000_000n, 0n, 50_000_000n, 0n] })).toEqual([1_994_000n, 49_850_000n]);
+  // Config layout: params after admin, attestor, 7 guardians and 4 bytes; denominations 69 bytes in.
   const disc = ledgerIdl.accounts.find((a: any) => a.name === "Config")!.discriminator;
-  const data = new Uint8Array(400);
+  const data = new Uint8Array(420);
   data.set(disc, 0);
-  new DataView(data.buffer).setUint16(300, 30, true);
-  expect(decodeEntryFeeBps(data)).toBe(30);
+  const dv = new DataView(data.buffer);
+  dv.setUint16(300, 30, true);
+  dv.setBigUint64(369, 1_000_000n, true);
+  dv.setBigUint64(377, 10_000_000n, true);
+  expect(decodeLedgerParams(data)).toEqual({ entryFeeBps: 30, denominations: two });
 });

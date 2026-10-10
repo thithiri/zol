@@ -1,0 +1,11 @@
+{"ms":118,"ok":true,"sig":"5rLHhWiqxRfGyVTs6BELpDbb2WhYt28Kf9eFSsLc9PfHsTuYwt4xkN4MaaHmVzpiedZjsqBNZPH1jv71sn5nqD2L","step":"credit_deposit 9BJdXpNR8EMcHuW6hasJjRTDxLWddzmMFKHvZDiPHwg5"}
+{"ms":166,"ok":true,"sig":"395omnffDNEKYJbTcYEhSxTrnVuDzF3dFRdo7v7L1Ac3tLk62UWZhpxwfg8EgfVtwQveGz97u5J7QVR3SQTmSB7M","step":"credit_deposit BqXC5YG8h5e25UXK3me1mfUPPjUwi9zqsMFmfFbVEd3V"}
+{"ms":56,"ok":true,"sig":"3GeGUMdnroyWkW7oxPdF2ELP4L6XKLMDichCyvdT3Qr9ZtFpsyzE5RmGoB3DnwEgrrzPAUTKQrPZKRtz9csaSjAa","step":"create_table"}
+{"ms":119,"ok":true,"sig":"2kPzLUN2r48KxZ7MxhodNCpbPsjojxmXQfy7zb1KVxjamtQjTV3kbnKKXu8GYLo2q9ruLuH7KHuHPCXzX8YoVudv","step":"join p0"}
+{"ms":114,"ok":true,"sig":"5aBsYa8voGTrmftL2vQa5jmDSexedqNEMZWBbY34nryFeVYSX7TG4EedsPNXrNWhmAoJnB3rYVrsZasEt8msxjao","step":"join p1"}
+{"ms":54,"ok":true,"sig":"4ip6pi3hJCYSv6Q3gvAA3zQaVvPXrpKhWDD7TBk7USPZsyF3Ex6XfHod42W2EPMe1apgskdqoAGKHvR4fqNyemsM","step":"start (no flip follows)"}
+{"ms":124,"ok":true,"sig":"61z5C1rfw3QWy8oqtY4szLkZKg8uja9nCBB7RLfg99HHUZRnGLqc7Xtpm5j8dEARhHqvTTaoNaqApV77NCx6aSeG","step":"refund_pot (ledger; pot and table still delegated)"}
+{"ms":234,"ok":true,"sig":"4sDrvnjkd1CDsdyUXfRXvgPMMwzmiGzhrGYBJXBAAZeQA6Es1XGfG9A9PBbyZoJFsq9eBZG4EA41TyBmXn7xutZE","step":"rescue_table: request undelegation (ix 26)"}
+{"mode":"honest","ms_since_request":352,"poll_ms":117,"state":"Started","step":"table back"}
+{"ms":341,"ok":true,"sig":"eL8HAV8b8KAmLtBacg7fD8Dd2z2XwuBiZKXbq6G5sfdWLgnvttoHAd9rLDUJqmnGc4YwoPinLoPChyvtBVUfQxy","step":"close_table"}
+{"balances":[997000,997000],"creator_gain":2136720,"table_gone":true,"table_rent":2136720}

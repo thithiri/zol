@@ -1,4 +1,4 @@
-DLP=devnet VRF_CLEAN=1 sha256=38e86d4b26e1b357 TICKS=64
+DLP=devnet VRF_CLEAN=1 sha256=38e86d4b26e1b357 TICKS=8
 ✔ mb-test-validator (base L1) ready: rpc http://127.0.0.1:28899, ws ws://127.0.0.1:28900
 ✔ ephemeral-validator ready: rpc http://127.0.0.1:27799, ws ws://127.0.0.1:27800
 ✔ query-filtering-service ready: rpc http://127.0.0.1:26699, ws ws://127.0.0.1:26700
@@ -6,3 +6,4 @@ DLP=devnet VRF_CLEAN=1 sha256=38e86d4b26e1b357 TICKS=64
 MagicBlock stack is ready.
 Stop: press Ctrl-C to shut down all nodes.
 
+er | [2m2026-10-10T12:34:25.789594Z[0m [31mERROR[0m [2mmagicblock_chainlink::chainlink::fetch_cloner[0m[2m:[0m Failed to fetch companion account [3mprimary_pubkey[0m[2m=[0m9PgJWHhiS2xKvqm5P5XAoVeBhE62ZNrsBgcAnFeDz7pd [3mcompanion_pubkey[0m[2m=[0m4ZPJwDz5caap9h7d4dmLMuuHFZ8XCquBuiB3h7njB8cM [3mcompanion_kind[0m[2m=[0mdelegation_record [3morigin_entrypoint[0m[2m=[0msubscription_update [3morigin_reason[0m[2m=[0msubscription_update_clone [3mcontext_slot[0m[2m=[0m2645 [3merror[0m[2m=[0mFailed to find account that was just resolved 9PgJWHhiS2xKvqm5P5XAoVeBhE62ZNrsBgcAnFeDz7pd

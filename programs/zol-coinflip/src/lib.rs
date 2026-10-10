@@ -19,7 +19,11 @@
 
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral, vrf, vrf_callback};
-use ephemeral_rollups_sdk::cpi::DelegateConfig;
+use ephemeral_rollups_sdk::cpi::cpi_delegate;
+use ephemeral_rollups_sdk::types::DelegateAccountArgs;
+use ephemeral_rollups_sdk::utils::{close_pda_with_system_transfer, create_pda};
+use anchor_lang::solana_program::instruction::Instruction;
+use anchor_lang::solana_program::program::invoke_signed;
 use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 use ephemeral_rollups_sdk::vrf::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use ephemeral_rollups_sdk::vrf::types::SerializableAccountMeta;
@@ -32,15 +36,20 @@ pub const TABLE_SEED: &[u8] = b"table";
 pub const SEATS: u8 = 2;
 pub const NO_WINNER: u8 = u8::MAX;
 
-/// Deposit denominations in zatoshi. Must match the gateway's `denominations`
-/// (gateway/src/config.rs default). A table's stake is one deposit's net credited
-/// value, `d - floor(d * entry_fee_bps / 10_000)`, so a single deposit buys one seat.
-pub const STAKE_DENOMINATIONS: [u64; 2] = [1_000_000, 10_000_000];
-
-/// The stakes `create_table` accepts under an entry fee of `entry_fee_bps`.
-pub fn allowed_stakes(entry_fee_bps: u16) -> [u64; 2] {
-    STAKE_DENOMINATIONS.map(|d| d - bps(d, entry_fee_bps))
+/// The stakes `create_table` accepts: one deposit's net credited value,
+/// `d - floor(d * entry_fee_bps / 10_000)`, for each denomination `d` the ledger
+/// permits (`Config.params.denominations`, nonzero entries). A single deposit buys one seat.
+pub fn allowed_stakes(params: &zol_ledger::state::Params) -> Vec<u64> {
+    params.denominations.iter().filter(|d| **d > 0).map(|d| d - bps(*d, params.entry_fee_bps)).collect()
 }
+
+/// System-owned PDA that pays the table's delegation deposit, so that this program can
+/// later sign the delegation program's owner-requested undelegation for a stuck table
+/// (`rescue_table`). `start` tops it up from its payer; undelegation refunds return here.
+pub const RENT_VAULT_SEED: &[u8] = b"rent-vault";
+/// `start` tops the vault up to this balance (buffer rent while delegating, the
+/// delegation record and metadata deposit, an undelegation request).
+pub const RENT_VAULT_TARGET: u64 = 10_000_000;
 
 /// Oracle queues `flip` accepts: MagicBlock's ephemeral (rollup) queue and its local/test
 /// twin, both from ephemeral-vrf-sdk. Pinning them stops a caller from naming a queue
@@ -79,15 +88,15 @@ pub mod zol_coinflip {
     pub fn create_table(ctx: Context<CreateTable>, pot_id: [u8; 32], stake: u64, open_secs: i64, validator: Pubkey) -> Result<()> {
         require!(stake > 0, CoinflipError::ZeroStake);
         require_keys_neq!(validator, Pubkey::default(), CoinflipError::BadValidator);
-        let fee_bps = {
+        let params = {
             let info = &ctx.accounts.config;
             require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
             let (expected, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::CONFIG], &zol_ledger::ID);
             require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
             let data = info.try_borrow_data()?;
-            Config::try_deserialize(&mut &data[..])?.params.entry_fee_bps
+            Config::try_deserialize(&mut &data[..])?.params
         };
-        require!(allowed_stakes(fee_bps).contains(&stake), CoinflipError::BadStake);
+        require!(allowed_stakes(&params).contains(&stake), CoinflipError::BadStake);
         let now = Clock::get()?.unix_timestamp;
         let open_deadline = now.checked_add(open_secs).ok_or(CoinflipError::Overflow)?;
         let a = &ctx.accounts;
@@ -211,11 +220,10 @@ pub mod zol_coinflip {
             session_deadline,
             validator,
         )?;
-        a.delegate_table(
-            &a.payer,
-            &[TABLE_SEED, &table.pot_id],
-            DelegateConfig { validator: Some(validator), ..Default::default() },
-        )?;
+        // The table is delegated with the rent vault as its delegation rent payer, so a
+        // stuck table can be rescued by anyone through this program (`rescue_table`).
+        top_up_vault(a, ctx.bumps.rent_vault)?;
+        delegate_table_via_vault(a, &table.pot_id, validator, ctx.bumps.rent_vault)?;
         emit!(Started { table: table_info.key(), validator, session_deadline });
         Ok(())
     }
@@ -334,6 +342,168 @@ pub mod zol_coinflip {
         emit!(TableClosed { table: ctx.accounts.table.key(), creator: ctx.accounts.creator.key(), pot_state: r.state as u8 });
         Ok(())
     }
+
+    /// Solana, anyone. Rescues a table stuck in the rollup (the VRF never answered, or
+    /// nobody finished) once the ledger has refunded its pot. It uses the delegation
+    /// program's owner-requested undelegation, which exists on MagicBlock's devnet
+    /// delegation program only (spike 0.9):
+    ///
+    /// 1. First call: `RequestUndelegation` (ix 26), signed with the table's seeds and the
+    ///    rent vault (the table's delegation rent payer). An honest validator then
+    ///    returns the table by itself within about a second.
+    /// 2. If it does not, a second call after the request's timeout (9,000 slots, about an
+    ///    hour) runs `UndelegateWithRollbackAfterTimeout` (ix 27): the table comes back to
+    ///    this program with its last committed state.
+    ///
+    /// Then `close_table` returns the rent. Refused unless the receipt is `Refunded`, so a
+    /// live game can never be pulled out of its rollup.
+    pub fn rescue_table(ctx: Context<RescueTable>) -> Result<()> {
+        let a = &ctx.accounts;
+        let info = a.table.to_account_info();
+        require_keys_eq!(*info.owner, ephemeral_rollups_sdk::id(), CoinflipError::NotDelegated);
+        // While delegated, the Solana copy holds the last committed bytes.
+        let saved: Vec<u8> = info.try_borrow_data()?.to_vec();
+        let table = Table::try_deserialize(&mut &saved[..])?;
+        let (expected, table_bump) = Pubkey::find_program_address(&[TABLE_SEED, &table.pot_id], &crate::ID);
+        require_keys_eq!(expected, info.key(), CoinflipError::BadAccount);
+        require_keys_eq!(a.validator.key(), table.validator, CoinflipError::BadAccount);
+        let r = {
+            let rinfo = &a.receipt;
+            require_keys_eq!(*rinfo.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let (rk, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::RECEIPT, table.pot.as_ref()], &zol_ledger::ID);
+            require_keys_eq!(rinfo.key(), rk, CoinflipError::BadAccount);
+            let data = rinfo.try_borrow_data()?;
+            PotReceipt::try_deserialize(&mut &data[..])?
+        };
+        require!(r.state == PotState::Refunded, CoinflipError::NotRefunded);
+
+        let table_seeds: &[&[u8]] = &[TABLE_SEED, &table.pot_id, &[table_bump]];
+        let vault_seeds: &[&[u8]] = &[RENT_VAULT_SEED, &[ctx.bumps.rent_vault]];
+        let dlp = ephemeral_rollups_sdk::id();
+        if a.undelegation_request.lamports() == 0 {
+            let ix = Instruction {
+                program_id: dlp,
+                accounts: vec![
+                    AccountMeta::new(a.rent_vault.key(), true),
+                    AccountMeta::new_readonly(info.key(), true),
+                    AccountMeta::new_readonly(crate::ID, false),
+                    AccountMeta::new(a.undelegation_request.key(), false),
+                    AccountMeta::new_readonly(a.delegation_record.key(), false),
+                    AccountMeta::new(a.delegation_metadata.key(), false),
+                    AccountMeta::new_readonly(a.system_program.key(), false),
+                ],
+                data: 26u64.to_le_bytes().to_vec(),
+            };
+            invoke_signed(
+                &ix,
+                &[
+                    a.rent_vault.to_account_info(),
+                    info.clone(),
+                    a.this_program.to_account_info(),
+                    a.undelegation_request.to_account_info(),
+                    a.delegation_record.to_account_info(),
+                    a.delegation_metadata.to_account_info(),
+                    a.system_program.to_account_info(),
+                ],
+                &[table_seeds, vault_seeds],
+            )?;
+            emit!(RescueRequested { table: info.key() });
+            return Ok(());
+        }
+        let ix = Instruction {
+            program_id: dlp,
+            accounts: vec![
+                AccountMeta::new(info.key(), true),
+                AccountMeta::new_readonly(crate::ID, false),
+                AccountMeta::new(a.undelegation_request.key(), false),
+                AccountMeta::new(a.delegation_record.key(), false),
+                AccountMeta::new(a.delegation_metadata.key(), false),
+                AccountMeta::new(a.rent_vault.key(), false),
+                AccountMeta::new(a.commit_state.key(), false),
+                AccountMeta::new(a.commit_record.key(), false),
+                AccountMeta::new(a.validator.key(), false),
+            ],
+            data: 27u64.to_le_bytes().to_vec(),
+        };
+        invoke_signed(
+            &ix,
+            &[
+                info.clone(),
+                a.this_program.to_account_info(),
+                a.undelegation_request.to_account_info(),
+                a.delegation_record.to_account_info(),
+                a.delegation_metadata.to_account_info(),
+                a.rent_vault.to_account_info(),
+                a.commit_state.to_account_info(),
+                a.commit_record.to_account_info(),
+                a.validator.to_account_info(),
+            ],
+            &[table_seeds],
+        )?;
+        // The delegation program hands the account back empty; restore the last committed bytes.
+        require_keys_eq!(*info.owner, crate::ID, CoinflipError::NotDelegated);
+        info.resize(saved.len())?;
+        info.try_borrow_mut_data()?.copy_from_slice(&saved);
+        emit!(TableRescued { table: info.key() });
+        Ok(())
+    }
+}
+
+/// Tops the rent vault up to `RENT_VAULT_TARGET` from `start`'s payer.
+fn top_up_vault<'info>(a: &Start<'info>, _vault_bump: u8) -> Result<()> {
+    let have = a.rent_vault.lamports();
+    if have < RENT_VAULT_TARGET {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                anchor_lang::system_program::ID,
+                anchor_lang::system_program::Transfer { from: a.payer.to_account_info(), to: a.rent_vault.to_account_info() },
+            ),
+            RENT_VAULT_TARGET - have,
+        )?;
+    }
+    Ok(())
+}
+
+/// The SDK's `delegate_account`, with the rent vault as payer: the vault funds the
+/// buffer and the delegation deposit, so it is the delegation's `rent_payer`, and this
+/// program can sign for it in `rescue_table`.
+fn delegate_table_via_vault<'info>(a: &Start<'info>, pot_id: &[u8; 32], validator: Pubkey, vault_bump: u8) -> Result<()> {
+    let table = a.table.to_account_info();
+    let vault = a.rent_vault.to_account_info();
+    let system = a.system_program.to_account_info();
+    let buffer = a.buffer_table.to_account_info();
+    let (_, table_bump) = Pubkey::find_program_address(&[TABLE_SEED, pot_id], &crate::ID);
+    let (_, buffer_bump) = Pubkey::find_program_address(&[ephemeral_rollups_sdk::pda::DELEGATE_BUFFER_TAG, table.key.as_ref()], &crate::ID);
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, pot_id, &[table_bump]];
+    let buffer_seeds: &[&[u8]] = &[ephemeral_rollups_sdk::pda::DELEGATE_BUFFER_TAG, table.key.as_ref(), &[buffer_bump]];
+    let vault_seeds: &[&[u8]] = &[RENT_VAULT_SEED, &[vault_bump]];
+
+    let len = table.data_len();
+    create_pda(&buffer, &crate::ID, len, &[buffer_seeds, vault_seeds], &system, &vault, true)?;
+    buffer.try_borrow_mut_data()?.copy_from_slice(&table.try_borrow_data()?);
+    table.try_borrow_mut_data()?.fill(0);
+    table.assign(&anchor_lang::system_program::ID);
+    anchor_lang::system_program::assign(
+        CpiContext::new_with_signer(
+            anchor_lang::system_program::ID,
+            anchor_lang::system_program::Assign { account_to_assign: table.clone() },
+            &[table_seeds],
+        ),
+        &ephemeral_rollups_sdk::id(),
+    )?;
+    cpi_delegate(
+        &vault,
+        &table,
+        &a.owner_program.to_account_info(),
+        &buffer,
+        &a.delegation_record_table.to_account_info(),
+        &a.delegation_metadata_table.to_account_info(),
+        &system,
+        &[table_seeds, vault_seeds],
+        DelegateAccountArgs { commit_frequency_ms: u32::MAX, seeds: vec![TABLE_SEED.to_vec(), pot_id.to_vec()], validator: Some(validator) },
+    )?;
+    close_pda_with_system_transfer(&buffer, &[buffer_seeds], &vault, &system)?;
+    Ok(())
 }
 
 /// Seat 0 or 1 from the oracle's randomness.
@@ -497,6 +667,9 @@ pub struct Start<'info> {
     /// CHECK: the ledger
     #[account(address = zol_ledger::ID)]
     pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: system-owned PDA holding lamports only; pays the table's delegation deposit
+    #[account(mut, seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
 }
 
 #[vrf]
@@ -546,6 +719,43 @@ pub struct Finish<'info> {
 }
 
 #[derive(Accounts)]
+pub struct RescueTable<'info> {
+    /// CHECK: the stuck table, owned by the delegation program; checked in the handler
+    #[account(mut)]
+    pub table: UncheckedAccount<'info>,
+    /// CHECK: the ledger receipt of the table's pot; owner, address and state checked
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: the table's delegation rent payer
+    #[account(mut, seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+    /// CHECK: delegation program PDA ["undelegation-request", table]; checked by it
+    #[account(mut)]
+    pub undelegation_request: UncheckedAccount<'info>,
+    /// CHECK: delegation program PDA ["delegation", table]
+    #[account(mut)]
+    pub delegation_record: UncheckedAccount<'info>,
+    /// CHECK: delegation program PDA ["delegation-metadata", table]
+    #[account(mut)]
+    pub delegation_metadata: UncheckedAccount<'info>,
+    /// CHECK: delegation program PDA ["state-diff", table] (pending commit, if any)
+    #[account(mut)]
+    pub commit_state: UncheckedAccount<'info>,
+    /// CHECK: delegation program PDA ["commit-state-record", table]
+    #[account(mut)]
+    pub commit_record: UncheckedAccount<'info>,
+    /// CHECK: the table's validator; refunded a pending commit's rent, if any
+    #[account(mut)]
+    pub validator: UncheckedAccount<'info>,
+    /// CHECK: this program (the table's owner program)
+    #[account(address = crate::ID)]
+    pub this_program: UncheckedAccount<'info>,
+    /// CHECK: the delegation program
+    #[account(address = ephemeral_rollups_sdk::id())]
+    pub delegation_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct CloseTable<'info> {
     #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = creator @ CoinflipError::BadAccount, close = creator)]
     pub table: Account<'info, Table>,
@@ -588,6 +798,14 @@ pub struct Landed {
     pub amount: u64,
 }
 #[event]
+pub struct RescueRequested {
+    pub table: Pubkey,
+}
+#[event]
+pub struct TableRescued {
+    pub table: Pubkey,
+}
+#[event]
 pub struct TableClosed {
     pub table: Pubkey,
     pub creator: Pubkey,
@@ -623,4 +841,8 @@ pub enum CoinflipError {
     BadValidator,
     #[msg("the pot is still live: not cashed out or refunded")]
     PotLive,
+    #[msg("the table is not delegated")]
+    NotDelegated,
+    #[msg("rescue needs the pot refunded by the ledger")]
+    NotRefunded,
 }

@@ -17,10 +17,11 @@ It was run end to end on MagicBlock's local stack with the real oracle. See "Wha
 | `register` | Solana | payer | One-off. CPI `register_app`, signed with the app's `["zol-app"]` address. The admin then activates the app |
 | `create_table(pot_id, stake, open_secs, validator)` | Solana | payer | CPI `open_pot` (signed `zol-app`). Creates `Table ["table", pot_id]`, naming the rollup validator, so players see who decides their pot before joining. The stake must be one deposit's net value at the ledger's entry fee, read from `Config` (see "Stakes are deposit denominations") |
 | `join` | Solana | **session key** | Refuses a second seat for the same player and a third player. CPI `buy_in(stake)` (signed `zol-app` plus the session key) |
-| `start(session_secs)` | Solana | payer (anyone) | Reads the **receipt**, not app state, for who is playing. Needs 2 seats at the stake. Marks the table `Started`, CPI `delegate_pot` with the receipt's stakes and the **table's** validator, then delegates the table to the same validator. Because the validator was fixed at creation, nobody can start someone else's table towards an unreachable validator |
+| `start(session_secs)` | Solana | payer (anyone; tops up the rent vault) | Reads the **receipt**, not app state, for who is playing. Needs 2 seats at the stake. Marks the table `Started`, CPI `delegate_pot` with the receipt's stakes and the **table's** validator, then delegates the table to the same validator. Because the validator was fixed at creation, nobody can start someone else's table towards an unreachable validator |
 | `flip(caller_seed)` | Rollup | payer (anyone) | Table `Started` → `Flipping`. Requests VRF randomness with callback `land`. Only MagicBlock's ephemeral queues are accepted (`ALLOWED_QUEUES`) |
 | `land(randomness)` | Rollup | **VRF scoped identity only** (`#[vrf_callback]`: `PDA(["identity", coinflip], vrf)` must sign) | `Flipping` → `Landed`. Winner seat = `random_u8 & 1`. CPI `move_seat(loser → winner, loser's amount)`, signed `zol-app` |
 | `finish` | Rollup | payer (anyone; may hold no SOL) | `Landed` → `Finished`. CPI `close_pot` (pot commit and undelegate), then commit and undelegate the table |
+| `rescue_table` | Solana | anyone | For a table stuck delegated once the ledger refunded its pot: requests undelegation (delegation program ix 26), then, after the 9,000-slot timeout, rolls the table back (ix 27). See "Rescuing a table" below |
 | `close_table` | Solana | anyone | Closes the `Table` and returns its rent (2,136,720 lamports) to `creator`, the `create_table` payer. Allowed only when the table is owned by coinflip, so not delegated, and the ledger's `PotReceipt` at `["receipt", table.pot]` (owner and address checked) is `CashedOut` or `Refunded`. That covers finished games and tables whose pot was refunded after the open deadline without ever starting |
 
 `cash_out`, `request_exit` and `settle` are ledger calls: anyone calls `cash_out` once the pot is back, and the player's session key signs `request_exit`.
@@ -32,26 +33,37 @@ It was run end to end on MagicBlock's local stack with the real oracle. See "Wha
 
 **Why the oracle queue is pinned.** `#[vrf_callback]` checks only that the VRF program's identity for this app signs, and that holds for a fulfilment from *any* queue. If `flip` accepted any queue, a caller could name a queue served by an oracle they run and choose the winner. `flip` therefore accepts only `DEFAULT_EPHEMERAL_QUEUE` and `DEFAULT_EPHEMERAL_TEST_QUEUE` from the SDK.
 
-**Stakes are deposit denominations.**
+**Stakes come from the ledger's denominations.**
 
-- `STAKE_DENOMINATIONS = [1_000_000, 10_000_000]` zatoshi. It must match the gateway's `denominations`; `gateway/examples/serve.example.json` and `zcash-leg/run.sh` use these values.
-- `create_table` requires `stake == d − floor(d × entry_fee_bps / 10_000)` for some `d` in the list: exactly one deposit's net credited value. At 30 bps that is 997,000 or 9,970,000.
-- `entry_fee_bps` is read from the ledger's `Config`, passed to `create_table` and checked by owner (the ledger) and address (`["config"]`). If the admin changes the fee, the accepted stakes follow it (test `stakes_follow_the_ledgers_entry_fee`).
-- Anything else is refused with `BadStake`, whose message now also covers this case.
+- The ledger's `Config.params.denominations` (up to four; 0 marks an unused slot) is the single list of permitted deposit amounts. The gateway and the coin flip both read it; the ledger refuses credits of other amounts.
+- `create_table` reads `Config`, checked by owner (the ledger) and address (`["config"]`). It requires `stake == d − floor(d × entry_fee_bps / 10_000)` for some nonzero `d`: exactly one deposit's net credited value. At 30 bps with `[1,000,000, 10,000,000]` that is 997,000 or 9,970,000.
+- If the admin changes the fee or the denominations, the accepted stakes follow (tests `stakes_follow_the_ledgers_entry_fee`, `stakes_follow_the_ledgers_denominations`).
+- Anything else is refused with `BadStake`.
 - So one deposit buys exactly one seat. The loser ends with 0, below the minimum exit, and the winner can exit.
-- The page offers only these stakes, computed from the live `Config` (`allowedStakes`, `decodeEntryFeeBps`).
+- The page offers only these stakes, decoded from the live `Config` (`decodeLedgerParams`, `allowedStakes`).
 
-**A table stuck in the rollup cannot be closed from Solana.**
+**Rescuing a table stuck in the rollup: `rescue_table`.**
 
-- If the VRF never answers, or nobody calls `finish`, the table stays delegated (owned by the delegation program). `close_table` then fails Anchor's owner check, even after the ledger refunds the pot after its session deadline plus grace.
-- Its rent (about 0.0021 SOL) stays locked until the validator undelegates it.
-- Follow-up: MagicBlock's devnet delegation program has an owner-program `RequestUndelegation` with `UndelegateWithRollbackAfterTimeout` (spike 0.9, about 60 minutes; not on mainnet yet). A `rescue_table` instruction could use it: request undelegation, then roll back and close.
+If the VRF never answers, or nobody calls `finish`, the table stays delegated, owned by the delegation program, and `close_table` fails Anchor's owner check. The ledger refunds the pot regardless, after its session deadline plus grace. The table and its rent (about 0.0021 SOL) are recovered with MagicBlock's owner-requested undelegation:
+
+- **`start` delegates the table through a rent vault.**
+  - The vault is a system-owned PDA `["rent-vault"]` of coinflip.
+  - `start` tops it up to 0.01 SOL from its payer, and the vault pays the table's delegation deposit, so it is the delegation's `rent_payer`.
+  - This replaces the SDK's `delegate_account` with the same steps signed by the vault (`delegate_table_via_vault`).
+  - The delegation program requires the rent payer's signature for `RequestUndelegation`; with the vault as rent payer, this program can give it. Anyone can therefore rescue, not only whoever called `start`.
+  - Undelegation and rollback refund the deposit's remainder to the vault, which pays for later tables.
+- **`rescue_table` (anyone).**
+  - Refused unless the ledger's receipt is `Refunded` (`NotRefunded`), so a live game is never pulled out of its rollup.
+  - Refused for a table that is not delegated (`NotDelegated`). The receipt and validator accounts are checked.
+  - **First call:** `RequestUndelegation` (delegation program ix 26), signed with the table's seeds and the vault. An honest validator then returns the table, with its rollup state, by itself; `close_table` follows.
+  - **If the validator is gone:** a second call after the request's timeout of 9,000 slots, about an hour at 400 ms, runs `UndelegateWithRollbackAfterTimeout` (ix 27). The table comes back to coinflip with its last committed bytes, the `Started` state from delegation, and `close_table` returns the rent to the creator.
+- **Depends on MagicBlock.** ix 26/27 are on the devnet delegation program only, not on mainnet (spike 0.9, probed 2026-10-10). On mainnet today the first call fails with the delegation program's `InvalidInstructionData`, and a stuck table keeps its rent until MagicBlock ships forced undelegation there. The pot is never at risk: the ledger refunds it without the rollup.
 
 **Costs per table** (spike 0.9 numbers). `start` delegates two accounts, the pot and the table, so a session forfeits two delegation deposits, about 0.003 SOL each on current devnet. These are paid by `start`'s payer. Rollup transactions are free, and `flip` and `finish` work with a payer that has no SOL.
 
 ## Tests
 
-### LiteSVM: `cargo test -p zol-tests --test coinflip` (19 pass)
+### LiteSVM: `cargo test -p zol-tests --test coinflip` (25 pass)
 
 These run against the real ledger and the real delegation program (`tests/fixtures/dlp.so`), and MagicBlock's VRF program (`tests/fixtures/vrf.so`, from `@magicblock-labs/ephemeral-validator` 0.14.10 local dumps).
 
@@ -82,6 +94,12 @@ Simulated, because LiteSVM has no rollup:
 | `close_rent_goes_only_to_the_creator` | Another `creator` account → `BadAccount`. A non-receipt account → `BadAccount` |
 | `stake_must_be_a_denominations_net_value` | 500,000; 1,000,000 (gross); 996,999; 10,000,000; 1 → `BadStake`. 997,000 and 9,970,000 accepted |
 | `stakes_follow_the_ledgers_entry_fee` | At 50 bps, 997,000 refused; 995,000 and 9,950,000 accepted |
+| `stakes_follow_the_ledgers_denominations` | Denominations `[2,000,000, 0, 50,000,000, 0]`: 997,000 refused; 1,994,000 and 49,850,000 accepted |
+| `start_delegates_the_table_with_the_rent_vault_as_rent_payer` | The table's delegation metadata names the vault as rent payer. The vault is system-owned. The Solana copy keeps the `Started` bytes |
+| `rescue_a_stuck_table_then_close_it` | Against the devnet delegation program (`fixtures/dlp.so`, which has ix 26/27). Stuck past the deadline and grace, then the ledger refunds and `close_table` is refused (owner). First `rescue_table` creates the undelegation request; a second before the timeout is refused by the delegation program. After 9,001 slots the rollback brings the table back with `Started` and its pot, the vault is refunded the deposit, and `close_table` returns the rent to the creator |
+| `rescue_refused_while_the_game_is_live` | `NotRefunded` while delegated, and still after the deadline until the ledger has refunded |
+| `rescue_refused_for_a_table_that_is_not_delegated` | `NotDelegated` |
+| `rescue_checks_the_receipt_and_validator_accounts` | Wrong receipt or wrong validator → `BadAccount` |
 | `create_table_checks_the_config_account` | A ledger account other than `Config`, or a random account → refused |
 
 The whole `zol-tests` suite still passes. `check_invariants` gained `check_invariants_for(app_program)`.
@@ -93,7 +111,7 @@ The whole `zol-tests` suite still passes. `check_invariants` gained `check_invar
 | `test/ua.test.ts` (31) | UA decoding against 27 vectors from `web/tools/ua-vectors`: 12 Orchard-only UAs from `zol_zcash::keys::encode_ua`, 12 Orchard + Sapling + P2PKH UAs from `zcash_address` 0.13, and 3 UAs with no Orchard receiver, across mainnet, testnet and regtest. The page's own encoder reproduces `encode_ua` byte for byte. Also: wrong network refused, checksum error, raw hex receiver, F4Jumble round trips |
 | `test/memo.test.ts` (5) | The page's memo equals the Rust golden vector (`crates/zol-wire/vectors/v0.3.json`) byte for byte, signature and text form included. The signature binds the network and the vault. ZIP 321 link carries the `ZOL1:` text. Zatoshi→ZEC. One session key per app, persisted |
 | `test/gateway.test.ts` (5) | Against `test/mock-gateway.ts`, which implements `zol_types::page` and verifies the memo signature over the vault address. Full deposit flow (intent registered, session UA, link). Intent sent to every operator, with one down reported but not fatal. Deposit polling, wrong-network and non-denomination refusals, error mapping |
-| `test/chain.test.ts` (4) | Instruction builders, `close_table` included, against `idl/zol_coinflip.json` and `idl/zol_ledger.json`: discriminators, account order, signer and writable flags. Table decoder with `creator`. Stakes at 30 and 50 bps; the `Config` entry-fee offset |
+| `test/chain.test.ts` (4) | Instruction builders, `close_table` and `rescue_table` included, against `idl/zol_coinflip.json` and `idl/zol_ledger.json`: discriminators, account order, signer and writable flags. Table decoder with `creator`. Stakes from fee and denominations; `decodeLedgerParams` offsets (checked against the ledger IDL's `Params`) |
 
 The UA decoder (`web/src/ua.ts`) is implemented here: bech32m from `@scure/base` with the 90-character limit lifted, F4Jumble and its inverse with BLAKE2b personalizations from ZIP 316 (`@noble/hashes`), and canonical compactSize TLV parsing. No small JavaScript library with UA support and F4Jumble was found that we could vouch for. The vectors are the check.
 
@@ -152,46 +170,24 @@ The script now mines one block about every 3 s, and the payout went through. Wit
 - The memo-dropped deposit then stayed `seen` at that operator and `held` at the other two. Only one operator had the intent, so no threshold could attest it.
 - Gateways do not share intents. The page now registers with every operator listed in its settings (`prepareDeposit` takes all page APIs and reports which accepted). The second run passed.
 
-### Program, rollup and VRF without the gateway: `coinflip setup` / `coinflip play` (B)
+### Program, rollup and VRF without the gateway: `coinflip setup` / `play` / `stuck` (B)
 
-The latest run (2026-10-10, after `close_table` and denomination stakes) uses the `dev-timings` ledger:
+The latest run (2026-10-10, after stakes from the ledger and `rescue_table`):
 
-- `start-local.sh` with `ZOL=1 ZOL_DIR=../../target/deploy-dev DLP=devnet VRF_CLEAN=1`;
-- clients with `ZOL_DEV_TIMINGS=1`;
-- real `initialize`, `register` (CPI `register_app`) and `activate_app`, with a 5 s activation delay;
-- credits signed by the throwaway local attestor.
+- `start-local.sh` with `TICKS=8 ZOL=1 ZOL_DIR=../../target/deploy-dev DLP=devnet VRF_CLEAN=1`. Fast slots, about 15 a second, make the 9,000-slot timeout about 10 minutes.
+- Clients with `ZOL_DEV_TIMINGS=1`.
+- Real `initialize`, `register` and `activate_app`, with a 5 s activation delay.
 
-From `setup` to the end of the page's run it took **51 s**.
+The whole run took 844 s, 656 s of it waiting out the rollback timeout.
 
-**Rust client** (`logs/coinflip-e2e-play.jsonl`): every step succeeded.
-
-| Step | Result |
+| Scenario | Result |
 |---|---|
-| `create_table` | stake 997,000 (`allowed_stakes(30)[0]`) |
-| `start` → visible in the rollup | 3 ms |
-| `flip` → `land` (VRF oracle) | 111 ms |
-| `finish` (zero-SOL payer) → pot and table back on Solana | **322 ms** |
-| `finish` → `cash_out` confirmed | 805 ms |
-| Balances | winner (seat 1) 1,994,000, loser 0 (`match: true`) |
-| `close_table`, called by a stranger | creator gained 2,136,720 lamports, exactly the table's rent; the table account is gone |
-| Loser's `request_exit` | refused (balance 0 < minimum exit) |
-| Winner `request_exit`, `settle` | payout 1,968,018. Conservation: `credited_total 2,000,000 = fee_pool 21,982 + unpaid 1,968,018` |
+| `play` (Rust) | Stake 997,000 from the live `Config`. `flip` → `land` 73 ms. `finish` → pot and table back 51 ms; `finish` → `cash_out` 225 ms. Balances 1,994,000 / 0. `close_table`: creator +2,136,720. The loser's `request_exit` is refused; the winner exits; settled 1,978,018; conservation holds |
+| `e2e-local.ts` (page code) | Stake 997,000 decoded from `Config` (`decodeLedgerParams`). `land` 138 ms, return 232 ms, `cash_out` 417 ms after `finish`. Balances 1,994,000 / 0. `close_table` +2,136,720. Loser's exit refused |
+| `stuck honest` | Started, no flip. Past the 60 s session and 10 s grace the ledger refunds both buy-ins (997,000 each) with pot and table still delegated. `rescue_table` (ix 26) → **the validator returned the table by itself 352 ms after the request**. `close_table`: creator +2,136,720 |
+| `stuck dead` | Same, with the rollup frozen (`SIGSTOP`) before the refund. `rescue_table` (ix 26) at slot 2,615, request expiring at 11,645. **After the timeout, `rescue_table` (ix 27) rolled the table back** (state `Started`), and `close_table` gave the creator +2,136,720 |
 
-The `finish` logs show `ScheduleCommit: parent program id: 3qh6…` for the pot (the ledger) and the coinflip program for the table.
-
-**The page's own code** (`web/scripts/e2e-local.ts`, `logs/coinflip-web-e2e.jsonl`):
-
-| Step | Result |
-|---|---|
-| Stake | read from the live `Config` (997,000) |
-| `flip` paid by a session key holding 0 SOL → `land` | 105 ms |
-| `finish` → return | 314 ms |
-| `finish` → `cash_out` | 745 ms |
-| Balances | 0 / 1,994,000 as expected |
-| `close_table` | +2,136,720 to the creator; table gone |
-| Exit | winner `request_exit` sets `exiting`; the loser's is refused |
-
-An earlier run with the release ledger waited the real 3600 s activation and gave the same results under the old free stakes.
+The release-ledger and real-hour runs from earlier in the day gave the same results for `play` under the earlier free and then constant stakes.
 
 ### MagicBlock's local VRF out of the box: broken, fixed here
 
@@ -246,7 +242,7 @@ Run `run.sh` again to reset; it kills the previous run first.
 ```sh
 cd spikes/magicblock
 export ZOL_DEV_TIMINGS=1                     # clients use 5 s activation / 10 s refund grace
-ZOL=1 ZOL_DIR=../../target/deploy-dev DLP=devnet VRF_CLEAN=1 ./start-local.sh &      # base :28899, ER :27799
+TICKS=8 ZOL=1 ZOL_DIR=../../target/deploy-dev DLP=devnet VRF_CLEAN=1 ./start-local.sh &   # fast slots for `stuck dead`; DLP=devnet has ix 26/27
 solana airdrop 100 -k keys/payer.json -u http://127.0.0.1:28899
 solana program deploy ../../target/deploy-dev/zol_coinflip.so --program-id ../../keys/zol_coinflip-keypair.json \
   -k keys/payer.json -u http://127.0.0.1:28899
@@ -255,7 +251,9 @@ VRF_ORACLE_SKIP_PREFLIGHT=true RPC_URL=http://127.0.0.1:27799 WEBSOCKET_URL=ws:/
 ./target/e2e/release/coinflip setup      # initialize the ledger, register coinflip, activate
 sleep 8                                  # the dev ledger's activation delay
 ./target/e2e/release/coinflip play       # credits, game, cash-out, close_table, exit, settle
-cd ../../web && npx vite-node scripts/e2e-local.ts   # the same game through the page's own code
+cd ../../web && npx vite-node scripts/e2e-local.ts && cd ../spikes/magicblock   # the page's own code
+./target/e2e/release/coinflip stuck honest   # stuck table: ledger refund, rescue (ix 26), validator returns it, close
+./target/e2e/release/coinflip stuck dead     # same with the rollup frozen: rescue, wait 9,000 slots, rollback (ix 27), close
 ```
 
 With the release ledger (`ZOL_DIR=../../target/deploy`, no `ZOL_DEV_TIMINGS`) the activation delay is at least 3600 s, and solana-test-validator's clock cannot be warped (`--warp-slot` moves the slot, not `unix_timestamp`).
@@ -302,6 +300,6 @@ The page flow:
 - **Page API notes** (now fixed by the gateway side): `SessionInfo.receiver_index` is a decimal string, and `AppInfo.state` can be `"unregistered"`. The page treats any state other than `active` as not ready.
 - **Session-key custody** (design, "Apps and developer surface"): the page holds the key in localStorage, so the page can sign anything the key can sign. Moving key creation into the wallet is the fix.
 - **Liveness.** A table whose VRF never answers stays `Flipping`. Its pot is refunded by the ledger after the session deadline plus grace (`refund_pot`). `finish` cannot run without a result, by design.
-- **Rent recovery** is done with `close_table`, except for a table stuck delegated (see "A table stuck in the rollup", under The program).
-- **Stakes and denominations are coupled by a constant.** `STAKE_DENOMINATIONS` must be changed together with the gateway's `denominations`. Reading them from an on-chain source would remove the coupling, but the ledger does not store denominations today.
+- **Rent recovery** is done with `close_table`; a table stuck delegated first needs `rescue_table`.
+- **Rescue on mainnet** waits on MagicBlock deploying ix 26/27 there (see "Rescuing a table").
 - **Devnet.** Not run: the devnet faucet refuses airdrops (spike 0.9). On devnet the queue is `DEFAULT_EPHEMERAL_QUEUE` (`5hBR571x…`), already accepted by `flip`.

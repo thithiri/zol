@@ -1,6 +1,134 @@
-[2026-10-10T10:04:26Z INFO  vrf_oracle] HTTP server listening on 0.0.0.0:28181 (try: curl http://localhost:28181/stats)
-[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Starting VRF Oracle with public key: paywJiVATrVDLYLmowJqzG6MsaCt77L8WyTnBb2754t
-[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Connecting to WebSocket: ws://127.0.0.1:27800
-[2026-10-10T10:04:26Z INFO  vrf_oracle::oracle::client] Update source connected successfully
-[2026-10-10T10:04:38Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
-[2026-10-10T10:04:46Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
+[2026-10-10T12:20:21Z INFO  vrf_oracle] HTTP server listening on 0.0.0.0:28181 (try: curl http://localhost:28181/stats)
+[2026-10-10T12:20:21Z INFO  vrf_oracle::oracle::client] Starting VRF Oracle with public key: paywJiVATrVDLYLmowJqzG6MsaCt77L8WyTnBb2754t
+[2026-10-10T12:20:21Z INFO  vrf_oracle::oracle::client] Connecting to WebSocket: ws://127.0.0.1:27800
+[2026-10-10T12:20:21Z INFO  vrf_oracle::oracle::client] Update source connected successfully
+[2026-10-10T12:20:31Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
+[2026-10-10T12:20:34Z INFO  vrf_oracle::oracle::processor] Processing queue: Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT, with len: 1
+[2026-10-10T12:22:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:23:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:23:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:24:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:24:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:25:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:25:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:26:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:26:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:27:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:27:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:28:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:28:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:29:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:29:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:30:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:30:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:31:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:31:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:32:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:32:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:33:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:33:51Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:34:21Z ERROR vrf_oracle::oracle::client] Periodic fetch_and_process_program_accounts failed: error sending request for url (http://127.0.0.1:27799/)
+    
+    Caused by:
+        0: error sending request for url (http://127.0.0.1:27799/)
+        1: operation timed out
+[2026-10-10T12:34:25Z INFO  solana_pubsub_client::pubsub_client] receive error: UnexpectedMessageError("msg=connection inactive for too long")
+[2026-10-10T12:34:25Z INFO  solana_pubsub_client::pubsub_client] websocket - exited receive loop
+[2026-10-10T12:34:25Z INFO  solana_pubsub_client::pubsub_client] websocket thread - shutting down
+[2026-10-10T12:34:25Z INFO  solana_pubsub_client::pubsub_client] websocket thread - shut down.
+[2026-10-10T12:34:25Z WARN  solana_pubsub_client::pubsub_client] unable to unsubscribe from websocket
+[2026-10-10T12:34:26Z WARN  vrf_oracle::oracle::client] Update source stream ended. Attempting to reconnect...
+[2026-10-10T12:34:26Z INFO  vrf_oracle::oracle::client] Connecting to WebSocket: ws://127.0.0.1:27800
+[2026-10-10T12:34:26Z INFO  vrf_oracle::oracle::client] Update source connected successfully
