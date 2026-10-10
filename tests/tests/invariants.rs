@@ -185,7 +185,12 @@ impl World {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, max_shrink_iters: 200, ..ProptestConfig::default() })]
+    // 64 cases by default (fast tier); PROPTEST_CASES=2000 in the full tier.
+    #![proptest_config(ProptestConfig {
+        cases: std::env::var("PROPTEST_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(64),
+        max_shrink_iters: 200,
+        ..ProptestConfig::default()
+    })]
 
     #[test]
     fn invariants_hold_under_random_sequences(ops in prop::collection::vec(op(), 20..120)) {

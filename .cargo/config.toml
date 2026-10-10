@@ -1,0 +1,4 @@
+# Shared compilation cache for both workspaces (root and crates/zol-zcash), so
+# dependencies built once are reused across them and across `cargo clean`.
+[build]
+rustc-wrapper = "sccache"

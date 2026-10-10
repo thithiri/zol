@@ -25,6 +25,29 @@ Status: Phases 0–4 of the plan, and the flagship app (Phase 5.3). Spike findin
 
 ## Build and test
 
+```bash
+scripts/test.sh fast
+```
+
+```bash
+scripts/test.sh regtest
+```
+
+```bash
+scripts/test.sh full
+```
+
+| Tier | What it runs | Time (warm, this machine) |
+|---|---|---|
+| `fast` | Unit, LiteSVM ledger and coin-flip, zol-zcash offline, web and wire tests; no external services | About 42 s |
+| `regtest` | `fast` + every Zakura-backed suite (zol-zcash regtest, gateway cross-process and multi-host); starts the Zakura pair if needed | About 7.5 min |
+| `full` | `regtest` + the 2,000-case invariant fuzz + the local Zcash-leg end to end (MagicBlock stack, VRF, three gateways) | Not timed yet; the Zcash-leg run alone took about 8 min |
+
+The tiers use `cargo-nextest` (parallel test processes; config in `.config/nextest.toml`) and `sccache` (`.cargo/config.toml`, shared by both workspaces). Dependencies build optimised in dev, so LiteSVM tests run in seconds. Keep `target/` warm: a cold build adds several minutes per workspace. The invariant fuzz runs 64 cases by default; set `PROPTEST_CASES` for more.
+
+The individual commands below still work.
+
+
 Requirements: Rust 1.97.1 for the host (pinned in `rust-toolchain.toml`, because LiteSVM 0.18 needs it), solana-cli 3.0 with platform-tools v1.52 (anchor-lang 1.2 needs rustc ≥ 1.89, and the v1.51 default is too old), anchor-cli 1.2.1 for the IDL, and bun for the TypeScript vectors.
 
 ```bash

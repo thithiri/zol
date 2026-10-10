@@ -1,0 +1,12 @@
+# cargo-nextest: runs test binaries in parallel processes.
+[profile.default]
+# LiteSVM tests are CPU-bound; leave a core free.
+test-threads = "num-cpus"
+slow-timeout = { period = "60s", terminate-after = 10 }
+failure-output = "immediate-final"
+
+# Regtest and validator suites share one Zakura pair: run them one at a time.
+[profile.regtest]
+test-threads = 1
+slow-timeout = { period = "120s", terminate-after = 15 }
+failure-output = "immediate-final"
