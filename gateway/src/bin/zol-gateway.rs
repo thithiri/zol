@@ -139,6 +139,7 @@ fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
             );
         }
         let node = Node {
+            heads: Default::default(),
             name: o.name.clone(),
             store: Store::open(o.store.to_str().ok_or("store path")?)?,
             cfg: cfg.gateway.clone(),
@@ -149,7 +150,7 @@ fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
         };
         operators.push(Operator::new(node, zcashd)?);
     }
-    let mut cluster = Cluster { operators, pubkeys, threshold: cfg.threshold, coordinator: cfg.coordinator, session: 0 };
+    let mut cluster = Cluster { operators, pubkeys, threshold: cfg.threshold, coordinator: cfg.coordinator, session: 0, attempts: Default::default() };
     let mut n = 0u64;
     loop {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64;

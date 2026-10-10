@@ -20,6 +20,48 @@ impl Default for Depths {
     }
 }
 
+/// Payout policy (design signer rule 8, "Privacy": schedule and padding).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayoutPolicy {
+    /// Most settlement records paid in one head transition.
+    pub max_records_per_tx: u32,
+    /// Most inputs besides the head.
+    pub max_inputs: u32,
+    /// Fixed action counts; a transition is padded up to the smallest that fits.
+    pub action_sizes: Vec<u32>,
+    /// Pay at most this often per app (seconds), unless `batch_records` are waiting.
+    pub interval_secs: i64,
+    pub batch_records: u32,
+    /// A payout line above this needs every operator and `large_delay_secs`.
+    pub payout_cap: u64,
+    pub large_delay_secs: i64,
+    /// Total paid per app per rolling hour.
+    pub hourly_cap: u64,
+    /// Transitions that pay nothing (consolidation): at most this often.
+    pub consolidate_interval_secs: i64,
+    /// Consolidate when this many spendable non-head notes have accumulated.
+    pub consolidate_at_notes: u32,
+    pub expiry_delta: u32,
+}
+
+impl Default for PayoutPolicy {
+    fn default() -> Self {
+        Self {
+            max_records_per_tx: 4,
+            max_inputs: 8,
+            action_sizes: vec![4, 8, 16, 32],
+            interval_secs: 0,
+            batch_records: 1,
+            payout_cap: 100_000_000_000,
+            large_delay_secs: 3_600,
+            hourly_cap: u64::MAX,
+            consolidate_interval_secs: 3_600,
+            consolidate_at_notes: 16,
+            expiry_delta: 40,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GatewayConfig {
     pub network: u8,
@@ -30,6 +72,8 @@ pub struct GatewayConfig {
     pub denominations: Vec<u64>,
     /// Seconds without a new tip before the gateway halts.
     pub tip_stall_secs: i64,
+    #[serde(default)]
+    pub payout: PayoutPolicy,
 }
 
 impl GatewayConfig {

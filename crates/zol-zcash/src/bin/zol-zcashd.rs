@@ -32,7 +32,7 @@ use zol_wire::{HeadMemo, TopUpMemo};
 use zol_zcash::{
     encode_ua,
     frost::{self, Identifier, KeyPackage, PublicKeyPackage},
-    genesis, refund,
+    genesis, payout, refund,
     scan::{Account, BlockItem, Pool, ScannerConfig, SyncStep},
     testing,
     zebra::ZebraClient,
@@ -40,7 +40,7 @@ use zol_zcash::{
 };
 
 const DEV_WALLET_ID: [u8; 32] = [0xDE; 32];
-const STATE_VERSION: u32 = 1;
+const STATE_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------- config
 
@@ -116,6 +116,27 @@ struct Persisted {
     log_tip: u32,
     scanner: Vec<u8>,
     refunds: Vec<RefundRecord>,
+    pending: Vec<([u8; 32], PendingTx)>,
+}
+
+/// A broadcast, unmined head transition this daemon aggregated.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct PendingTx {
+    txid: [u8; 32],
+    expiry_height: u32,
+    head_nullifier: [u8; 32],
+}
+
+/// One distributed signing session (FROST round 1 state). Nonces are single use.
+struct Session {
+    app: [u8; 32],
+    sighash: [u8; 32],
+    identifier: Identifier,
+    app_kp: KeyPackage,
+    /// (action index, alpha) of every vault spend.
+    actions: Vec<(u32, [u8; 32])>,
+    nonces: Option<BTreeMap<u32, frost::SigningNonces>>,
+    commitments: Vec<(u32, Vec<u8>)>,
 }
 
 struct Inner {
@@ -124,6 +145,9 @@ struct Inner {
     /// Dev wallet notes used by unmined dev transactions: nullifier -> expiry height.
     dev_pending: BTreeMap<[u8; 32], u32>,
     last_error: Option<String>,
+    /// app -> broadcast head transition.
+    pending: BTreeMap<[u8; 32], PendingTx>,
+    sessions: BTreeMap<u64, Session>,
 }
 
 struct Log {
@@ -144,6 +168,9 @@ struct Node {
     client: ZebraClient,
     apps: BTreeMap<[u8; 32], AppKeys>,
     shares: BTreeMap<Identifier, KeyPackage>,
+    /// The share this daemon uses for distributed signing (/sign/*): its only share in
+    /// operator mode, the first in cluster mode, share `--dev-share` in dev mode.
+    signer: Option<(Identifier, KeyPackage)>,
     pubkeys: PublicKeyPackage,
     min_signers: u16,
     ak_group: [u8; 32],
@@ -171,6 +198,7 @@ impl Node {
             log_tip,
             scanner: inner.scanner.snapshot().map_err(|e| e.to_string())?,
             refunds: inner.refunds.values().cloned().collect(),
+            pending: inner.pending.iter().map(|(a, p)| (*a, *p)).collect(),
         };
         let bytes = bincode::serialize(&p).map_err(|e| e.to_string())?;
         let tmp = self.state_dir.join("state.bin.tmp");
@@ -542,6 +570,426 @@ async fn post_refund(State(n): S, Json(req): Json<api::RefundRequest>) -> R<api:
     }))
 }
 
+// ---------------------------------------------------------------- Phase 4: heads, payouts, distributed signing
+
+/// A known, unspent, Ironwood deposit note of `app` (not internal scope, not a head or top-up).
+fn deposit_note(
+    sc: &Scanner,
+    app: &[u8; 32],
+    cmx: &[u8; 32],
+) -> Result<zol_zcash::ScannedNote, ApiErr> {
+    let note = sc
+        .note_by_cmx(cmx)
+        .filter(|x| &x.app_id == app)
+        .ok_or_else(|| not_found("unknown note for this app"))?;
+    if note.pool != Pool::Ironwood {
+        return Err(bad("not an Ironwood note"));
+    }
+    if note.scope == OScope::Internal
+        || HeadMemo::decode(&note.memo).is_ok()
+        || TopUpMemo::decode(&note.memo).is_ok()
+    {
+        return Err(bad("not a deposit note (internal scope, head or top-up)"));
+    }
+    if sc.spend_of(cmx).is_some() {
+        return Err(conflict("note already spent"));
+    }
+    Ok(note.clone())
+}
+
+fn receiver43(v: &[u8]) -> Result<[u8; 43], ApiErr> {
+    let to: [u8; 43] = v
+        .to_vec()
+        .try_into()
+        .map_err(|_| bad("`to` must be 43 bytes"))?;
+    if bool::from(orchard::Address::from_raw_address_bytes(&to).is_none()) {
+        return Err(bad("`to` is not a valid Orchard-protocol receiver"));
+    }
+    Ok(to)
+}
+
+/// The broadcast transition this daemon knows for `app`'s current head, if still live.
+fn pending_for(
+    inner: &Inner,
+    app: &[u8; 32],
+    current: Option<&zol_zcash::head::Link>,
+) -> Option<[u8; 32]> {
+    let p = inner.pending.get(app)?;
+    let live = inner.scanner.tip().0 < p.expiry_height
+        && current.is_some_and(|h| h.note.nullifier == p.head_nullifier);
+    live.then_some(p.txid)
+}
+
+fn unprocessable(msg: impl ToString) -> ApiErr {
+    ApiErr(StatusCode::UNPROCESSABLE_ENTITY, msg.to_string())
+}
+
+#[derive(Deserialize)]
+struct HeadQ {
+    app: String,
+    genesis: String,
+}
+
+async fn get_head(State(n): S, Query(q): Query<HeadQ>) -> R<api::HeadChain> {
+    let keys = app_of(&n, &q.app)?;
+    let genesis = hex32(&q.genesis).map_err(bad)?;
+    let inner = n.inner.lock().await;
+    let walk = zol_zcash::head::walk(&inner.scanner, keys, &genesis);
+    let pending = pending_for(&inner, &keys.app_id, walk.current());
+    Ok(Json(api::HeadChain {
+        app: keys.app_id,
+        chain: walk.links.iter().map(|l| l.to_api()).collect(),
+        pending,
+        fault: walk.fault.clone(),
+        tip: inner.scanner.tip().0,
+    }))
+}
+
+async fn payout_propose(State(n): S, Json(plan): Json<api::PayoutPlan>) -> R<api::Proposal> {
+    let keys = n
+        .apps
+        .get(&plan.app)
+        .ok_or_else(|| not_found("unknown app"))?;
+    let _op = n.ops.lock().await;
+    let inner = n.inner.lock().await;
+    let (prop, _) = tokio::task::block_in_place(|| {
+        payout::propose(
+            &n.params,
+            keys,
+            &inner.scanner,
+            &plan,
+            &payout::Tamper::default(),
+        )
+    })
+    .map_err(unprocessable)?;
+    Ok(Json(prop))
+}
+
+async fn payout_verify(State(n): S, Json(req): Json<api::VerifyRequest>) -> R<api::VerifyResponse> {
+    let keys = n
+        .apps
+        .get(&req.plan.app)
+        .ok_or_else(|| not_found("unknown app"))?;
+    let inner = n.inner.lock().await;
+    let walk = zol_zcash::head::walk(&inner.scanner, keys, &req.plan.genesis_head);
+    let pending = pending_for(&inner, &keys.app_id, walk.current());
+    Ok(Json(tokio::task::block_in_place(|| {
+        payout::verify(keys, &inner.scanner, &req.plan, &req.pczt, pending)
+    })))
+}
+
+async fn refund_propose(
+    State(n): S,
+    Json(req): Json<api::RefundRequest>,
+) -> R<api::RefundProposal> {
+    let keys = n
+        .apps
+        .get(&req.app)
+        .ok_or_else(|| not_found("unknown app"))?
+        .clone();
+    let to = receiver43(&req.to)?;
+    let _op = n.ops.lock().await;
+    let (sp, tip) = {
+        let inner = n.inner.lock().await;
+        deposit_note(&inner.scanner, &req.app, &req.cmx)?;
+        let tip = inner.scanner.tip().0;
+        if let Some(rec) = inner.refunds.get(&req.cmx) {
+            if tip < rec.expiry_height {
+                return Err(conflict(format!(
+                    "a refund of this note is pending: txid {}",
+                    hex::encode(rec.txid)
+                )));
+            }
+        }
+        (
+            inner.scanner.spendable(&req.cmx, None).map_err(internal)?,
+            tip,
+        )
+    };
+    let (params, delta) = (n.params, n.expiry_delta);
+    let r = tokio::task::spawn_blocking(move || {
+        refund::build(&params, &keys, &sp, &to, tip + 1, delta)
+    })
+    .await
+    .map_err(internal)?
+    .map_err(unprocessable)?;
+    let sighash = zol_zcash::tx::sighash(&r.pczt).map_err(internal)?;
+    Ok(Json(api::RefundProposal {
+        pczt: r
+            .pczt
+            .clone()
+            .serialize()
+            .map_err(|e| internal(format!("{e:?}")))?,
+        sighash,
+        expiry_height: r.expiry_height,
+        value: r.refund_value,
+        fee: r.fee,
+    }))
+}
+
+async fn sign_commit(State(n): S, Json(req): Json<api::CommitRequest>) -> R<api::CommitResponse> {
+    let (id, kp) = n.signer.clone().ok_or_else(|| {
+        ApiErr(
+            StatusCode::NOT_IMPLEMENTED,
+            "this daemon holds no FROST share".into(),
+        )
+    })?;
+    let pczt = pczt::Pczt::parse(&req.pczt).map_err(|e| bad(format!("pczt: {e:?}")))?;
+    let sighash = zol_zcash::tx::sighash(&pczt).map_err(|e| bad(e.to_string()))?;
+    let mut inner = n.inner.lock().await;
+    if let Some(s) = inner.sessions.get(&req.session) {
+        if s.sighash == sighash && s.nonces.is_some() {
+            return Ok(Json(api::CommitResponse {
+                identifier: s.identifier.serialize(),
+                commitments: s.commitments.clone(),
+            }));
+        }
+        return Err(conflict(
+            "session already bound to another transaction, or its nonces were used",
+        ));
+    }
+    let tip = inner.scanner.tip().0;
+    let keys = match &req.kind {
+        api::SignKind::Payout { plan } => {
+            let keys = n
+                .apps
+                .get(&plan.app)
+                .ok_or_else(|| not_found("unknown app"))?;
+            let walk = zol_zcash::head::walk(&inner.scanner, keys, &plan.genesis_head);
+            let pending = pending_for(&inner, &keys.app_id, walk.current());
+            let v = tokio::task::block_in_place(|| {
+                payout::verify(keys, &inner.scanner, plan, &req.pczt, pending)
+            });
+            if !v.ok {
+                return Err(unprocessable(format!(
+                    "verify failed: {}",
+                    v.failures.join(",")
+                )));
+            }
+            keys
+        }
+        api::SignKind::Refund { app, cmx, to } => {
+            let keys = n.apps.get(app).ok_or_else(|| not_found("unknown app"))?;
+            let note = deposit_note(&inner.scanner, app, cmx)?;
+            let to = receiver43(to)?;
+            let pz = &pczt;
+            tokio::task::block_in_place(|| refund::check_pczt(pz, keys, &note.note(), &to, tip))
+                .map_err(|e| unprocessable(format!("refund check failed: {e}")))?;
+            keys
+        }
+    };
+    let actions = payout::vault_spends(keys, &pczt).map_err(internal)?;
+    if actions.is_empty() {
+        return Err(unprocessable("no vault spend to sign"));
+    }
+    let (app_kp, _) = frost::app_packages(keys, &kp, &n.pubkeys).map_err(internal)?;
+    let mut nonces = BTreeMap::new();
+    let mut commitments = vec![];
+    for (idx, _) in &actions {
+        let (nn, c) = frost::commit(&app_kp, &mut rand::rngs::OsRng);
+        nonces.insert(*idx, nn);
+        commitments.push((*idx, c.serialize().map_err(|e| internal(format!("{e:?}")))?));
+    }
+    inner.sessions.insert(
+        req.session,
+        Session {
+            app: keys.app_id,
+            sighash,
+            identifier: id,
+            app_kp,
+            actions,
+            nonces: Some(nonces),
+            commitments: commitments.clone(),
+        },
+    );
+    Ok(Json(api::CommitResponse {
+        identifier: id.serialize(),
+        commitments,
+    }))
+}
+
+/// Every signer's commitment for action `idx`.
+fn commitments_for(
+    list: &[api::CommitResponse],
+    idx: u32,
+) -> Result<BTreeMap<Identifier, frost::SigningCommitments>, ApiErr> {
+    let mut m = BTreeMap::new();
+    for c in list {
+        let id = Identifier::deserialize(&c.identifier)
+            .map_err(|e| bad(format!("identifier: {e:?}")))?;
+        let (_, bytes) = c
+            .commitments
+            .iter()
+            .find(|(i, _)| *i == idx)
+            .ok_or_else(|| bad(format!("signer missing a commitment for action {idx}")))?;
+        m.insert(
+            id,
+            frost::SigningCommitments::deserialize(bytes)
+                .map_err(|e| bad(format!("commitments: {e:?}")))?,
+        );
+    }
+    Ok(m)
+}
+
+async fn sign_share(State(n): S, Json(req): Json<api::ShareRequest>) -> R<api::ShareResponse> {
+    let mut inner = n.inner.lock().await;
+    let s = inner
+        .sessions
+        .get_mut(&req.session)
+        .ok_or_else(|| not_found("unknown session"))?;
+    let mine = req
+        .commitments
+        .iter()
+        .find(|c| c.identifier == s.identifier.serialize());
+    if mine.map(|c| &c.commitments) != Some(&s.commitments) {
+        return Err(conflict(
+            "the package does not contain this signer's own round-1 commitments",
+        ));
+    }
+    let nonces = s
+        .nonces
+        .take()
+        .ok_or_else(|| conflict("nonces of this session were already used"))?;
+    let mut shares = vec![];
+    for (idx, alpha) in s.actions.clone() {
+        let comms = commitments_for(&req.commitments, idx)?;
+        let sp = frost::SigningPackage::new(comms, &s.sighash);
+        let share =
+            frost::sign_share(&sp, &nonces[&idx], &s.app_kp, &alpha).map_err(unprocessable)?;
+        shares.push((idx, share.serialize()));
+    }
+    let identifier = s.identifier.serialize();
+    Ok(Json(api::ShareResponse { identifier, shares }))
+}
+
+async fn sign_aggregate(State(n): S, Json(req): Json<api::AggregateRequest>) -> R<api::Broadcast> {
+    let mut pczt = pczt::Pczt::parse(&req.pczt).map_err(|e| bad(format!("pczt: {e:?}")))?;
+    let sighash = zol_zcash::tx::sighash(&pczt).map_err(|e| bad(e.to_string()))?;
+    // The app: from this daemon's own session if it signed, else the app whose key the
+    // spends' rk follow from.
+    let sess_app = n
+        .inner
+        .lock()
+        .await
+        .sessions
+        .get(&req.session)
+        .map(|s| s.app);
+    let keys = match sess_app.and_then(|a| n.apps.get(&a)) {
+        Some(k) => k.clone(),
+        None => {
+            let mut owners = n.apps.values().filter(|k| {
+                payout::vault_spends(k, &pczt)
+                    .map(|v| !v.is_empty())
+                    .unwrap_or(false)
+            });
+            let k = owners
+                .next()
+                .ok_or_else(|| bad("no vault spend of a configured app"))?
+                .clone();
+            if owners.next().is_some() {
+                return Err(bad("spends of several apps"));
+            }
+            k
+        }
+    };
+    let app_pk = frost::tweak_public_package(&n.pubkeys, &keys.tweak).map_err(internal)?;
+    let spends = payout::vault_spends(&keys, &pczt).map_err(internal)?;
+    for (idx, alpha) in &spends {
+        let comms = commitments_for(&req.commitments, *idx)?;
+        let mut shares = BTreeMap::new();
+        for sr in &req.shares {
+            let id = Identifier::deserialize(&sr.identifier)
+                .map_err(|e| bad(format!("identifier: {e:?}")))?;
+            let (_, b) = sr
+                .shares
+                .iter()
+                .find(|(i, _)| i == idx)
+                .ok_or_else(|| bad(format!("missing share for action {idx}")))?;
+            shares.insert(
+                id,
+                frost::SignatureShare::deserialize(b).map_err(|e| bad(format!("share: {e:?}")))?,
+            );
+        }
+        let sp = frost::SigningPackage::new(comms, &sighash);
+        let sig = frost::aggregate(&sp, &shares, &app_pk, alpha).map_err(unprocessable)?;
+        pczt = zol_zcash::tx::apply_signature(pczt, *idx as usize, sig).map_err(unprocessable)?;
+    }
+    let expiry_height = *pczt.global().expiry_height();
+    // What this transaction spends and pays, for the pending records.
+    let (nfs, value_out, fee) = zol_zcash::tx::with_ironwood(&pczt, |b| {
+        let nfs: Vec<[u8; 32]> = spends
+            .iter()
+            .map(|(i, _)| b.actions()[*i as usize].spend().nullifier().to_bytes())
+            .collect();
+        let out = b
+            .actions()
+            .iter()
+            .filter_map(|a| {
+                let r = (*a.output().recipient())?;
+                let v = (*a.output().value())?.inner();
+                (v > 0 && keys.fvk().scope_for_address(&r).is_none())
+                    .then(|| (r.to_raw_address_bytes().to_vec(), v))
+            })
+            .next();
+        (nfs, out, b.value_sum().magnitude_sign().0)
+    })
+    .map_err(internal)?;
+    let params = n.params;
+    let (raw, txid) = tokio::task::spawn_blocking(move || zol_zcash::tx::extract(pczt, &params))
+        .await
+        .map_err(internal)?
+        .map_err(unprocessable)?;
+    n.client
+        .send_raw_transaction(&raw)
+        .await
+        .map_err(upstream)?;
+    let mut inner = n.inner.lock().await;
+    for nf in nfs {
+        let Some(note) = inner
+            .scanner
+            .all_notes()
+            .find(|x| x.nullifier == nf && x.app_id == keys.app_id)
+            .cloned()
+        else {
+            continue;
+        };
+        if note.scope == OScope::Internal && HeadMemo::decode(&note.memo).is_ok() {
+            inner.pending.insert(
+                keys.app_id,
+                PendingTx {
+                    txid,
+                    expiry_height,
+                    head_nullifier: nf,
+                },
+            );
+        } else if let Some((to, value)) = value_out.clone() {
+            if spends.len() == 1 {
+                inner.refunds.insert(
+                    note.cmx,
+                    RefundRecord {
+                        cmx: note.cmx,
+                        app: keys.app_id,
+                        to,
+                        txid,
+                        value,
+                        fee,
+                        expiry_height,
+                    },
+                );
+            }
+        }
+    }
+    let (seq, ltip) = {
+        let log = n.log.read().await;
+        (log.last_seq, log.tip)
+    };
+    n.write_state(&inner, seq, ltip).map_err(internal)?;
+    Ok(Json(api::Broadcast {
+        txid,
+        expiry_height,
+    }))
+}
+
 /// Most dev wallet notes one dev transaction spends (bounds proof size and time).
 const MAX_DEV_INPUTS: usize = 40;
 /// Most coinbase blocks one dev request mines to fund itself.
@@ -841,8 +1289,9 @@ async fn run() -> Result<(), String> {
         println!("shares = [\n  {},\n]", shares.join(",\n  "));
         return Ok(());
     }
-    let cfg_path =
-        arg("--config").ok_or("usage: zol-zcashd --config <file.toml> [--dev] [--dev-seed <s>]")?;
+    let cfg_path = arg("--config").ok_or(
+        "usage: zol-zcashd --config <file.toml> [--dev [--dev-seed <s>] [--dev-share <i>]]",
+    )?;
     let cfg: Config = toml::from_str(
         &std::fs::read_to_string(&cfg_path).map_err(|e| format!("{cfg_path}: {e}"))?,
     )
@@ -869,6 +1318,20 @@ async fn run() -> Result<(), String> {
         }
         (None, false) => return Err("`keys` is required without --dev".into()),
     };
+    let mut keys = keys;
+    if let Some(i) = arg("--dev-share") {
+        if dev.is_none() {
+            return Err("--dev-share needs --dev".into());
+        }
+        let i: usize = i.parse().map_err(|_| "--dev-share <index>")?;
+        let (id, kp) = keys
+            .shares
+            .iter()
+            .nth(i)
+            .map(|(a, b)| (*a, b.clone()))
+            .ok_or("--dev-share index out of range")?;
+        keys.shares = BTreeMap::from([(id, kp)]);
+    }
     let ak_group = frost::group_key(&keys.pubkeys);
     let min_signers = keys.pubkeys.min_signers().unwrap_or(2);
     let mut apps = BTreeMap::new();
@@ -883,8 +1346,13 @@ async fn run() -> Result<(), String> {
                 .map_err(|e| e.to_string())?,
         );
     }
+    let signer = keys.shares.iter().next().map(|(a, b)| (*a, b.clone()));
     let mode = if dev.is_some() {
-        "dev"
+        if keys.shares.len() as u16 >= min_signers {
+            "dev"
+        } else {
+            "dev-operator"
+        }
     } else if keys.shares.len() as u16 >= min_signers {
         "cluster"
     } else {
@@ -924,7 +1392,7 @@ async fn run() -> Result<(), String> {
 
     let state_path = cfg.state_dir.join("state.bin");
     let log_path = cfg.state_dir.join("events.jsonl");
-    let (scanner, refunds, log) = if state_path.exists() {
+    let (scanner, refunds, pending, log) = if state_path.exists() {
         let p: Persisted =
             bincode::deserialize(&std::fs::read(&state_path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
@@ -946,9 +1414,11 @@ async fn run() -> Result<(), String> {
         }
         let events = load_log(&log_path, p.last_seq)?;
         let refunds = p.refunds.into_iter().map(|r| (r.cmx, r)).collect();
+        let pending = p.pending.into_iter().collect();
         (
             sc,
             refunds,
+            pending,
             Log {
                 events,
                 last_seq: p.last_seq,
@@ -965,6 +1435,7 @@ async fn run() -> Result<(), String> {
         (
             sc,
             BTreeMap::new(),
+            BTreeMap::new(),
             Log {
                 events: vec![],
                 last_seq: 0,
@@ -979,6 +1450,7 @@ async fn run() -> Result<(), String> {
         client,
         apps,
         shares: keys.shares,
+        signer,
         pubkeys: keys.pubkeys,
         min_signers,
         ak_group,
@@ -989,6 +1461,8 @@ async fn run() -> Result<(), String> {
             refunds,
             dev_pending: BTreeMap::new(),
             last_error: None,
+            pending,
+            sessions: BTreeMap::new(),
         }),
         log: RwLock::new(log),
         ops: Mutex::new(()),
@@ -1016,6 +1490,13 @@ async fn run() -> Result<(), String> {
         .route("/session_receiver", get(session_receiver))
         .route("/valid_receiver", get(valid_receiver))
         .route("/refund", post(post_refund))
+        .route("/refund/propose", post(refund_propose))
+        .route("/head", get(get_head))
+        .route("/payout/propose", post(payout_propose))
+        .route("/payout/verify", post(payout_verify))
+        .route("/sign/commit", post(sign_commit))
+        .route("/sign/share", post(sign_share))
+        .route("/sign/aggregate", post(sign_aggregate))
         .route("/health", get(health));
     if node.dev.is_some() {
         app = app

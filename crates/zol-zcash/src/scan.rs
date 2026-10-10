@@ -227,7 +227,20 @@ pub struct Scanner {
     spent: BTreeMap<[u8; 32], SpentNote>,
     /// Nullifiers of spent notes whose tree mark was released (spend beyond the reorg window).
     released: std::collections::BTreeSet<[u8; 32]>,
+    /// Transactions that touched a watched note (received or spent), with their pool value
+    /// balances (for the head-chain walk: a pure-Ironwood transition's fee).
+    txs: BTreeMap<[u8; 32], TxRecord>,
     tree: NoteTree,
+}
+
+/// Summary of a transaction that touched a watched note.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxRecord {
+    pub height: u32,
+    pub ironwood_value_balance: i64,
+    pub orchard_value_balance: i64,
+    pub has_transparent: bool,
+    pub has_sapling: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -241,10 +254,11 @@ struct Snapshot {
     notes: Vec<ScannedNote>,
     spent: Vec<SpentNote>,
     released: Vec<[u8; 32]>,
+    txs: Vec<([u8; 32], TxRecord)>,
     tree: TreeSnapshot,
 }
 
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 
 fn watched(a: Account) -> Watched {
     let ext = a.fvk.to_ivk(Scope::External);
@@ -291,6 +305,7 @@ impl Scanner {
             notes: BTreeMap::new(),
             spent: BTreeMap::new(),
             released: Default::default(),
+            txs: BTreeMap::new(),
             tree,
         })
     }
@@ -362,6 +377,25 @@ impl Scanner {
 
     pub fn note_by_cmx(&self, cmx: &[u8; 32]) -> Option<&ScannedNote> {
         self.notes.values().find(|n| &n.cmx == cmx)
+    }
+
+    pub fn tx_record(&self, txid: &[u8; 32]) -> Option<&TxRecord> {
+        self.txs.get(txid)
+    }
+
+    /// Watched notes created by transaction `txid`.
+    pub fn notes_in_tx(&self, txid: &[u8; 32]) -> Vec<&ScannedNote> {
+        let mut v: Vec<_> = self.notes.values().filter(|n| &n.txid == txid).collect();
+        v.sort_by_key(|n| (n.pool, n.action_index));
+        v
+    }
+
+    /// Watched notes spent by transaction `txid`.
+    pub fn spends_in_tx(&self, txid: &[u8; 32]) -> Vec<&SpentNote> {
+        self.spent
+            .values()
+            .filter(|s| &s.spending_txid == txid)
+            .collect()
     }
 
     pub fn spend_of(&self, cmx: &[u8; 32]) -> Option<&SpentNote> {
@@ -445,7 +479,26 @@ impl Scanner {
         let mut leaves: Vec<(MerkleHashOrchard, bool)> = vec![];
         let mut ours_at_leaf: Vec<(usize, ScannedNote)> = vec![];
         for tx in &b.txs {
+            let before = ev.items.len();
             self.scan_tx(tx, b, &mut ev, &mut leaves, &mut ours_at_leaf)?;
+            if ev.items.len() > before {
+                self.txs.insert(
+                    *tx.txid().as_ref(),
+                    TxRecord {
+                        height: b.height,
+                        ironwood_value_balance: tx
+                            .ironwood_bundle()
+                            .map(|x| i64::from(*x.value_balance()))
+                            .unwrap_or(0),
+                        orchard_value_balance: tx
+                            .orchard_bundle()
+                            .map(|x| i64::from(*x.value_balance()))
+                            .unwrap_or(0),
+                        has_transparent: tx.transparent_bundle().is_some(),
+                        has_sapling: tx.sapling_bundle().is_some(),
+                    },
+                );
+            }
         }
         let positions = self.tree.append_block(b.height, &leaves)?;
         for (leaf_idx, n) in ours_at_leaf {
@@ -609,6 +662,7 @@ impl Scanner {
         }
         self.notes.retain(|_, n| n.height <= to_height);
         self.spent.retain(|_, s| s.height <= to_height);
+        self.txs.retain(|_, t| t.height <= to_height);
         self.hashes = self
             .hashes
             .split_off(&0)
@@ -691,6 +745,7 @@ impl Scanner {
             notes: self.notes.values().cloned().collect(),
             spent: self.spent.values().cloned().collect(),
             released: self.released.iter().copied().collect(),
+            txs: self.txs.iter().map(|(k, v)| (*k, *v)).collect(),
             tree: self.tree.snapshot()?,
         };
         bincode::serialize(&s).map_err(|e| Error::Scan(e.to_string()))
@@ -731,6 +786,7 @@ impl Scanner {
             notes: s.notes.into_iter().map(|n| (n.nullifier, n)).collect(),
             spent: s.spent.into_iter().map(|x| (x.nullifier, x)).collect(),
             released: s.released.into_iter().collect(),
+            txs: s.txs.into_iter().collect(),
             tree: NoteTree::restore(&s.tree)?,
         })
     }

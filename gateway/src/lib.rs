@@ -17,3 +17,4 @@ pub mod reconcile;
 pub mod rpc;
 pub mod service;
 pub mod zcashd;
+pub mod payout;

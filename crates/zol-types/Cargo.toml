@@ -8,3 +8,4 @@ license = "UNLICENSED"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 blake2b_simd = "1"
+base64 = "0.22"

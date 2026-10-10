@@ -4,7 +4,7 @@ Real-time apps for shielded ZEC: the ZEC stays in per-app Zcash vaults, a Solana
 ledger records who is owed what, and sessions run in MagicBlock ephemeral rollups.
 Design: [docs/design-v0.3.md](docs/design-v0.3.md). Plan: [docs/plan-v0.3.md](docs/plan-v0.3.md).
 
-Status: Phases 0–3 of the plan. Spike findings: [docs/spikes/](docs/spikes/). Gateway: [docs/phase3-gateway.md](docs/phase3-gateway.md), [docs/phase3-zol-zcash.md](docs/phase3-zol-zcash.md).
+Status: Phases 0–4 of the plan. Spike findings: [docs/spikes/](docs/spikes/). Gateway: [phase3-gateway.md](docs/phase3-gateway.md), [phase3-zol-zcash.md](docs/phase3-zol-zcash.md). Payouts: [phase4-gateway.md](docs/phase4-gateway.md), [phase4-zol-zcash.md](docs/phase4-zol-zcash.md).
 
 ## Layout
 
@@ -53,7 +53,7 @@ cd crates/zol-zcash && cargo test && cargo build --release --bin zol-zcashd
 Regtest and validator tests are ignored by default. Start the Zebra regtest pair with `spikes/zebra/scripts/up.sh pair`, then:
 
 ```bash
-cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture
+cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture --test-threads=1
 ```
 
 ```bash

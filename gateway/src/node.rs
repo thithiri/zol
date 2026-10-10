@@ -53,6 +53,10 @@ pub enum HaltReason {
     ChainDisagreement { height: u32 },
     /// No new tip for too long.
     TipStalled { since: i64 },
+    /// The head chain is ambiguous (two vault outputs, a bad memo advance, …).
+    HeadChainFault { app: AppId, fault: String },
+    /// A settlement marked paid is no longer paid by the head chain.
+    PaidRolledBack { app: AppId, sequence: u64 },
 }
 
 impl std::fmt::Display for HaltReason {
@@ -76,6 +80,8 @@ pub struct AppRuntime {
 
 pub struct Node {
     pub name: String,
+    /// Head chains last read from this operator's own zcashd, per app.
+    pub heads: std::cell::RefCell<BTreeMap<AppId, zol_types::api::HeadChain>>,
     pub store: Store,
     pub cfg: GatewayConfig,
     pub attestor: Attestor,
@@ -216,6 +222,63 @@ impl Node {
         Ok(())
     }
 
+    // ------------------------------------------------------------ head chain
+
+    /// Records the head chain this node's own zcashd reports. Halts on a fault,
+    /// and if a settlement this node attested as paid is no longer paid by the
+    /// chain (a paid transaction rolled back).
+    pub fn set_head(&self, app: &AppId, chain: zol_types::api::HeadChain) -> Result<()> {
+        if let Some(f) = &chain.fault {
+            self.halt(HaltReason::HeadChainFault { app: *app, fault: f.clone() })?;
+        }
+        if let (Some(last), Some(marked)) = (chain.chain.last(), self.marked_paid(app)?) {
+            if last.paid_count <= marked {
+                self.halt(HaltReason::PaidRolledBack { app: *app, sequence: marked })?;
+            }
+        }
+        self.heads.borrow_mut().insert(*app, chain);
+        Ok(())
+    }
+
+    pub fn head(&self, app: &AppId) -> Option<zol_types::api::HeadChain> {
+        self.heads.borrow().get(app).cloned()
+    }
+
+    /// Highest settlement sequence this node attested as paid, if any.
+    pub fn marked_paid(&self, app: &AppId) -> Result<Option<u64>> {
+        Ok(self
+            .store
+            .meta(&format!("marked_paid:{}", hex::encode(app)))?
+            .map(|v| u64::from_le_bytes(v.try_into().unwrap_or([0; 8]))))
+    }
+
+    pub(crate) fn set_marked_paid(&self, app: &AppId, seq: u64) -> Result<()> {
+        if self.marked_paid(app)?.is_none_or(|m| seq > m) {
+            self.store.set_meta(&format!("marked_paid:{}", hex::encode(app)), &seq.to_le_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// The `mark_paid` statements this node's own view supports: the next
+    /// unmarked settlements whose paying head transition is at payout depth.
+    pub fn own_paid_statements(&self, ledger: &dyn Ledger, app: &AppId) -> Result<Vec<Statement>> {
+        self.require_running()?;
+        let rt = &self.apps[app];
+        let (Some(head), Some(tip)) = (self.head(app), self.store.tip()?) else { return Ok(vec![]) };
+        let Some(acc) = ledger.app(&rt.program)? else { return Ok(vec![]) };
+        let mut out = Vec::new();
+        let mut seq = acc.paid_count;
+        while seq < acc.next_settlement {
+            let Some(link) = head.chain.iter().find(|l| l.paid_count > seq) else { break };
+            if confirmations(link.height, tip) < self.cfg.depths.payout {
+                break;
+            }
+            out.push(Statement::Paid { app: *app, sequence: seq });
+            seq += 1;
+        }
+        Ok(out)
+    }
+
     // ------------------------------------------------------------ intents
 
     /// Registers a deposit memo off-chain (from the app page), so a note that
@@ -266,7 +329,7 @@ impl Node {
         let cfg = ledger.config()?;
         let status = app_status(&app_acc, &cfg, ledger.now()?);
         let notes = self.store.notes(app)?;
-        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.depths);
+        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.depths, self.head(app).as_ref());
         let mut pending = pending_early(&notes, tip, &self.cfg.depths);
         let mut out = Vec::new();
         for n in notes {
@@ -368,8 +431,8 @@ impl Node {
                         tip,
                         depths: &self.cfg.depths,
                     };
-                    let mismatches = reconcile(&acc, &deposits, &notes, &intents, &ctx);
-                    if compute_reserve(&acc, &notes, tip, &self.cfg.depths).is_short() {
+                    let mismatches = reconcile(&acc, &deposits, &notes, &intents, &ctx, self.head(app).as_ref());
+                    if compute_reserve(&acc, &notes, tip, &self.cfg.depths, self.head(app).as_ref()).is_short() {
                         self.halt(HaltReason::ReserveShort { app: *app })?;
                     }
                     if !mismatches.is_empty() {
@@ -432,6 +495,8 @@ pub fn check_genesis(app: &App, app_id: &AppId, notes: &[NoteRecord], tip: u32, 
 pub struct Round {
     pub credited: Vec<[u8; 32]>,
     pub voided: Vec<[u8; 32]>,
+    /// Settlement sequences marked paid on the ledger this round.
+    pub marked_paid: Vec<u64>,
     pub failed: Vec<([u8; 32], String)>,
 }
 
@@ -520,6 +585,51 @@ pub fn coordinate<R: RngCore + CryptoRng>(
                 Statement::Credit { .. } => round.credited.push(id),
                 Statement::Void { .. } => round.voided.push(id),
                 Statement::Paid { .. } => {}
+            }
+        }
+
+        // mark_paid, strictly in order, for settlements whose paying head
+        // transition each signer sees at payout depth in its own head chain.
+        let proposals = match nodes[coordinator].own_paid_statements(ledger, &app) {
+            Ok(p) => p,
+            Err(NodeError::Halted(_)) => vec![],
+            Err(e) => return Err(e),
+        };
+        for statement in proposals {
+            let Statement::Paid { sequence, .. } = statement else { continue };
+            let views: Vec<Option<Statement>> = nodes
+                .iter()
+                .map(|n| n.own_paid_statements(ledger, &app).ok().and_then(|v| v.into_iter().find(|s| *s == statement)))
+                .collect();
+            *session += 1;
+            let net = nodes[coordinator].network();
+            let program = nodes[coordinator].apps[&app].program;
+            let result = {
+                let mut parts: Vec<Participant> = nodes
+                    .iter_mut()
+                    .zip(&views)
+                    .map(|(n, v)| Participant { attestor: &mut n.attestor, log: &n.store, own_view: v.clone() })
+                    .collect();
+                attest(&statement, net, pubkeys, threshold, &mut parts, *session, rng)
+            };
+            let mut id = [0u8; 32];
+            id[..8].copy_from_slice(&sequence.to_le_bytes());
+            let sent = result.map_err(|e| e.to_string()).and_then(|(sig, _)| {
+                ledger.submit_paid(&program, sequence, sig).map_err(|e| e.to_string())
+            });
+            match sent {
+                Ok(()) => {
+                    for (n, v) in nodes.iter().zip(&views) {
+                        if v.is_some() {
+                            n.set_marked_paid(&app, sequence)?;
+                        }
+                    }
+                    round.marked_paid.push(sequence);
+                }
+                Err(e) => {
+                    round.failed.push((id, format!("mark_paid {sequence}: {e}")));
+                    break;
+                }
             }
         }
     }

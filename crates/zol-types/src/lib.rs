@@ -74,11 +74,30 @@ pub fn session_receiver_index(app: &AppId, session_key: &[u8; 32]) -> u128 {
     u128::from_le_bytes(b)
 }
 
+/// Serde helper: byte strings as standard base64 (for large blobs like PCZTs).
+pub mod b64 {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&base64::engine::general_purpose::STANDARD.encode(v))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(d)?;
+        base64::engine::general_purpose::STANDARD.decode(s).map_err(serde::de::Error::custom)
+    }
+}
+
 pub mod api {
     //! `zol-zcashd` HTTP API. All bodies are JSON. Errors are HTTP 4xx/5xx with
     //! `{"error": "..."}`.
 
     use super::*;
+
+    fn one() -> u32 {
+        1
+    }
 
     /// `GET /events?after=<seq>&limit=<n>`: scanner events with sequence numbers
     /// greater than `after`, in order. `next` is the cursor for the next call.
@@ -162,5 +181,199 @@ pub mod api {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Error {
         pub error: String,
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 4: the vault head, payouts, and distributed spend signing.
+
+    /// One transition in an app's head chain (design "The vault head").
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct HeadLink {
+        /// The head note created by this transition (genesis: the genesis head).
+        pub cmx: [u8; 32],
+        pub value: u64,
+        /// Decoded head memo fields.
+        pub position: u64,
+        pub paid_count: u64,
+        pub records_digest: [u8; 32],
+        pub network_fees_spent: u64,
+        pub fee_topups_swept: u64,
+        /// Transaction that created this head, and its block height.
+        pub txid: [u8; 32],
+        pub height: u32,
+    }
+
+    /// `GET /head?app=<hex>&genesis=<hex>`: the head chain walked by nullifiers
+    /// from the genesis commitment pinned on Solana. `chain[0]` is the genesis
+    /// head, the last element is the current head. `pending` is a broadcast but
+    /// unmined transaction spending the current head, if this daemon knows one.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct HeadChain {
+        pub app: AppId,
+        pub chain: Vec<HeadLink>,
+        pub pending: Option<[u8; 32]>,
+        /// Set when the walk is ambiguous (a transition with two vault outputs, a
+        /// head memo that does not advance correctly, …). Signers must halt.
+        pub fault: Option<String>,
+        pub tip: u32,
+    }
+
+    /// One payout of a settlement record, with its destination resolved by the
+    /// operator's gateway from the deposit memos behind the payout commitment.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PayoutLine {
+        pub commitment: [u8; 32],
+        pub amount: u64,
+        /// 43-byte raw receiver.
+        pub to: Vec<u8>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PayoutRecord {
+        pub sequence: u64,
+        pub payouts: Vec<PayoutLine>,
+    }
+
+    /// What one operator's own view says the next head transition must do. Each
+    /// operator's gateway builds its own plan from its own finalized Solana reads
+    /// and hands it to its own zcashd, which accepts a proposal only if the
+    /// proposal does exactly this.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PayoutPlan {
+        pub app: AppId,
+        /// Genesis head commitment pinned in the `App` account.
+        pub genesis_head: [u8; 32],
+        /// Consecutive records starting at the current head's `paid_count`.
+        /// Empty for a transition that pays nothing (consolidation).
+        pub records: Vec<PayoutRecord>,
+        /// Deposit notes credited on the finalized ledger (cmx); with full-depth
+        /// top-ups, the only notes besides the head a payout may spend.
+        pub credited: Vec<[u8; 32]>,
+        /// `App.fee_pool` on the finalized ledger.
+        pub fee_pool_accrued: u64,
+        /// `App.liability` + unpaid settlement amounts not paid by the head
+        /// chain and not paid by this transition.
+        pub claims_after: u64,
+        /// Pad to this many actions (fixed action counts for privacy); 0 = none.
+        pub action_target: u32,
+        /// At most this many inputs besides the head.
+        pub max_inputs: u32,
+        /// Depth a top-up must reach before it may be spent (blocks).
+        pub full_depth: u32,
+        /// Depth the current head must reach before it may be spent. The genesis
+        /// head is already at full depth (guardians check it at activation); a
+        /// later head was created by the vault itself, and a reorg that removes
+        /// it removes its successor too, so 1 is enough.
+        #[serde(default = "one")]
+        pub head_depth: u32,
+        pub expiry_delta: u32,
+    }
+
+    /// `POST /payout/propose` (the coordinator's zcashd): build and prove the
+    /// next head transition for `plan`. Returns the PCZT for every operator to verify.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Proposal {
+        pub app: AppId,
+        #[serde(with = "crate::b64")]
+        pub pczt: Vec<u8>,
+        /// ZIP 244 shielded sighash, which is the txid with no transparent part.
+        pub sighash: [u8; 32],
+        pub expiry_height: u32,
+        pub inputs: Vec<[u8; 32]>,
+        pub fee: u64,
+        pub new_head_value: u64,
+    }
+
+    /// `POST /payout/verify` (every operator's own zcashd): check `pczt` against
+    /// this operator's own `plan` and own scan, rule by rule.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct VerifyRequest {
+        pub plan: PayoutPlan,
+        #[serde(with = "crate::b64")]
+        pub pczt: Vec<u8>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct VerifyResponse {
+        pub ok: bool,
+        /// Every failed check, by name (empty when ok).
+        pub failures: Vec<String>,
+        pub sighash: [u8; 32],
+    }
+
+    /// What is being signed in a distributed spend-signing session.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum SignKind {
+        Payout { plan: PayoutPlan },
+        /// A refund of one voided deposit note to `to`.
+        Refund { app: AppId, cmx: [u8; 32], to: Vec<u8> },
+    }
+
+    /// `POST /sign/commit`: FROST round 1 for every vault spend in `pczt`. The
+    /// daemon verifies the PCZT against `kind` first (payout: the full rule set
+    /// against the operator's own plan; refund: the refund rules) and refuses to
+    /// commit otherwise. Nonces are bound to `session` and to the PCZT's sighash.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct CommitRequest {
+        pub session: u64,
+        pub kind: SignKind,
+        #[serde(with = "crate::b64")]
+        pub pczt: Vec<u8>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct CommitResponse {
+        /// FROST identifier of this operator's share (serialized).
+        #[serde(with = "crate::b64")]
+        pub identifier: Vec<u8>,
+        /// (action index, serialized SigningCommitments) per vault spend.
+        pub commitments: Vec<(u32, Vec<u8>)>,
+    }
+
+    /// `POST /sign/share`: FROST round 2. `commitments` are every chosen
+    /// signer's round-1 output; the daemon builds the signing packages itself
+    /// (message = sighash, randomizer = the action's alpha) and signs.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ShareRequest {
+        pub session: u64,
+        pub commitments: Vec<CommitResponse>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ShareResponse {
+        #[serde(with = "crate::b64")]
+        pub identifier: Vec<u8>,
+        /// (action index, serialized SignatureShare) per vault spend.
+        pub shares: Vec<(u32, Vec<u8>)>,
+    }
+
+    /// `POST /sign/aggregate` (the coordinator's zcashd): aggregate, insert the
+    /// spend-auth signatures, finalize, extract, verify fully, and broadcast.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct AggregateRequest {
+        pub session: u64,
+        #[serde(with = "crate::b64")]
+        pub pczt: Vec<u8>,
+        pub commitments: Vec<CommitResponse>,
+        pub shares: Vec<ShareResponse>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Broadcast {
+        pub txid: [u8; 32],
+        pub expiry_height: u32,
+    }
+
+    /// `POST /refund/propose`: build (unsigned, proven) the refund PCZT for one
+    /// voided deposit note. Signing then goes through `/sign/*` with
+    /// `SignKind::Refund`, so it works with one share per daemon.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct RefundProposal {
+        #[serde(with = "crate::b64")]
+        pub pczt: Vec<u8>,
+        pub sighash: [u8; 32],
+        pub expiry_height: u32,
+        pub value: u64,
+        pub fee: u64,
     }
 }

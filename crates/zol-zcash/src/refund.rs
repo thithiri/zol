@@ -162,7 +162,19 @@ pub fn check(
     to: &Receiver,
     current_height: u32,
 ) -> Result<[u8; 32], Error> {
-    let sighash = tx::sighash(&r.pczt)?;
+    check_pczt(&r.pczt, keys, deposit, to, current_height)
+}
+
+/// [`check`] on a bare PCZT (as received over the wire for distributed signing).
+pub fn check_pczt(
+    pczt: &Pczt,
+    keys: &AppKeys,
+    deposit: &orchard::Note,
+    to: &Receiver,
+    current_height: u32,
+) -> Result<[u8; 32], Error> {
+    let r = RefundPcztRef { pczt };
+    let sighash = tx::sighash(r.pczt)?;
     let exp = *r.pczt.global().expiry_height();
     if exp <= current_height || exp > current_height + 1 + MAX_EXPIRY_DELTA {
         return Err(Error::Verify(format!(
@@ -171,7 +183,7 @@ pub fn check(
         )));
     }
     let fvk = keys.fvk();
-    tx::with_ironwood(&r.pczt, |b| -> Result<(), Error> {
+    tx::with_ironwood(r.pczt, |b| -> Result<(), Error> {
         checks::check_complete(b)?;
         let n = b.actions().len() as u64;
         let fee = ZIP317_MARGINAL_FEE * n.max(ZIP317_GRACE_ACTIONS);
@@ -226,6 +238,10 @@ pub fn check(
         Ok(())
     })??;
     Ok(sighash)
+}
+
+struct RefundPcztRef<'a> {
+    pczt: &'a Pczt,
 }
 
 /// Signs the deposit spend with 2-of-n (or any threshold) FROST under the app's tweaked key.

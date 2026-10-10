@@ -6,7 +6,7 @@
 //! Needs the regtest pair (`spikes/zebra/scripts/up.sh pair`) and a built
 //! `zol-zcashd` (`cargo build --release --manifest-path crates/zol-zcash/Cargo.toml --bin zol-zcashd`):
 //!
-//!     cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture
+//!     cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture --test-threads=1
 //!
 //! Env: ZOL_ZEBRA_URL (default http://127.0.0.1:18232/), ZOL_ZCASHD_BIN.
 
@@ -81,7 +81,7 @@ fn zcashd_bin() -> std::path::PathBuf {
 
 /// Writes a dev config and starts one zol-zcashd.
 fn spawn_zcashd(i: usize, port: u16, start_height: u32) -> (Proc, ZcashdClient) {
-    let dir = std::env::temp_dir().join(format!("zol-e2e-{}-{i}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("zol-e2e-{}-{port}-{i}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let cfg = format!(
         "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\nstart_height = {start_height}\npoll_ms = 300\napps = [\"{}\"]\n[zebra]\nurl = \"{}\"\n",
@@ -94,7 +94,7 @@ fn spawn_zcashd(i: usize, port: u16, start_height: u32) -> (Proc, ZcashdClient) 
     let child = Command::new(zcashd_bin())
         .args(["--config"])
         .arg(&path)
-        .args(["--dev", "--dev-seed", DEV_SEED])
+        .args(["--dev", "--dev-seed", DEV_SEED, "--dev-share", &i.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
@@ -137,11 +137,27 @@ fn external_receiver() -> [u8; 43] {
     r
 }
 
-#[test]
-#[ignore]
-fn phase3_end_to_end_on_regtest() {
+struct Setup {
+    _procs: (Proc, Proc, Proc),
+    world: World,
+    cluster: Cluster,
+    vault_addr: [u8; 43],
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+fn sync(c: &Cluster) {
+    wait_synced(&c.operators.iter().map(|o| &o.zcashd).collect::<Vec<_>>());
+}
+
+/// Three single-share dev daemons, a genesis head, the ledger with the app
+/// activated after the guardians' genesis check, and the gateway cluster.
+fn setup() -> Setup {
     let start_height = zebra_height();
-    let base = 18_700 + (std::process::id() % 200) as u16;
+    static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+    let base = 18_700 + (std::process::id() % 100) as u16 * 3 + 400 * NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (p0, z0) = spawn_zcashd(0, base, start_height);
     let (p1, z1) = spawn_zcashd(1, base + 1, start_height);
     let (p2, z2) = spawn_zcashd(2, base + 2, start_height);
@@ -194,6 +210,7 @@ fn phase3_end_to_end_on_regtest() {
                 },
             );
             let node = Node {
+                heads: Default::default(),
                 name: format!("op{i}"),
                 store: Store::in_memory().unwrap(),
                 cfg: cfg.clone(),
@@ -205,9 +222,7 @@ fn phase3_end_to_end_on_regtest() {
             Operator::new(node, z).unwrap()
         })
         .collect();
-    let mut cluster = Cluster { operators, pubkeys, threshold: 2, coordinator: 0, session: 0 };
-    let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-    let sync = |c: &Cluster| wait_synced(&c.operators.iter().map(|o| &o.zcashd).collect::<Vec<_>>());
+    let mut cluster = Cluster { operators, pubkeys, threshold: 2, coordinator: 0, session: 0, attempts: Default::default() };
 
     // During the activation delay guardians check the genesis head: shallow first.
     sync(&cluster);
@@ -222,6 +237,13 @@ fn phase3_end_to_end_on_regtest() {
     assert!(r.guard.is_empty(), "{:?}", r.guard);
     world.ledger.env.warp(params().activation_delay_secs);
 
+    Setup { _procs, world, cluster, vault_addr }
+}
+
+#[test]
+#[ignore]
+fn phase3_end_to_end_on_regtest() {
+    let Setup { _procs, mut world, mut cluster, vault_addr } = setup();
     // A player deposits through an ordinary wallet send to their session receiver,
     // with the ZOL1 text memo a payment link carries. Another deposit's memo is expired.
     let h = zebra_height();
@@ -246,10 +268,13 @@ fn phase3_end_to_end_on_regtest() {
     assert_eq!(world.ledger.deposit(&voided).unwrap().unwrap().state, DepositState::Voided);
     world.ledger.env.check_invariants();
 
-    // The void triggers a FROST-signed refund from the coordinator's zcashd.
-    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    // In the same tick the void triggered a refund, signed 2-of-3 by single-share
+    // operators each verifying it against its own view; it is pending, so the
+    // next tick does not repeat it.
     assert_eq!(r.refunds.len(), 1, "{:?}", r.round.failed);
     let refund_txid = r.refunds[0].2;
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert!(r.refunds.is_empty(), "pending refund is not repeated");
     mine(1);
     sync(&cluster);
     let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
@@ -269,4 +294,65 @@ fn phase3_end_to_end_on_regtest() {
     }
     let _ = ChainEvent::Rewind { to_height: 0 };
     println!("ok: genesis, activation check, credit, void, FROST refund, spend detection");
+}
+
+#[test]
+#[ignore]
+fn phase4_payout_end_to_end_on_regtest() {
+    let Setup { _procs, mut world, mut cluster, vault_addr } = setup();
+    let h = zebra_height();
+    let players = [SigningKey::from_bytes(&[0xC1; 32]), SigningKey::from_bytes(&[0xC2; 32])];
+    let dests = [external_receiver(), external_receiver()];
+    for (p, to) in players.iter().zip(&dests) {
+        let m = session_memo(p, &vault_addr, h + 1_000, *to);
+        let r = cluster.operators[0].zcashd.session_receiver(&app_id(), &m.session_key).unwrap();
+        cluster.operators[0].zcashd.dev_send(&r.receiver, 1_000_000, &m.encode_text().unwrap().0).unwrap();
+    }
+    mine(10);
+    sync(&cluster);
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert_eq!(r.round.credited.len(), 2, "{:?}", r.round);
+
+    // Both players exit; anyone settles.
+    let keys: Vec<solana_keypair::Keypair> = players.iter().map(|p| solana_keypair::Keypair::new_from_array(p.to_bytes())).collect();
+    for k in &keys {
+        ok!(world.ledger.env.request_exit(k));
+    }
+    let pubs: Vec<Pubkey> = keys.iter().map(solana_signer::Signer::pubkey).collect();
+    ok!(world.ledger.env.settle(&pubs));
+    let settlement: zol_ledger::state::Settlement = world.ledger.env.account(&settlement_pda(&app_pda(&TEST_APP), 0));
+
+    // The quorum pays the record: proposal by the coordinator, verification and
+    // a share from each operator's own single-share zcashd, broadcast.
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert_eq!(r.payouts.len(), 1, "waits={:?} failed={:?}", r.waits, r.round.failed);
+    let payout_txid = r.payouts[0].1;
+    // While it is pending nothing else is proposed.
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert!(r.payouts.is_empty());
+    mine(1);
+    sync(&cluster);
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert!(r.payouts.is_empty(), "nothing left to pay: {:?}", r.waits);
+    for op in &cluster.operators {
+        let head = op.node.head(&app_id()).unwrap();
+        let last = head.chain.last().unwrap();
+        assert_eq!((last.position, last.paid_count, last.txid), (1, 1, payout_txid), "{}", op.node.name);
+        assert!(head.fault.is_none());
+    }
+
+    // After payout depth the quorum marks the settlement paid on the ledger.
+    mine(100);
+    sync(&cluster);
+    let r = cluster.tick(&mut world.ledger, now(), &mut OsRng).unwrap();
+    assert_eq!(r.round.marked_paid, vec![0], "{:?}", r.round);
+    let s: zol_ledger::state::Settlement = world.ledger.env.account(&settlement_pda(&app_pda(&TEST_APP), 0));
+    assert_eq!(s.state, zol_ledger::state::SettlementState::Paid);
+    assert_eq!(world.ledger.env.app_state().unpaid_total, 0);
+    for op in &cluster.operators {
+        assert!(op.node.halted().unwrap().is_none(), "{}", op.node.name);
+        assert!(op.node.guard(&mut world.ledger).unwrap().is_empty());
+    }
+    world.ledger.env.check_invariants();
+    println!("ok: payout of {} zat in {} lines, head advanced, marked paid", settlement.total, settlement.count);
 }

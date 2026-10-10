@@ -101,8 +101,22 @@ impl Ledger for SvmLedger {
         let r = self.env.relayer.insecure_clone();
         tx_err(self.env.send(&[pre, ix], &[&r]))
     }
-    fn submit_paid(&mut self, _p: &Pubkey, _seq: u64, _sig: [u8; 64]) -> Result<()> {
-        Err(LedgerError::Tx("not used in phase 3 tests".into()))
+    fn submit_paid(&mut self, _p: &Pubkey, seq: u64, sig: [u8; 64]) -> Result<()> {
+        let digest = zol_wire::digest::paid_digest::<zol_wire::digest::Sha256>(self.env.network, &TEST_APP.to_bytes(), seq);
+        let pre = self.precompile(&digest, &sig);
+        let app = app_pda(&TEST_APP);
+        let ix = ledger_ix(
+            zol_ledger::accounts::MarkPaid {
+                relayer: self.env.relayer.pubkey(),
+                config: config_pda(),
+                app,
+                settlement: settlement_pda(&app, seq),
+                instructions: IX_SYSVAR,
+            },
+            zol_ledger::instruction::MarkPaid {},
+        );
+        let r = self.env.relayer.insecure_clone();
+        tx_err(self.env.send(&[pre, ix], &[&r]))
     }
     fn freeze(&mut self, seed: &[u8; 32], p: &Pubkey) -> Result<()> {
         let g = Keypair::new_from_array(*seed);
@@ -121,6 +135,7 @@ pub fn gw_config() -> GatewayConfig {
         early_credit_cap: 5_000_000,
         denominations: vec![DENOM, 10 * DENOM],
         tip_stall_secs: 1_800,
+        payout: Default::default(),
     }
 }
 
@@ -144,6 +159,7 @@ pub fn make_nodes(keys: Vec<frost_ed25519::keys::KeyPackage>, pubkeys: &PublicKe
                 },
             );
             Node {
+                heads: Default::default(),
                 name: format!("op{i}"),
                 store: Store::in_memory().unwrap(),
                 cfg: gw_config(),

@@ -60,11 +60,18 @@ pub fn current_head(notes: &[NoteRecord]) -> Option<(&NoteRecord, HeadMemo)> {
         .max_by_key(|(_, m)| m.position)
 }
 
-/// Reserve position from this operator's scan and the finalized ledger.
-pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &Depths) -> Reserve {
+/// Reserve position from this operator's scan and the finalized ledger. The
+/// head comes from the nullifier-chain walk when one is known (`chain`), else
+/// from the latest unspent head note in the scan.
+pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &Depths, chain: Option<&zol_types::api::HeadChain>) -> Reserve {
     let live = |n: &&NoteRecord| !n.rolled_back && n.spent.is_none();
-    let head = current_head(notes);
-    let head_value = head.map(|(n, _)| n.note.value as u128).unwrap_or(0);
+    let walked = chain.and_then(|c| c.chain.last());
+    let scanned = current_head(notes);
+    let head_value = match (walked, &scanned) {
+        (Some(l), _) => l.value as u128,
+        (None, Some((n, _))) => n.note.value as u128,
+        _ => 0,
+    };
     let credited: u128 = notes
         .iter()
         .filter(live)
@@ -77,7 +84,11 @@ pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &Depth
         .filter(|n| n.kind == NoteKind::TopUp && depth(n.note.height, tip, depths) == Depth::Full)
         .map(|n| n.note.value as u128)
         .sum();
-    let (swept, spent) = head.map(|(_, m)| (m.fee_topups_swept as u128, m.network_fees_spent as u128)).unwrap_or((0, 0));
+    let (swept, spent) = match (walked, &scanned) {
+        (Some(l), _) => (l.fee_topups_swept as u128, l.network_fees_spent as u128),
+        (None, Some((_, m))) => (m.fee_topups_swept as u128, m.network_fees_spent as u128),
+        _ => (0, 0),
+    };
     Reserve {
         reserve: head_value + credited + topups,
         claims: app.liability as u128 + app.unpaid_total as u128,
@@ -91,6 +102,7 @@ pub fn reconcile(
     notes: &[NoteRecord],
     intents: &dyn Fn(u128) -> Option<[u8; 512]>,
     ctx: &ReconcileCtx,
+    chain: Option<&zol_types::api::HeadChain>,
 ) -> Vec<Mismatch> {
     let mut out = Vec::new();
     let credited: Vec<&([u8; 32], Deposit)> = deposits.iter().filter(|(_, d)| d.state == DepositState::Credited).collect();
@@ -132,7 +144,7 @@ pub fn reconcile(
     if total != app.credited_total as u128 {
         out.push(Mismatch::CreditedTotal { ledger: app.credited_total, notes: total });
     }
-    let reserve = compute_reserve(app, notes, ctx.tip, ctx.depths);
+    let reserve = compute_reserve(app, notes, ctx.tip, ctx.depths, chain);
     let pending = pending_early(notes, ctx.tip, ctx.depths);
     if pending > reserve.remaining_float() {
         out.push(Mismatch::EarlyOverFloat { pending, float: reserve.remaining_float() });

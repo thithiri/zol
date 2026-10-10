@@ -83,6 +83,34 @@ impl ZcashdClient {
         self.post("/dev/send", &api::SendRequest { to: to.to_vec(), value, memo: memo.to_vec() })
     }
 
+    pub fn head(&self, app: &AppId, genesis: &[u8; 32]) -> Result<api::HeadChain> {
+        self.get(&format!("/head?app={}&genesis={}", hex::encode(app), hex::encode(genesis)))
+    }
+
+    pub fn payout_propose(&self, plan: &api::PayoutPlan) -> Result<api::Proposal> {
+        self.post("/payout/propose", plan)
+    }
+
+    pub fn payout_verify(&self, plan: &api::PayoutPlan, pczt: &[u8]) -> Result<api::VerifyResponse> {
+        self.post("/payout/verify", &api::VerifyRequest { plan: plan.clone(), pczt: pczt.to_vec() })
+    }
+
+    pub fn refund_propose(&self, app: &AppId, cmx: &[u8; 32], to: &[u8; 43]) -> Result<api::RefundProposal> {
+        self.post("/refund/propose", &api::RefundRequest { app: *app, cmx: *cmx, to: to.to_vec() })
+    }
+
+    pub fn sign_commit(&self, req: &api::CommitRequest) -> Result<api::CommitResponse> {
+        self.post("/sign/commit", req)
+    }
+
+    pub fn sign_share(&self, req: &api::ShareRequest) -> Result<api::ShareResponse> {
+        self.post("/sign/share", req)
+    }
+
+    pub fn sign_aggregate(&self, req: &api::AggregateRequest) -> Result<api::Broadcast> {
+        self.post("/sign/aggregate", req)
+    }
+
     /// Drains every event after `cursor`, returning them and the new cursor.
     pub fn drain(&self, mut cursor: u64) -> Result<(Vec<ChainEvent>, u64)> {
         let mut out = Vec::new();
