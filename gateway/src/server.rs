@@ -224,7 +224,10 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
     let (app_state, denominations) = if matches!((method, &parts[1..]), (Method::Get, [])) {
         let l = st.ledger.lock().unwrap();
         let d = l.config().map(|c| c.params.denominations.iter().copied().filter(|d| *d > 0).collect()).unwrap_or_default();
-        (l.app(&program).ok().flatten().map(|a| a.state), d)
+        // The ledger turns Activating into Active lazily (`App::refresh`, on the next
+        // instruction); report what it would be now, as the gateways decide by it.
+        let now = l.now().unwrap_or(0);
+        (l.app(&program).ok().flatten().map(|a| if a.state == AppState::Activating && now >= a.activates_at { AppState::Active } else { a.state }), d)
     } else {
         (None, Vec::new())
     };

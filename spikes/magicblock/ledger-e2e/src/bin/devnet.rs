@@ -5,6 +5,8 @@
 //!   devnet register --payer <keypair.json>
 //!   devnet activate --admin <keypair.json> --vault <hex43> --genesis <hex32>
 //!   devnet set-cap  --admin <keypair.json> --cap <zat>
+//!   devnet settle   --payer <keypair.json> <session b58>...   (balances must have requested exit)
+//!   devnet settlement <seq>
 //!   devnet status
 //!
 //! Testnet parameters: production timings (1 h activation delay, 3,900 s refund grace),
@@ -145,6 +147,32 @@ fn main() {
                 zol_ledger::instruction::SetCap { cap },
             );
             run("set_cap", &[ix], &[&admin]);
+        }
+        "settle" => {
+            let payer = keypair(&arg("--payer"));
+            let a: st::App = load(&url(), &app_pda());
+            let seq = a.next_settlement;
+            let settlement = pda(&[seeds::SETTLEMENT, app_pda().as_ref(), &seq.to_le_bytes()], &LEDGER);
+            let mut ix = ledger_ix(
+                zol_ledger::accounts::Settle { payer: payer.pubkey(), config: config_pda(), app: app_pda(), settlement, system_program: SYSTEM },
+                zol_ledger::instruction::Settle {},
+            );
+            let args: Vec<String> = std::env::args().collect();
+            let start = args.iter().position(|x| x == "--payer").unwrap() + 2;
+            for s in &args[start..] {
+                let session: Pubkey = s.parse().unwrap();
+                ix.accounts.push(solana_instruction::AccountMeta::new(pda(&[seeds::BALANCE, app_pda().as_ref(), session.as_ref()], &LEDGER), false));
+            }
+            run("settle", &[ix], &[&payer]);
+            let s: st::Settlement = load(&url(), &settlement);
+            println!("{}", json!({"settlement": seq, "payouts": s.payouts[..s.count as usize].iter().map(|p| p.amount).collect::<Vec<_>>(), "total": s.total}));
+        }
+        "settlement" => {
+            let seq: u64 = std::env::args().nth(2).unwrap().parse().unwrap();
+            let s: st::Settlement = load(&url(), &pda(&[seeds::SETTLEMENT, app_pda().as_ref(), &seq.to_le_bytes()], &LEDGER));
+            let a: st::App = load(&url(), &app_pda());
+            println!("{}", json!({"seq": seq, "state": format!("{:?}", s.state), "total": s.total,
+                "app": {"credited_total": a.credited_total, "liability": a.liability, "fee_pool": a.fee_pool, "unpaid_total": a.unpaid_total, "paid_count": a.paid_count}}));
         }
         "status" => {
             let u = url();
