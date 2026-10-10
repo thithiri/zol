@@ -41,7 +41,7 @@ scripts/test.sh full
 |---|---|---|
 | `fast` | Unit, LiteSVM ledger and coin-flip, zol-zcash offline, web and wire tests; no external services | About 42 s |
 | `regtest` | `fast` + every Zakura-backed suite (zol-zcash regtest, gateway cross-process and multi-host), in five parallel lanes, each on its own fresh Zakura pair | About 4.5 min (259 s warm; was 517 s run one after another) |
-| `full` | `regtest` + the 2,000-case invariant fuzz + the local Zcash-leg end to end (MagicBlock stack, VRF, three gateways) | Not timed yet; the Zcash-leg run alone took about 8 min |
+| `full` | `regtest` + the 2,000-case invariant fuzz + the local Zcash-leg end to end (MagicBlock stack, VRF, three gateways) | About 16.5 min (985 s warm; the Zcash leg is about 7 min of it, most of that waiting for payout depth) |
 
 The tiers use `cargo-nextest` (parallel test processes; config in `.config/nextest.toml`) and `sccache` (`.cargo/config.toml`, shared by both workspaces). Dependencies build optimised in dev, so LiteSVM tests run in seconds. Keep `target/` warm: a cold build adds several minutes per workspace. The invariant fuzz runs 64 cases by default; set `PROPTEST_CASES` for more.
 
