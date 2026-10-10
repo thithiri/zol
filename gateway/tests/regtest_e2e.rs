@@ -51,11 +51,9 @@ fn sync(c: &Cluster) {
 /// activated after the guardians' genesis check, and the gateway cluster.
 fn setup() -> Setup {
     let start_height = node_height();
-    static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-    let base = 18_700 + (std::process::id() % 100) as u16 * 3 + 400 * NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let (p0, z0) = spawn_zcashd(0, base, start_height);
-    let (p1, z1) = spawn_zcashd(1, base + 1, start_height);
-    let (p2, z2) = spawn_zcashd(2, base + 2, start_height);
+    let (p0, z0) = spawn_zcashd(0, free_port(), start_height);
+    let (p1, z1) = spawn_zcashd(1, free_port(), start_height);
+    let (p2, z2) = spawn_zcashd(2, free_port(), start_height);
     let _procs = (p0, p1, p2);
 
     // Same dev seed: same vault on every operator.

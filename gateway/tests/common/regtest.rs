@@ -66,6 +66,12 @@ pub fn zcashd_bin() -> std::path::PathBuf {
 }
 
 /// Writes a dev config and starts one zol-zcashd.
+/// A port the OS just handed out (in its ephemeral range, above every fixed
+/// port the suites use), so suites running side by side don't collide.
+pub fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
 pub fn spawn_zcashd(i: usize, port: u16, start_height: u32) -> (Proc, ZcashdClient) {
     let dir = std::env::temp_dir().join(format!("zol-e2e-{}-{port}-{i}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

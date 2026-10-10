@@ -7,10 +7,13 @@ case "$ZOL_NODE_CONFIG" in
   nu7|pre-nu7) ;;
   *) echo "ZOL_NODE_CONFIG must be nu7 or pre-nu7" >&2; exit 1 ;;
 esac
+# ZOL_NODE_PAIR names the pair (containers <pair>-a / <pair>-b, network <pair>-p2p).
+# Ports: ZOL_NODE_RPC_PORT (a, default 18232) and ZOL_NODE_B_RPC_PORT (b, default 18242).
+export ZOL_NODE_PAIR="${ZOL_NODE_PAIR:-zol-zakura}"
 RPC_PORT="${ZOL_NODE_RPC_PORT:-18232}"
-CPREFIX="zol-zakura"              # containers zol-zakura-a / zol-zakura-b
-P2P_NET="zol-zakura-p2p"
-COMPOSE=(docker compose -f "$ZDIR/docker-compose.yml" --profile pair)
+CPREFIX="$ZOL_NODE_PAIR"
+P2P_NET="$ZOL_NODE_PAIR-p2p"
+COMPOSE=(docker compose -p "$ZOL_NODE_PAIR" -f "$ZDIR/docker-compose.yml" --profile pair)
 
 # rpc NODE METHOD [JSON_PARAMS]  -> prints the JSON-RPC response body.
 # Runs curl *inside* the container so it works even while the node is partitioned.

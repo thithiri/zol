@@ -108,7 +108,8 @@ fn relayer_credits_voids_and_freezes_on_a_real_validator() {
     let cfg_path = dump(&dir, "config", &config_pda(), serialize(&config, 8 + Config::INIT_SPACE));
     let app_path = dump(&dir, "app", &app_pda(&TEST_APP), serialize(&app, 8 + App::INIT_SPACE));
 
-    let port = 18_899 + (std::process::id() % 500) as u16;
+    // 30,000-34,499 (rpc + 4,100): apart from multihost's validator and below the OS's ephemeral range.
+    let port = 30_000 + (std::process::id() % 400) as u16;
     let so = deploy_dir().join("zol_ledger.so");
     let child = Command::new("solana-test-validator")
         .args(["--reset", "--quiet", "--ledger"])

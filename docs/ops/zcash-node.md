@@ -65,6 +65,10 @@ A Zakura regtest pair runs in Docker, with ephemeral state.
   - `nu7` (the default) uses `regtest-nu7.toml`: every upgrade through NU7 at height 1.
   - `pre-nu7` uses `regtest-pre-nu7.toml`: everything through NU6.3 (Ironwood) at height 1,
     and no NU7.
+- **More pairs:** `ZOL_NODE_PAIR` names a pair (default `zol-zakura`), and `ZOL_NODE_RPC_PORT`
+  and `ZOL_NODE_B_RPC_PORT` set its ports, so several can run at once. `scripts/test.sh
+  regtest` starts five, `zol-zk-*` and `zol-gw-*` on ports 18250–18340, one per lane, and
+  removes them at the end (`KEEP_PAIRS=1` keeps them).
 
 ```sh
 infra/zakura/scripts/up.sh pair          # or `up.sh` for node a only

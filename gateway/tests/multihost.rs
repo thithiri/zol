@@ -79,10 +79,10 @@ fn three_hosts_over_authenticated_http() {
 
     // Zcash side: three single-share daemons and a genesis head.
     let start_height = node_height();
-    let base = 20_000 + (pid % 500) as u16 * 3;
-    let (p0, z0) = spawn_zcashd(0, base, start_height);
-    let (p1, z1) = spawn_zcashd(1, base + 1, start_height);
-    let (p2, z2) = spawn_zcashd(2, base + 2, start_height);
+    let zports = [free_port(), free_port(), free_port()];
+    let (p0, z0) = spawn_zcashd(0, zports[0], start_height);
+    let (p1, z1) = spawn_zcashd(1, zports[1], start_height);
+    let (p2, z2) = spawn_zcashd(2, zports[2], start_height);
     let _procs = (p0, p1, p2);
     let vault = z0.vault(&app_id()).unwrap();
     let vault_addr: [u8; 43] = vault.address.as_slice().try_into().unwrap();
@@ -141,7 +141,9 @@ fn three_hosts_over_authenticated_http() {
     };
     let cfg_path = dump(&dir, "config", &config_pda(), ser(&config, 8 + Config::INIT_SPACE));
     let app_path = dump(&dir, "app", &app_pda(&TEST_APP), ser(&app, 8 + App::INIT_SPACE));
-    let rpc_port = 19_899 + (pid % 300) as u16;
+    // Validator ports: 35,000-39,499, apart from rpc_validator's 30,000-34,499
+    // and below the OS's ephemeral range (free_port), so suites can run together.
+    let rpc_port = 35_000 + (pid % 400) as u16;
     let child = Command::new("solana-test-validator")
         .args(["--reset", "--quiet", "--ledger"])
         .arg(dir.join("ledger"))
@@ -171,8 +173,8 @@ fn three_hosts_over_authenticated_http() {
 
     // Three gateways, each knowing the other two by URL and guardian key.
     let names = ["op0", "op1", "op2"];
-    let gw_port = base + 900;
-    let zurls = [base, base + 1, base + 2].map(|p| format!("http://127.0.0.1:{p}"));
+    let gw_ports = [free_port(), free_port(), free_port()];
+    let zurls = zports.map(|p| format!("http://127.0.0.1:{p}"));
     let mut gcfg = gw_config();
     gcfg.network = Network::Regtest as u8;
     gcfg.early_credit_cap = 10_000_000;
@@ -181,8 +183,8 @@ fn three_hosts_over_authenticated_http() {
         let cfg = ServeConfig {
             gateway: gcfg.clone(),
             name: names[i].into(),
-            listen: format!("127.0.0.1:{}", gw_port + i as u16),
-            public_url: Some(format!("http://127.0.0.1:{}", gw_port + i as u16)),
+            listen: format!("127.0.0.1:{}", gw_ports[i]),
+            public_url: Some(format!("http://127.0.0.1:{}", gw_ports[i])),
             solana_rpc: url.clone(),
             relayer_keypair: write_keypair(&dir, &format!("relayer{i}"), &relayers[i]),
             store: dir.join(format!("store{i}.db")),
@@ -196,7 +198,7 @@ fn three_hosts_over_authenticated_http() {
                 .filter(|j| *j != i)
                 .map(|j| PeerCfg {
                     name: names[j].into(),
-                    url: format!("http://127.0.0.1:{}", gw_port + j as u16),
+                    url: format!("http://127.0.0.1:{}", gw_ports[j]),
                     guardian: guardians[j].pubkey().to_string(),
                     public_url: None,
                 })
@@ -208,7 +210,7 @@ fn three_hosts_over_authenticated_http() {
         };
         handles.push(Some(serve::start(cfg).unwrap()));
     }
-    let gw = |i: usize| format!("http://127.0.0.1:{}", gw_port + i as u16);
+    let gw = |i: usize| format!("http://127.0.0.1:{}", gw_ports[i]);
     let http = reqwest::blocking::Client::new();
 
     // Page API: app info, intent registration, session receiver.

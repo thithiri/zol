@@ -389,7 +389,7 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
     let out = Command::new("docker")
         .args([
             "exec",
-            &format!("zol-zakura-{node}"),
+            &format!("{}-{node}", std::env::var("ZOL_NODE_PAIR").unwrap_or_else(|_| "zol-zakura".into())),
             "curl",
             "-s",
             "--max-time",
