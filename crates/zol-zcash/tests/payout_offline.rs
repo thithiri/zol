@@ -262,6 +262,31 @@ fn honest_payout_then_consolidation_advance_the_head() {
     let (prop2, pczt2) = payout::propose(&P, &w.a, &w.sc, &plan, &Tamper::default()).unwrap();
     assert!(payout::verify(&w.a, &w.sc, &plan, &prop2.pczt, None).ok);
     assert_ne!(prop.sighash, prop2.sighash);
+    // The 60M payout output carries the receipt memo of record 0; padding memos are empty.
+    let memos = tx::with_ironwood(&pczt, |b| {
+        b.actions()
+            .iter()
+            .map(|a| {
+                (
+                    a.output().value().unwrap().inner(),
+                    zol_zcash::checks::recover_memo(a),
+                )
+            })
+            .collect::<Vec<_>>()
+    })
+    .unwrap();
+    let receipt = zol_wire::receipt::payout_memo(&plan.app, 0);
+    assert_eq!(
+        memos
+            .iter()
+            .filter(|(v, m)| *v == 60_000_000 && *m == Some(receipt))
+            .count(),
+        1
+    );
+    assert!(memos
+        .iter()
+        .filter(|(v, _)| *v == 0)
+        .all(|(_, m)| *m == Some(tx::empty_memo())));
     let head_nf = w.sc.note_by_cmx(&w.genesis_a).unwrap().nullifier;
     let nfs = |p: &Pczt| {
         tx::with_ironwood(p, |b| {
@@ -438,6 +463,22 @@ fn malicious_coordinator_is_rejected_by_name() {
         },
         "head_memo_advance",
     );
+    check(
+        "empty payout memo",
+        Tamper {
+            first_memo: Some(zol_zcash::tx::empty_memo()),
+            ..Default::default()
+        },
+        "payout_memo",
+    );
+    check(
+        "another record's memo",
+        Tamper {
+            first_memo: Some(zol_wire::receipt::payout_memo(&plan.app, 7)),
+            ..Default::default()
+        },
+        "payout_memo",
+    );
     // Built for the pre-NU7 branch (NU6.3) while the chain is on NU7: never mineable.
     let pre_nu7 = ChainParams {
         regtest: zol_zcash::params::RegtestHeights::PRE_NU7,
@@ -479,7 +520,7 @@ fn malicious_coordinator_is_rejected_by_name() {
     })
     .unwrap();
     let mut bytes = prop.pczt.clone();
-    let at = bytes.windows(580).position(|x| x == enc).unwrap();
+    let at = bytes.windows(580).position(|x| x == enc.0).unwrap();
     bytes[at + 300] ^= 1;
     let v = payout::verify(&w.a, &w.sc, &plan, &bytes, None);
     println!("tampered ciphertext           -> {}", names(&v));

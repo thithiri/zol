@@ -74,7 +74,7 @@ cd web && npm install && npm test
 ~/.avm/bin/anchor-1.2.1 idl build -p zol-ledger -o idl/zol_ledger.json
 ```
 
-The Zcash side is a separate workspace. pczt 0.9.3 and anchor-lang 1.2 need incompatible `sha2` releases, so they can't be built together.
+The Zcash side is a separate workspace on the NU7 pre-release Zcash crates ([docs/ops/nu7.md](docs/ops/nu7.md)). It was split off because pczt 0.9.3 and anchor-lang 1.2 needed incompatible `sha2` releases.
 
 ```bash
 cd crates/zol-zcash && cargo test && cargo build --release --bin zol-zcashd
@@ -108,10 +108,10 @@ An app is an Anchor program plus a web page; it holds no ZEC and no keys. `progr
    - `delegate_pot(expected, session_deadline, validator)`: `expected` is the receipt's seats and buy-ins, read from the `PotReceipt`, never from app state. `validator` must be the rollup's identity, or the pot never reaches it.
    - In the rollup: `move_seat(from, to, amount)` by seat index, then `close_pot`.
    - `cash_out` is permissionless.
-   - Stakes: the coin flip accepts only one deposit's net value (`STAKE_DENOMINATIONS` less the ledger's entry fee), and `close_table` returns a finished or refunded table's rent to its creator.
+   - Stakes: the coin flip accepts only one deposit's net value (one of the ledger's `Config.params.denominations` less its entry fee). `close_table` returns a finished or refunded table's rent to its creator, and `rescue_table` brings back a table stuck in the rollup once its pot is refunded (devnet delegation program only, for now).
 4. **Your own state** can be delegated with the pot (`#[delegate]`) and committed with it (`MagicIntentBundleBuilder::commit_and_undelegate`). Keep player keys out of it; the receipt is the source of truth.
 5. **Randomness.** `#[vrf]` and `#[vrf_callback]` from `ephemeral-rollups-sdk` (feature `vrf`). The callback is safe only if the queue is pinned: accept MagicBlock's queues only.
-6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zakura regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
+6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with a gateway operator (`POST /v1/apps/{app}/intents`; operators gossip intents to each other, and `AppInfo.operators` lists them all for a page that registers with each), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zakura regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
 
 ## Release and dev builds of the ledger
 

@@ -106,12 +106,18 @@ fn config(anchor: Anchor) -> BuildConfig {
 /// network upgrade after `target_height`: v5/v6 signatures commit to the consensus branch ID,
 /// so a transaction left unmined at the upgrade can never be mined, and a lower expiry
 /// releases its inputs sooner. Matters for a mainnet NU7 activation.
-pub fn capped_expiry(params: &ChainParams, target_height: u32, expiry_delta: u32) -> u32 {
+pub fn capped_expiry<P: zcash_protocol::consensus::Parameters>(
+    params: &P,
+    target_height: u32,
+    expiry_delta: u32,
+) -> u32 {
     let e = target_height + expiry_delta;
-    match params
-        .branch_id(target_height)
-        .height_bounds(params)
-        .and_then(|(_, next)| next)
+    match zcash_protocol::consensus::BranchId::for_height(
+        params,
+        zcash_protocol::consensus::BlockHeight::from_u32(target_height),
+    )
+    .height_bounds(params)
+    .and_then(|(_, next)| next)
     {
         Some(next) => e.min(u32::from(next) - 1).max(target_height),
         None => e,
@@ -192,7 +198,7 @@ pub fn build_ironwood(
         ironwood_meta,
         ..
     } = make(change_value)?
-        .build_for_pczt(rand::rngs::OsRng, &fee_rule)
+        .build_for_pczt(crate::sys_rng(), &fee_rule)
         .map_err(|e| Error::Build(format!("build_for_pczt: {e:?}")))?;
     let pczt = Creator::build_from_parts(pczt_parts)
         .ok_or(Error::Build("Creator::build_from_parts".into()))?;
@@ -207,13 +213,13 @@ pub fn build_ironwood(
 
 pub fn io_finalize(pczt: Pczt) -> Result<Pczt, Error> {
     IoFinalizer::new(pczt)
-        .finalize_io()
+        .finalize_io(crate::sys_rng())
         .map_err(|e| Error::Pczt(format!("IoFinalizer: {e:?}")))
 }
 
 pub fn prove(pczt: Pczt) -> Result<Pczt, Error> {
     Ok(Prover::new(pczt)
-        .create_ironwood_proof(proving_key())
+        .create_ironwood_proof(crate::sys_rng(), proving_key())
         .map_err(|e| Error::Pczt(format!("Prover: {e:?}")))?
         .finish())
 }
@@ -243,7 +249,7 @@ pub fn with_ironwood<T>(
 /// Signs action `index` with an ordinary Orchard spending key (wallet path).
 pub fn sign_with_ask(pczt: Pczt, index: usize, ask: &SpendAuthorizingKey) -> Result<Pczt, Error> {
     let mut s = Signer::new(pczt).map_err(|e| Error::Pczt(format!("{e:?}")))?;
-    s.sign_ironwood(index, ask)
+    s.sign_ironwood(crate::sys_rng(), index, ask)
         .map_err(|e| Error::Pczt(format!("sign: {e:?}")))?;
     Ok(s.finish())
 }
@@ -257,7 +263,7 @@ pub fn sign_with_scalar(pczt: Pczt, index: usize, ask: &[u8; 32]) -> Result<Pczt
     .ok_or(Error::Pczt("no alpha for that action".into()))?;
     let sk =
         redpallas::SigningKey::<SpendAuth>::try_from(*ask).map_err(|_| Error::Key("bad ask"))?;
-    let sig = sk.randomize(&alpha).sign(rand::rngs::OsRng, &sighash);
+    let sig = sk.randomize(&alpha).sign(crate::sys_rng(), &sighash);
     apply_signature(pczt, index, <[u8; 64]>::from(&sig))
 }
 
@@ -277,7 +283,7 @@ pub fn extract(pczt: Pczt, params: &ChainParams) -> Result<(Vec<u8>, [u8; 32]), 
         .map_err(|e| Error::Pczt(format!("SpendFinalizer: {e:?}")))?;
     let tx = TransactionExtractor::new(pczt)
         .with_orchard(verifying_key())
-        .extract()
+        .extract(crate::sys_rng())
         .map_err(|e| Error::Pczt(format!("TxExtractor: {e:?}")))?;
     let mut raw = vec![];
     tx.write(&mut raw).map_err(|e| Error::Pczt(e.to_string()))?;

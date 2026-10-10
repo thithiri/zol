@@ -1,8 +1,8 @@
 //! Consensus parameters for the three networks ZOL runs on.
 //!
 //! Mainnet and testnet use `zcash_protocol`'s built-in activation heights (NU6.3 /
-//! Ironwood at 3,428,143 and 4,134,000; testnet NU7 at 4,465,026 from the vendored ZIP 259
-//! patch, see vendor/VENDOR_PATCHES.md; mainnet NU7 is not scheduled). Regtest defaults to
+//! Ironwood at 3,428,143 and 4,134,000; testnet NU7 at 4,465,026, ZIP 259), except mainnet
+//! NU7, which is ours: [`MAINNET_NU7_HEIGHT`] (not yet set; see docs/ops/nu7.md). Regtest defaults to
 //! every upgrade through NU7 active from height 1 (`infra/zakura/regtest-nu7.toml`); a
 //! pre-NU7 regtest node (`infra/zakura/regtest-pre-nu7.toml`) needs [`RegtestHeights::PRE_NU7`], or
 //! [`RegtestHeights::from_upgrades`] to read the heights from the node.
@@ -13,6 +13,24 @@ use zcash_protocol::consensus::{
 };
 
 pub use zol_wire::Network;
+
+/// Mainnet NU7 (ZIP 259) activation height. **Set this on 2026-10-20**, when the height is
+/// published, as `Some(height)`; it overrides `zcash_protocol`'s mainnet table (which has
+/// none in 0.11.0-pre.0) for every builder, parser and verifier in this crate. The gateway
+/// has its own `gateway::config::MAINNET_NU7_HEIGHT`; both must change together.
+pub const MAINNET_NU7_HEIGHT: Option<u32> = None;
+
+/// Testnet NU7 (ZIP 259). `zcash_protocol` 0.11 already has it; kept here so the two
+/// network constants sit side by side (checked against the crate in the tests).
+pub const TESTNET_NU7_HEIGHT: u32 = 4_465_026;
+
+/// Mainnet activation heights with NU7 at `nu7` (the rest from `zcash_protocol`).
+pub fn mainnet_activation_height(nu: NetworkUpgrade, nu7: Option<u32>) -> Option<BlockHeight> {
+    match nu {
+        NetworkUpgrade::Nu7 => nu7.map(BlockHeight::from_u32),
+        _ => MAIN_NETWORK.activation_height(nu),
+    }
+}
 
 /// Regtest activation heights (only used when `network == Regtest`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,7 +177,7 @@ impl Parameters for ChainParams {
 
     fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
         match self.network {
-            Network::Mainnet => MAIN_NETWORK.activation_height(nu),
+            Network::Mainnet => mainnet_activation_height(nu, MAINNET_NU7_HEIGHT),
             Network::Testnet => TEST_NETWORK.activation_height(nu),
             Network::Regtest => {
                 let r = &self.regtest;
@@ -200,11 +218,56 @@ mod tests {
         assert_eq!(pre.branch_id(1), BranchId::Nu6_3);
         assert_eq!(ChainParams::TESTNET.branch_id(4_465_025), BranchId::Nu6_3);
         assert_eq!(ChainParams::TESTNET.branch_id(4_465_026), BranchId::Nu7);
-        assert!(!ChainParams::MAINNET.nu7_active(10_000_000));
-        assert_eq!(ChainParams::MAINNET.branch_id(10_000_000), BranchId::Nu6_3);
+        match MAINNET_NU7_HEIGHT {
+            None => {
+                assert!(!ChainParams::MAINNET.nu7_active(10_000_000));
+                assert_eq!(ChainParams::MAINNET.branch_id(10_000_000), BranchId::Nu6_3);
+            }
+            Some(h) => {
+                assert_eq!(ChainParams::MAINNET.branch_id(h - 1), BranchId::Nu6_3);
+                assert_eq!(ChainParams::MAINNET.branch_id(h), BranchId::Nu7);
+            }
+        }
+        assert_eq!(
+            TEST_NETWORK.activation_height(NetworkUpgrade::Nu7),
+            Some(BlockHeight::from_u32(TESTNET_NU7_HEIGHT))
+        );
         assert_eq!(ChainParams::TESTNET.branch_id(4_134_000), BranchId::Nu6_3);
         assert_eq!(ChainParams::TESTNET.branch_id(4_133_999), BranchId::Nu6_2);
         assert_eq!(ChainParams::MAINNET.branch_id(3_428_143), BranchId::Nu6_3);
         assert!(ChainParams::REGTEST.ironwood_active(1));
+    }
+
+    /// What setting [`MAINNET_NU7_HEIGHT`] does, without setting it: a `LocalNetwork` with
+    /// mainnet's heights and NU7 at `n` agrees with [`mainnet_activation_height`] for every
+    /// upgrade, switches branch exactly at `n`, and caps expiry before it.
+    #[test]
+    fn mainnet_nu7_transition() {
+        use zcash_protocol::local_consensus::LocalNetwork;
+        let n = 3_600_000u32; // hypothetical; must be a multiple of 3 (ZIP 259)
+        let h = |nu| mainnet_activation_height(nu, Some(n));
+        let local = LocalNetwork {
+            overwinter: h(NetworkUpgrade::Overwinter),
+            sapling: h(NetworkUpgrade::Sapling),
+            blossom: h(NetworkUpgrade::Blossom),
+            heartwood: h(NetworkUpgrade::Heartwood),
+            canopy: h(NetworkUpgrade::Canopy),
+            nu5: h(NetworkUpgrade::Nu5),
+            nu6: h(NetworkUpgrade::Nu6),
+            nu6_1: h(NetworkUpgrade::Nu6_1),
+            nu6_2: h(NetworkUpgrade::Nu6_2),
+            nu6_3: h(NetworkUpgrade::Nu6_3),
+            nu7: h(NetworkUpgrade::Nu7),
+        };
+        assert_eq!(local.nu6_3, Some(BlockHeight::from_u32(3_428_143)));
+        let at = |x: u32| BranchId::for_height(&local, BlockHeight::from_u32(x));
+        assert_eq!(at(n - 1), BranchId::Nu6_3);
+        assert_eq!(at(n), BranchId::Nu7);
+        assert_eq!(u32::from(at(n)), 0x7719_0ad9);
+        // A transaction targeted before the upgrade never outlives it.
+        assert_eq!(crate::tx::capped_expiry(&local, n - 10, 40), n - 1);
+        assert_eq!(crate::tx::capped_expiry(&local, n, 40), n + 40);
+        // Unset, the mainnet table has no NU7.
+        assert_eq!(mainnet_activation_height(NetworkUpgrade::Nu7, None), None);
     }
 }

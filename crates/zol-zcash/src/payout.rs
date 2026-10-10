@@ -16,6 +16,7 @@ use pczt::Pczt;
 use zol_types::api::{PayoutPlan, Proposal, VerifyResponse};
 use zol_wire::{
     digest::{record_digest, records_digest, Payout, Sha256},
+    receipt::payout_memo,
     HeadMemo, Transition,
 };
 
@@ -82,9 +83,11 @@ pub fn zip317_fee(actions: u64) -> u64 {
     ZIP317_MARGINAL_FEE * actions.max(ZIP317_GRACE_ACTIONS)
 }
 
-/// The payout lines of a plan's records, in order, and the records digest.
+/// The payout lines of a plan's records, in order: receiver, amount and the receipt memo
+/// `zol_wire::receipt::payout_memo(app, sequence)` of the line's record; and the records
+/// digest.
 pub struct PlannedRecords {
-    pub lines: Vec<(Receiver, u64)>,
+    pub lines: Vec<(Receiver, u64, [u8; 512])>,
     pub records_paid: u64,
     pub records_digest: [u8; 32],
 }
@@ -107,7 +110,7 @@ pub fn plan_records(plan: &PayoutPlan, head: &HeadMemo) -> Result<PlannedRecords
             if bool::from(Address::from_raw_address_bytes(&to).is_none()) || l.amount == 0 {
                 return Err("payout_receiver_invalid");
             }
-            lines.push((to, l.amount));
+            lines.push((to, l.amount, payout_memo(&plan.app, r.sequence)));
             ps.push(Payout {
                 commitment: l.commitment,
                 amount: l.amount,
@@ -168,6 +171,8 @@ pub struct Tamper {
     pub extra_inputs: Vec<(FullViewingKey, Spendable)>,
     pub extra_vault_output: bool,
     pub memo_override: Option<HeadMemo>,
+    /// Memo on the first payout output instead of its receipt memo.
+    pub first_memo: Option<[u8; 512]>,
     pub skip_io_finalize: bool,
     /// Spend this head instead of the walked one (e.g. another app's), with its FVK.
     pub head_override: Option<(FullViewingKey, Spendable, HeadMemo)>,
@@ -204,9 +209,12 @@ pub fn propose(
         if let Some(r) = tamper.first_receiver {
             first.0 = r;
         }
+        if let Some(m) = tamper.first_memo {
+            first.2 = m;
+        }
     }
-    if let Some(x) = tamper.extra_payout {
-        lines.push(x);
+    if let Some((to, v)) = tamper.extra_payout {
+        lines.push((to, v, tx::empty_memo()));
     }
     let total_pay: u64 = lines.iter().map(|l| l.1).sum();
     let pool_base = fee_pool_left(plan, &head.memo);
@@ -295,11 +303,11 @@ pub fn propose(
     let empty = tx::empty_memo();
     let mut outputs: Vec<OutputSpec> = lines
         .iter()
-        .map(|(to, v)| OutputSpec {
+        .map(|(to, v, m)| OutputSpec {
             to: *to,
             value: *v,
             ovk: Some(keys.ovk(Scope::External)),
-            memo: empty,
+            memo: *m,
         })
         .collect();
     outputs.push(OutputSpec {
@@ -623,22 +631,31 @@ pub fn verify(
                 _ => push(fl, "head_memo_advance"),
             }
         }
-        // Payouts: exactly the plan's lines (receiver, amount), fixed empty memo.
-        let mut expected: Vec<(Receiver, u64)> = pr.lines.clone();
+        // Payouts: exactly the plan's lines (receiver, amount), each with the receipt memo
+        // of its record, `payout_memo(app, sequence)`.
+        let mut expected = pr.lines.clone();
         for (a, to, v) in &value_outs {
-            if let Some(i) = expected.iter().position(|(r, x)| r == to && x == v) {
-                expected.remove(i);
-                match checks::recover_memo(a) {
-                    None => push(fl, "enc_ciphertext"),
-                    Some(m) if m != empty => push(fl, "payout_memo"),
-                    Some(_) => {
-                        if let Err(e) =
-                            checks::check_ciphertexts(a, &empty, &keys.ovk(Scope::External))
-                        {
-                            push(fl, ciphertext_failure(&e));
-                        }
-                    }
+            let got = checks::recover_memo(a);
+            let exact = got.and_then(|m| {
+                expected
+                    .iter()
+                    .position(|(r, x, em)| r == to && x == v && *em == m)
+            });
+            if let Some(i) = exact {
+                let (_, _, m) = expected.remove(i);
+                if let Err(e) = checks::check_ciphertexts(a, &m, &keys.ovk(Scope::External)) {
+                    push(fl, ciphertext_failure(&e));
                 }
+            } else if let Some(i) = expected.iter().position(|(r, x, _)| r == to && x == v) {
+                expected.remove(i);
+                push(
+                    fl,
+                    if got.is_none() {
+                        "enc_ciphertext"
+                    } else {
+                        "payout_memo"
+                    },
+                );
             } else {
                 push(fl, "unexpected_value_output");
             }

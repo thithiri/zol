@@ -43,7 +43,7 @@ The contract is `crates/zol-types` (`api::{HeadChain, PayoutPlan, Proposal, Veri
   - Candidates are added until `inputs ≥ payouts + fee` and `fee ≤ pool left`, at most `max_inputs` besides the head.
   - A consolidation (empty `records`) sweeps up to `max_inputs` candidates.
 - **Outputs, in this order:**
-  1. The payout lines, with the receiver's external OVK and the **ZIP 302 empty memo (0xF6 then zeros)**.
+  1. The payout lines, with the receiver's external OVK and the **receipt memo `zol_wire::receipt::payout_memo(app, sequence)`** of the line's settlement record ("ZOL payout v1 app=… seq=…"). Until 2026-10-10 this was the ZIP 302 empty memo.
   2. The new head: vault internal address index 0, internal OVK, memo = `head.advance(...)`.
      - `records_digest` = `records_digest(app, first_seq, [record_digest(app, seq, payouts)…])` with zol-wire's SHA-256 `Hasher`, or zero for a consolidation.
      - `network_fee` = fee.
@@ -89,7 +89,7 @@ Every check runs against the operator's own plan and own scan. All failures are 
 | `head_memo_advance` | The head memo (decrypted with esk) ≠ the exact advance of the current head |
 | `payout_missing` | A plan line (receiver, amount) has no matching output |
 | `unexpected_value_output` | A value-carrying non-vault output not in the plan |
-| `payout_memo` | A payout decrypts to a memo other than the empty memo |
+| `payout_memo` | A payout line (right receiver and amount) decrypts to a memo other than `payout_memo(app, sequence)` of its record |
 | `enc_ciphertext`, `out_ciphertext`, `epk` | Re-encryption under the fixed OVK (external payout, internal head, padding OVK for zero outputs) differs, or an output does not decrypt |
 | `padding_count` | Zero-valued outputs ≠ the padding the target implies |
 | `action_count` | Actions ≠ `max(action_target, real spends, payouts + 1)` |
@@ -171,7 +171,7 @@ cargo test -- --ignored --nocapture --test-threads=1
 - **`full_depth` also gates the head.** A payout waits until the current head has `full_depth` confirmations, so with `full_depth = N` an app gets one head transition per N blocks. Use 1 for the early-credit style.
 - **Inputs:** `max_inputs` counts inputs besides the head. Selection takes the minimum needed for payouts, except for consolidations.
 - **Padding and fee:** `action_target` is a floor. The verifier requires exactly `max(target, spends, payouts + 1)` actions, so the fee is predictable from the plan and the inputs.
-- **Payout memo:** fixed to the empty memo. If zol-wire later defines a payout memo, both builder and verifier change.
+- **Payout memo:** each payout output carries `payout_memo(app, sequence)`; padding outputs stay empty. The verifier matches lines by (receiver, amount, memo), so two records paying the same receiver the same amount are told apart.
 - **Commitments:** `CommitResponse.commitments` and `ShareResponse.shares` are JSON byte arrays (not b64), as the types define. Every signer in the aggregate must cover every vault-spend action.
 - **Sessions:** session IDs are per daemon and in memory. Reuse an ID only for the same PCZT.
 - **Refund recording:** the distributed refund path records the refund in the aggregating daemon only.

@@ -8,8 +8,9 @@
 //! 2 actions costs nothing (ZIP 317 charges for at least 2 actions) and makes a refund look
 //! like an ordinary payment-with-change rather than a 1-action transaction. Every output's
 //! OVK follows the policy: the refund uses the vault's external OVK, padding the vault's
-//! padding OVK; both memos are the ZIP 302 empty memo. So every ciphertext is predictable
-//! and checked by [`check`]. The padding receiver is a fresh throwaway address.
+//! padding OVK. The refund output carries the receipt memo
+//! `zol_wire::receipt::refund_memo(app, deposit cmx)`, the padding output the ZIP 302 empty
+//! memo. So every ciphertext is predictable and checked by [`check`]. The padding receiver is a fresh throwaway address.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +18,8 @@ use orchard::keys::{FullViewingKey, Scope, SpendingKey};
 use pczt::Pczt;
 use rand::RngCore;
 use rand_core::CryptoRng;
+
+use zol_wire::receipt::refund_memo;
 
 use crate::{
     checks,
@@ -86,7 +89,7 @@ pub fn build(
             to: *to,
             value: refund_value,
             ovk: Some(keys.ovk(Scope::External)),
-            memo: tx::empty_memo(),
+            memo: refund_memo(&keys.app_id, &deposit.scanned.cmx),
         },
         OutputSpec {
             to: throwaway_receiver(&mut rand::rngs::OsRng),
@@ -150,6 +153,7 @@ pub fn build(
 /// - every other spend is a zero-valued, validly signed dummy;
 /// - every `cmx` follows from its plaintext; exactly one output carries value: `to`, for
 ///   value − fee; no output is addressed to the vault (either scope, any diversifier);
+/// - the refund output's memo is `refund_memo(app, deposit cmx)`, padding memos are empty;
 /// - every `epk`, `enc_ciphertext` and `out_ciphertext` re-encrypts byte-for-byte under the
 ///   OVK policy (external OVK for the refund, padding OVK for zero-valued outputs);
 /// - value balance = fee = ZIP 317 for the action count; expiry within the bound.
@@ -183,6 +187,8 @@ pub fn check_pczt(
         )));
     }
     let fvk = keys.fvk();
+    let deposit_cmx = orchard::note::ExtractedNoteCommitment::from(deposit.commitment()).to_bytes();
+    let receipt = refund_memo(&keys.app_id, &deposit_cmx);
     tx::with_ironwood(r.pczt, |b| -> Result<(), Error> {
         checks::check_complete(b)?;
         let n = b.actions().len() as u64;
@@ -216,18 +222,23 @@ pub fn check_pczt(
                 )));
             }
             let v = o.value().unwrap().inner();
-            let ovk = if v > 0 {
+            let (ovk, memo) = if v > 0 {
                 if recipient.to_raw_address_bytes() != *to || v != expected_value {
                     return Err(Error::Verify(format!(
                         "action {i}: unexpected value-carrying output"
                     )));
                 }
                 paid += 1;
-                keys.ovk(Scope::External)
+                if checks::recover_memo(a) != Some(receipt) {
+                    return Err(Error::Verify(format!(
+                        "action {i}: refund memo is not refund_memo(app, deposit cmx)"
+                    )));
+                }
+                (keys.ovk(Scope::External), receipt)
             } else {
-                keys.padding_ovk()
+                (keys.padding_ovk(), tx::empty_memo())
             };
-            checks::check_ciphertexts(a, &tx::empty_memo(), &ovk)
+            checks::check_ciphertexts(a, &memo, &ovk)
                 .map_err(|e| Error::Verify(format!("action {i}: {e}")))?;
         }
         if real != 1 || paid != 1 {

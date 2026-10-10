@@ -405,13 +405,24 @@ struct RawQ {
     raw: String,
 }
 
-async fn valid_receiver(Query(q): Query<RawQ>) -> Json<serde_json::Value> {
-    let valid = hex::decode(&q.raw)
+/// `ReceiverCheck`: `valid` if `raw` is a 43-byte Orchard-protocol receiver; `vault` if it
+/// belongs to any configured app's vault (decrypts under that app's viewing key, in either
+/// scope, at any diversifier). A refund to a vault receiver is refused by `refund::build`, so
+/// the gateway holds such deposits.
+async fn valid_receiver(State(n): S, Query(q): Query<RawQ>) -> Json<api::ReceiverCheck> {
+    let addr = hex::decode(&q.raw)
         .ok()
         .and_then(|b| <[u8; 43]>::try_from(b).ok())
-        .map(|b| bool::from(orchard::Address::from_raw_address_bytes(&b).is_some()))
-        .unwrap_or(false);
-    Json(serde_json::json!({ "valid": valid }))
+        .and_then(|b| Option::from(orchard::Address::from_raw_address_bytes(&b)));
+    let vault = addr.as_ref().is_some_and(|a| {
+        n.apps
+            .values()
+            .any(|k| k.fvk().scope_for_address(a).is_some())
+    });
+    Json(api::ReceiverCheck {
+        valid: addr.is_some(),
+        vault,
+    })
 }
 
 async fn health(State(n): S) -> Json<serde_json::Value> {
@@ -1086,7 +1097,7 @@ async fn dev_genesis(State(n): S, Json(req): Json<api::GenesisRequest>) -> R<api
         .clone();
     let _op = n.ops.lock().await;
     let (sps, tip) = dev_inputs(&n, req.float).await?;
-    let sk = n.dev.as_ref().unwrap().sk;
+    let sk = n.dev.as_ref().unwrap().sk.clone();
     let (params, delta) = (n.params, n.expiry_delta);
     let nfs: Vec<_> = sps.iter().map(|sp| sp.scanned.nullifier).collect();
     let g = tokio::task::spawn_blocking(move || {
@@ -1130,7 +1141,7 @@ async fn dev_send(State(n): S, Json(req): Json<api::SendRequest>) -> R<api::Send
     }
     let _op = n.ops.lock().await;
     let (sps, tip) = dev_inputs(&n, req.value).await?;
-    let sk = n.dev.as_ref().unwrap().sk;
+    let sk = n.dev.as_ref().unwrap().sk.clone();
     let params = n.params;
     let nfs: Vec<_> = sps.iter().map(|sp| sp.scanned.nullifier).collect();
     let value = req.value;

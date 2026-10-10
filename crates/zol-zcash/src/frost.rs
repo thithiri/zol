@@ -1,6 +1,7 @@
 //! Rerandomized FROST over Pallas (ZIP 312) for vault spend authorization.
 //!
-//! reddsa 0.5.2 (`frost`), frost-rerandomized 3.0.0, frost-core 3.0.0. Signers hold *base*
+//! Our RedPallas ciphersuite ([`crate::redpallas`], byte-identical to reddsa 0.5.2's),
+//! frost-rerandomized 3.0.0, frost-core 3.0.0. Signers hold *base*
 //! shares from one key generation; app shares are derived on the fly by adding the app's
 //! public tweak (spike 0.8). The randomizer is the PCZT's `alpha` (fixed by the builder
 //! before round 1), so the hedged commitment-derived randomizer of frost-rerandomized 3.x is
@@ -13,23 +14,22 @@
 
 use std::collections::BTreeMap;
 
-use ff::PrimeField;
-use pasta_curves::pallas;
-use rand_core::{CryptoRng, RngCore};
-use reddsa::frost::redpallas::{self as rp, keys, keys::dkg, round1};
-pub use reddsa::frost::redpallas::{
+use crate::redpallas::{self as rp, keys, keys::dkg, round1};
+pub use crate::redpallas::{
     keys::{KeyPackage, PublicKeyPackage, SigningShare, VerifyingShare},
     round1::{SigningCommitments, SigningNonces},
     round2::SignatureShare,
     Identifier, PallasBlake2b512, SigningPackage, VerifyingKey,
 };
+use ff::PrimeField;
+use pasta_curves::pallas;
+use rand_core::{CryptoRng, RngCore};
 
 use crate::keys::{spend_auth_generator, AppKeys};
 use crate::Error;
 
 pub type KeyPackages = BTreeMap<Identifier, KeyPackage>;
-type Randomizer = frost_rerandomized::Randomizer<PallasBlake2b512>;
-type RandomizedParams = frost_rerandomized::RandomizedParams<PallasBlake2b512>;
+use crate::redpallas::{RandomizedParams, Randomizer};
 
 pub fn identifier(i: u16) -> Identifier {
     Identifier::try_from(i).expect("non-zero")
@@ -66,7 +66,7 @@ pub fn dealer(
 }
 
 /// A full DKG with every participant simulated in this process (tests and tooling only;
-/// real operators run `reddsa::frost::redpallas::keys::dkg` across machines).
+/// real operators run [`crate::redpallas::keys::dkg`] across machines).
 pub fn dkg_local(
     max_signers: u16,
     min_signers: u16,
@@ -199,7 +199,7 @@ pub fn aggregate(
     let params =
         RandomizedParams::from_randomizer(app_pk.verifying_key(), Randomizer::from_scalar(a));
     let sig =
-        rp::rerandomized::aggregate(signing_package, shares, app_pk, &params).map_err(frost_err)?;
+        rp::aggregate_rerandomized(signing_package, shares, app_pk, &params).map_err(frost_err)?;
     params
         .randomized_verifying_key()
         .verify(signing_package.message(), &sig)
@@ -264,7 +264,7 @@ mod tests {
         let apk = apk.unwrap();
         let msg = [7u8; 32];
         for s in [[1, 2], [1, 3], [2, 3]] {
-            let alpha = pallas::Scalar::random(&mut rng);
+            let alpha = pallas::Scalar::random(&mut rand10::rng());
             let sig = sign_locally(
                 &akps,
                 &apk,

@@ -1,6 +1,6 @@
 //! Test and tooling helpers: a single-key "group" (1-of-1) and plain wallet sends.
 
-use ff::{Field, PrimeField};
+use ff::PrimeField;
 use group::GroupEncoding;
 use orchard::{
     keys::{FullViewingKey, Scope, SpendAuthorizingKey, SpendingKey},
@@ -19,7 +19,13 @@ use crate::{
 
 /// A single-key vault group: `(ask_group, ak_group)` with ỹ(ak_group) = 0.
 pub fn single_key_group(rng: &mut impl RngCore) -> ([u8; 32], [u8; 32]) {
-    let mut s = pallas::Scalar::random(&mut *rng);
+    // Eight `next_u64` words reduced mod q: pasta_curves 0.5's `Field::random`, kept so
+    // seeded callers derive the same group as before the NU7 port.
+    let mut wide = [0u8; 64];
+    for c in wide.chunks_exact_mut(8) {
+        c.copy_from_slice(&rng.next_u64().to_le_bytes());
+    }
+    let mut s = <pallas::Scalar as ff::FromUniformBytes<64>>::from_uniform_bytes(&wide);
     let mut p = spend_auth_generator() * s;
     if p.to_bytes()[31] >> 7 == 1 {
         s = -s;
@@ -71,7 +77,7 @@ pub fn offline_note(sk: &SpendingKey, value: u64) -> (Note, MerklePath, Anchor) 
         tx::empty_memo(),
     )
     .unwrap();
-    let (bundle, meta) = b.build::<i64>(&mut rand::rngs::OsRng).unwrap().unwrap();
+    let (bundle, meta) = b.build::<i64>(&mut crate::sys_rng()).unwrap().unwrap();
     let a = &bundle.actions()[meta.output_action_index(0).unwrap()];
     let (note, _, _) = zcash_note_encryption::try_note_decryption(
         &orchard::note_encryption::IronwoodDomain::for_action(a),

@@ -49,7 +49,11 @@ fn zip2005_matches_third_party_vectors() {
             hex::encode(fvk.address_at(0u32, Scope::External).to_raw_address_bytes()),
             v["default_address_raw"].as_str().unwrap()
         );
-        let ufvk = unified::Ufvk::try_from_items(vec![unified::Fvk::Orchard(fvk_bytes)]).unwrap();
+        let ufvk = unified::Ufvk::try_from_items(
+            unified::Revision::R0,
+            vec![unified::Uitem::Data(unified::Fvk::Orchard(fvk_bytes))],
+        )
+        .unwrap();
         assert_eq!(
             ufvk.encode(&zcash_protocol::consensus::NetworkType::Test),
             v["ufvk_testnet"].as_str().unwrap()

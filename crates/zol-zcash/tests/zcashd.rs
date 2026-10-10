@@ -168,18 +168,37 @@ url = "{node_url}"
         ),
     )
     .await;
-    let valid: serde_json::Value = get(
+    // A session receiver is a vault receiver (external scope, a derived diversifier).
+    let check: api::ReceiverCheck = get(
         &d,
         &format!("/valid_receiver?raw={}", hex::encode(&sr.receiver)),
     )
     .await;
-    assert_eq!(valid["valid"], true);
-    let invalid: serde_json::Value = get(
+    assert_eq!(
+        check,
+        api::ReceiverCheck {
+            valid: true,
+            vault: true
+        }
+    );
+    let check: api::ReceiverCheck = get(
+        &d,
+        &format!("/valid_receiver?raw={}", hex::encode(&v.address)),
+    )
+    .await;
+    assert_eq!(
+        check,
+        api::ReceiverCheck {
+            valid: true,
+            vault: true
+        }
+    );
+    let invalid: api::ReceiverCheck = get(
         &d,
         &format!("/valid_receiver?raw={}", hex::encode([0u8; 43])),
     )
     .await;
-    println!("valid_receiver(zeros) = {invalid}");
+    println!("valid_receiver(zeros) = {invalid:?}");
 
     // Genesis head from the dev wallet (mines a coinbase to itself first).
     let g: api::GenesisResponse = post(&d, "/dev/genesis", &api::GenesisRequest { app, float })
@@ -201,6 +220,18 @@ url = "{node_url}"
             .address_at(0u32, orchard::keys::Scope::External)
             .to_raw_address_bytes()
     };
+    let check: api::ReceiverCheck = get(
+        &d,
+        &format!("/valid_receiver?raw={}", hex::encode(refund_to)),
+    )
+    .await;
+    assert_eq!(
+        check,
+        api::ReceiverCheck {
+            valid: true,
+            vault: false
+        }
+    );
     let addr: [u8; 43] = v.address.clone().try_into().unwrap();
     let mut m = DepositMemo::new(
         0,

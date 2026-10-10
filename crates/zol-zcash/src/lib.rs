@@ -17,8 +17,14 @@ pub mod genesis;
 pub mod head;
 pub mod keys;
 pub mod node;
+/// The OS-seeded CSPRNG for orchard, pczt and zcash_primitives (rand_core 0.10).
+pub(crate) fn sys_rng() -> rand10::rngs::ThreadRng {
+    rand10::rng()
+}
+
 pub mod params;
 pub mod payout;
+pub mod redpallas;
 pub mod refund;
 pub mod scan;
 mod serde_arr;

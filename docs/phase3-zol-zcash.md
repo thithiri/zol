@@ -13,14 +13,15 @@ Clippy is clean.
 
 The crate is its own Cargo workspace (`[workspace]` in `crates/zol-zcash/Cargo.toml`, and `"crates/zol-zcash"` in the root `exclude`). It uses the root toolchain, Rust 1.97.1. Pinned stack:
 
-- orchard 0.15.5, reddsa 0.5.2 (`frost`), frost-rerandomized 3.0.0, pczt 0.9.3
-- zcash_primitives 0.30.1, zcash_protocol 0.10.6, zcash_address 0.13.0
-- zcash_note_encryption 0.4.2, incrementalmerkletree 0.8.2, shardtree 0.7.1
+- orchard 0.16.0, pczt 0.10.0-pre.1, frost-core and frost-rerandomized 3.0.0, with our own RedPallas ciphersuite (`redpallas`), proven byte-identical to reddsa 0.5.2's FROST, which it replaces
+- zcash_primitives 0.31.0-pre.1, zcash_protocol 0.11.0-pre.0, zcash_address 0.14.0-pre.1
+- zcash_note_encryption 0.5.1, incrementalmerkletree 0.9.0, shardtree 0.8.0, pasta_curves 0.6.1
+- These are the NU7 (ZIP 259) pre-releases. Before the NU7 port (2026-10-10) this phase was built on orchard 0.15.5, reddsa 0.5.2, pczt 0.9.3, zcash_primitives 0.30.1, zcash_protocol 0.10.6 and zcash_address 0.13.0. See [docs/ops/nu7.md](ops/nu7.md).
 - blake3 1.8, reqwest 0.12 (rustls)
 
 It depends on `zol-wire` and `zol-types` by path.
 
-**Why a separate process.** pczt 0.9.3 pulls in `zcash_transparent`, then `bip32 =0.6.0-pre.1`, then `sha2 =0.11.0-pre.4`. anchor-lang 1.2.1 needs `sha2 ^0.11` (final), and Cargo allows only one 0.11. So `zol-zcash` cannot share a build with the gateway, and the operator's Zcash side runs as `zol-zcashd`. The JSON contract is `crates/zol-types`.
+**Why a separate process** (as built; with the pre-release stack it is also kept apart so its pins stay independent). pczt 0.9.3 pulled in `zcash_transparent`, then `bip32 =0.6.0-pre.1`, then `sha2 =0.11.0-pre.4`. anchor-lang 1.2.1 needs `sha2 ^0.11` (final), and Cargo allows only one 0.11. So `zol-zcash` cannot share a build with the gateway, and the operator's Zcash side runs as `zol-zcashd`. The JSON contract is `crates/zol-types`.
 
 ## API summary
 
@@ -146,8 +147,8 @@ pub fn extract(r: RefundPczt, params: &ChainParams) -> Result<(Vec<u8> /*raw*/, 
 ### `frost` (for distributed signing)
 
 ```rust
-pub use reddsa::frost::redpallas::{Identifier, KeyPackage, PublicKeyPackage, SigningPackage, SigningNonces,
-    SigningCommitments, SignatureShare, ...};
+pub use crate::redpallas::{Identifier, KeyPackage, PublicKeyPackage, SigningPackage, SigningNonces,
+    SigningCommitments, SignatureShare, ...};   // FROST(Pallas, BLAKE2b-512), byte-identical to reddsa 0.5.2
 pub fn group_key(&PublicKeyPackage) -> [u8; 32];
 pub fn app_packages(app: &AppKeys, base: &KeyPackage, base_pk: &PublicKeyPackage) -> Result<(KeyPackage, PublicKeyPackage), Error>;
 pub fn commit(app_kp: &KeyPackage, rng) -> (SigningNonces, SigningCommitments);                       // round 1
@@ -242,7 +243,7 @@ ZIP 2005 § 4.2.3, use_qsk = true, with ak^P = A_c:
 
 ### Refund shape
 
-- **Outputs:** 1 spend and 2 outputs. One is the refund (`value − 10,000`, vault external OVK, ZIP 302 empty memo). The other is a zero-valued padding output to a fresh throwaway receiver (vault padding OVK, empty memo).
+- **Outputs:** 1 spend and 2 outputs. One is the refund (`value − 10,000`, vault external OVK, memo `zol_wire::receipt::refund_memo(app, deposit cmx)`, required by `refund::check`). The other is a zero-valued padding output to a fresh throwaway receiver (vault padding OVK, empty memo).
 - **Padding:** the builder runs `UNPADDED`, so it adds exactly one dummy *spend* (signed and cleared by IoFinalizer) and never a dummy output.
 - **Why 2 actions:**
   - ZIP 317 charges for at least 2 actions anyway.
@@ -325,7 +326,7 @@ Env: `ZOL_NODE_URL`, `ZOL_NODE_B_URL` and `ZOL_DEV_SEED` (default `zol-dev`, the
    - the payout builder and verifier (Phase 4).
 
    `verify::vault_outputs`, `verify::nullifiers`, `checks` and `tx::build_ironwood` are the pieces for them.
-7. **The refund memo is the ZIP 302 empty memo.** `zol-wire` has no refund memo format. If one is added, `refund::build` and `check` must use it.
+7. **The refund memo is the receipt memo** `zol_wire::receipt::refund_memo(app, deposit cmx)`, plain text "ZOL refund v1 app=… note=…". `refund::build` sets it and `check` requires it. It replaced the ZIP 302 empty memo on 2026-10-10.
 8. **Testnet and mainnet are not exercised.** There are no funds and no synced node. `Scanner::from_node` (birthday from `z_gettreestate`) was exercised only on regtest.
 9. **Funding blocks include the mempool.** The regtest test funds by mining (then `generatetoaddress`, now `generate`), and the coinbase includes mempool fees (one run got 625,010,000). Tests take values from the scan, not constants.
 
@@ -420,8 +421,11 @@ Hex query parameters are lowercase hex of internal byte order. Errors are `{"err
 **`GET /session_receiver?app=&session=`**
 - Returns `{receiver, index, ua}`.
 
-**`GET /valid_receiver?raw=<86 hex>`** (optional)
-- Returns `{"valid": bool}`: whether the bytes parse as an Orchard-protocol receiver.
+**`GET /valid_receiver?raw=<86 hex>`**
+- Returns `ReceiverCheck {valid, vault}`.
+  - `valid`: the bytes parse as an Orchard-protocol receiver.
+  - `vault`: it belongs to a configured app's vault, meaning it decrypts under that app's viewing key in either scope, at any diversifier.
+- A refund to a vault receiver is refused, so the gateway holds such deposits.
 
 **`POST /refund {app, cmx, to}`**
 - **The note must be a known, unspent Ironwood note of `app`** (404 if not), and a deposit: not internal scope, and its memo is not a head or top-up memo (400 if not).

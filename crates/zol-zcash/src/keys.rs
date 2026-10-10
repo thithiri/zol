@@ -89,7 +89,14 @@ pub(crate) fn to_base(h: &[u8; 64]) -> pallas::Base {
 
 /// G^Orchard, the spend-authorization base point (also FROST(Pallas)'s generator).
 pub fn spend_auth_generator() -> pallas::Point {
-    <reddsa::frost::redpallas::PallasGroup as reddsa::frost::redpallas::Group>::generator()
+    use group::GroupEncoding;
+    // reddsa's `orchard::SpendAuth` basepoint encoding (protocol spec 5.4.7.1), as reddsa
+    // 0.5.2's FROST ciphersuite used it.
+    const SPEND_AUTH_BASEPOINT: [u8; 32] = [
+        99, 201, 117, 184, 132, 114, 26, 141, 12, 161, 112, 123, 227, 12, 127, 12, 95, 68, 95, 62,
+        124, 24, 141, 59, 6, 214, 241, 40, 179, 35, 85, 183,
+    ];
+    pallas::Point::from_bytes(&SPEND_AUTH_BASEPOINT).unwrap()
 }
 
 fn app_enc(app_id: &[u8; 32]) -> [u8; 34] {
@@ -299,15 +306,20 @@ impl AppKeys {
 /// receiver (the form wallets accept in ZIP 321 links; Ironwood uses the same receivers).
 pub fn encode_ua(params: &ChainParams, receiver: &Receiver) -> String {
     use zcash_protocol::consensus::Parameters;
-    let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(*receiver)])
-        .expect("one receiver");
+    // Revision 0 (ZIP 316 `u1`/`utest1`/`uregtest1`), the form every wallet reads.
+    let ua = unified::Address::try_from_items(
+        unified::Revision::R0,
+        vec![unified::Uitem::Data(unified::Receiver::Orchard(*receiver))],
+    )
+    .expect("one receiver");
     ua.encode(&params.network_type())
 }
 
 /// Decodes a Unified Address and returns its Orchard-protocol receiver, if any.
 pub fn decode_ua_orchard(params: &ChainParams, ua: &str) -> Option<Receiver> {
     use zcash_protocol::consensus::Parameters;
-    let (net, addr) = unified::Address::decode(ua).ok()?;
+    // Either revision (R0 `u1…` or R2 `zu1…`); only the Orchard receiver matters.
+    let (net, _revision, addr) = unified::Address::decode(ua).ok()?;
     if net != params.network_type() {
         return None;
     }

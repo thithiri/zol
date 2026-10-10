@@ -17,20 +17,27 @@ description = "ZOL gateway Zcash layer (Ironwood / NU6.3)"
 zol-wire = { path = "../zol-wire" }
 zol-types = { path = "../zol-types" }
 
-# Pinned, coherent Zcash stack (spikes 0.3-0.8). orchard 0.16 / reddsa 0.6 dropped FROST.
-orchard = { version = "=0.15.5", features = ["circuit"] }
-reddsa = { version = "=0.5.2", features = ["frost"] }
-frost-rerandomized = "=3.0.0"
-pczt = { version = "=0.9.3", features = ["orchard", "io-finalizer", "prover", "signer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
-zcash_primitives = "=0.30.1"
-zcash_protocol = { version = "=0.10.6", features = ["local-consensus"] }
-zcash_address = "=0.13.0"
-zcash_note_encryption = "=0.4.2"
-incrementalmerkletree = "=0.8.2"
-shardtree = "=0.7.1"
-pasta_curves = "=0.5.2"
-ff = "0.13"
-group = "0.13"
+# Pinned, coherent Zcash stack: the NU7 (ZIP 259) pre-releases and what they require.
+# The RedPallas FROST ciphersuite is our own (src/redpallas.rs) on frost-core 3.0: reddsa 0.6
+# dropped its `frost` feature, and the ZF frost repository has not published RedPallas yet.
+orchard = { version = "=0.16.0", features = ["circuit"] }
+reddsa = "=0.6.1"
+frost-core = { version = "=3.0.0", features = ["serialization"] }
+frost-rerandomized = { version = "=3.0.0", features = ["serialization"] }
+pczt = { version = "=0.10.0-pre.1", features = ["orchard", "io-finalizer", "prover", "signer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+zcash_primitives = "=0.31.0-pre.1"
+zcash_protocol = { version = "=0.11.0-pre.0", features = ["local-consensus"] }
+zcash_address = "=0.14.0-pre.1"
+zcash_note_encryption = "=0.5.1"
+incrementalmerkletree = "=0.9.0"
+shardtree = "=0.8.0"
+pasta_curves = "=0.6.1"
+ff = "0.14"
+group = "0.14"
+# rand 0.10 / rand_core 0.10 for orchard, pczt and pasta_curves; rand 0.8 / rand_core 0.6
+# for frost-core 3.0 (and the deterministic dev-key derivation, which must not change).
+rand10 = { package = "rand", version = "0.10" }
+rand_core10 = { package = "rand_core", version = "0.10" }
 blake2b_simd = "1"
 blake3 = "1.8"
 rand = "0.8"
@@ -49,13 +56,10 @@ rand_chacha = "0.3"
 
 [dev-dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-
-# NU7 (ZIP 259) on the pinned stack: vendored copies with minimal patches, see
-# vendor/VENDOR_PATCHES.md. Remove when moving to zcash_protocol 0.11 / zcash_primitives 0.31.
-[patch.crates-io]
-zcash_protocol = { path = "vendor/zcash_protocol-0.10.6" }
-zcash_primitives = { path = "vendor/zcash_primitives-0.30.1" }
-pczt = { path = "vendor/pczt-0.9.3" }
+# The reference for tests/frost_equivalence.rs: our ciphersuite must match reddsa 0.5.2's
+# FROST byte for byte (keys, nonces, commitments, shares, signatures).
+reddsa05 = { package = "reddsa", version = "=0.5.2", features = ["frost"] }
+pasta_curves05 = { package = "pasta_curves", version = "=0.5.2" }
 
 [profile.dev]
 opt-level = 1

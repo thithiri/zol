@@ -198,6 +198,11 @@ fn deposit_refund_genesis_rewind_snapshot() {
         (refunded.value, refunded.receiver),
         (100_000_000 - 10_000, refund_to)
     );
+    // The receipt memo: "ZOL refund v1 app=<app> note=<deposit cmx>".
+    assert_eq!(
+        refunded.memo,
+        zol_wire::receipt::refund_memo(&app.app_id, &dep.cmx)
+    );
     assert!(sc.spendable(&dep.cmx, None).is_err());
     println!(
         "block 3: refund {} spent deposit; player got {}",
@@ -327,13 +332,13 @@ fn orchard_pool_scanning_is_opt_in() {
         fees::zip317,
     };
     use zcash_protocol::{consensus::BlockHeight, memo::MemoBytes, value::Zatoshis};
-    let mut rng = rand::rngs::OsRng;
+    let mut rng = rand10::rng();
     let mut params = ChainParams::REGTEST;
     params.regtest.nu6_3 = 1_000_000; // NU6.2 rules: Orchard pool, v5
     params.regtest.nu7 = None;
-    let (_, ak_group) = testing::single_key_group(&mut rng);
+    let (_, ak_group) = testing::single_key_group(&mut rand::rngs::OsRng);
     let app = AppKeys::derive(ak_group, &[1; 32], &[0xA1; 32], Network::Regtest).unwrap();
-    let sk = testing::random_spending_key(&mut rng);
+    let sk = testing::random_spending_key(&mut rand::rngs::OsRng);
     let fvk = FullViewingKey::from(&sk);
     // An Orchard (V2) note in a one-leaf tree.
     let (note, path, anchor) = {
@@ -402,22 +407,30 @@ fn orchard_pool_scanning_is_opt_in() {
         MemoBytes::empty(),
     )
     .unwrap();
-    let res = b.build_for_pczt(rng, &zip317::FeeRule::standard()).unwrap();
+    let res = b
+        .build_for_pczt(&mut rng, &zip317::FeeRule::standard())
+        .unwrap();
     let idx = res.orchard_meta.spend_action_index(0).unwrap();
     let pczt = IoFinalizer::new(Creator::build_from_parts(res.pczt_parts).unwrap())
-        .finalize_io()
+        .finalize_io(&mut rng)
         .unwrap();
     let pk = orchard::circuit::ProvingKey::build(
         orchard::circuit::OrchardCircuitVersion::FixedPostNu6_2,
     );
     let pczt = Prover::new(pczt)
-        .create_orchard_proof(&pk)
+        .create_orchard_proof(&mut rng, &pk)
         .unwrap()
         .finish();
     let mut s = Signer::new(pczt).unwrap();
-    s.sign_orchard(idx, &orchard::keys::SpendAuthorizingKey::from(&sk))
+    s.sign_orchard(
+        &mut rng,
+        idx,
+        &orchard::keys::SpendAuthorizingKey::from(&sk),
+    )
+    .unwrap();
+    let txn = TransactionExtractor::new(s.finish())
+        .extract(&mut rng)
         .unwrap();
-    let txn = TransactionExtractor::new(s.finish()).extract().unwrap();
     let mut raw = vec![];
     txn.write(&mut raw).unwrap();
 

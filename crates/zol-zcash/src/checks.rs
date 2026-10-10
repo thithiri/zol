@@ -10,10 +10,7 @@ use orchard::{
     value::{NoteValue, ValueCommitment},
     Note,
 };
-use zcash_note_encryption::{
-    try_output_recovery_with_pkd_esk, Domain, EphemeralKeyBytes, ShieldedOutput,
-    ENC_CIPHERTEXT_SIZE,
-};
+use zcash_note_encryption::{try_output_recovery_with_pkd_esk, Domain};
 
 use crate::Error;
 
@@ -130,7 +127,7 @@ pub fn check_ciphertexts(
     if IronwoodDomain::epk_bytes(enc.epk()).0 != en.epk_bytes {
         return Err(fail("epk mismatch"));
     }
-    if enc.encrypt_note_plaintext() != en.enc_ciphertext {
+    if enc.encrypt_note_plaintext().0 != en.enc_ciphertext.0 {
         return Err(fail("enc_ciphertext mismatch"));
     }
     if enc.encrypt_outgoing_plaintext(a.cv_net(), a.output().cmx(), &mut NoRng) != en.out_ciphertext
@@ -143,43 +140,27 @@ pub fn check_ciphertexts(
 /// Recovers the memo with pk_d + esk(rseed): succeeds only if the ciphertext decrypts to
 /// exactly the committed note.
 pub fn recover_memo(a: &Action) -> Option<[u8; 512]> {
-    struct Out<'a>(&'a Action);
-    impl<D: Domain<ExtractedCommitmentBytes = [u8; 32]>> ShieldedOutput<D, ENC_CIPHERTEXT_SIZE>
-        for Out<'_>
-    {
-        fn ephemeral_key(&self) -> EphemeralKeyBytes {
-            EphemeralKeyBytes(self.0.output().encrypted_note().epk_bytes)
-        }
-        fn cmstar_bytes(&self) -> [u8; 32] {
-            self.0.output().cmx().to_bytes()
-        }
-        fn enc_ciphertext(&self) -> &[u8; ENC_CIPHERTEXT_SIZE] {
-            &self.0.output().encrypted_note().enc_ciphertext
-        }
-    }
     let note = output_note(a).ok()?;
     let esk = IronwoodDomain::derive_esk(&note)?;
     try_output_recovery_with_pkd_esk(
         &IronwoodDomain::for_pczt_action(a),
         IronwoodDomain::get_pk_d(&note),
         esk,
-        &Out(a),
+        a,
     )
     .map(|(_, _, m)| m)
 }
 
 struct NoRng;
-impl rand_core::RngCore for NoRng {
-    fn next_u32(&mut self) -> u32 {
+impl rand_core10::TryRng for NoRng {
+    type Error = core::convert::Infallible;
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
         unreachable!("deterministic")
     }
-    fn next_u64(&mut self) -> u64 {
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
         unreachable!("deterministic")
     }
-    fn fill_bytes(&mut self, _: &mut [u8]) {
-        unreachable!("deterministic")
-    }
-    fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), rand_core::Error> {
+    fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
         unreachable!("deterministic")
     }
 }

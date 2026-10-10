@@ -29,7 +29,7 @@ This construction does not provide spend-key isolation. The same signers hold ev
 | `BLAKE2b-n(P, x)` | BLAKE2b with an n-byte output and 16-byte personalization `P` |
 | `PRF^expand_k(t)` | `BLAKE2b-512("Zcash_ExpandSeed", k ‖ t)` |
 | `H^qk(qsk)` | `BLAKE3.derive_key("Zcash ZIP 2005 qk-derivation v1", qsk)`, 32 bytes |
-| `ak_group` | FROST group verification key from the DKG, after reddsa's even-ỹ normalization (`post_dkg` negates the key and every share if ỹ = 1) |
+| `ak_group` | FROST group verification key from the DKG, after the even-ỹ normalization of the FROST(Pallas, BLAKE2b-512) ciphersuite (`post_dkg` negates the key and every share if ỹ = 1). That was reddsa 0.5.2's; since the NU7 port it is `zol_zcash::redpallas`, byte-identical (`tests/frost_equivalence.rs`) |
 | `K` | 32-byte master viewing secret, uniformly random, held by every operator. It is not threshold-shared |
 | `app_id` | The app's 32-byte Solana program ID (public) |
 | `net` | 0 mainnet, 1 testnet, 2 regtest |
@@ -72,7 +72,7 @@ accept the first such c:  t_app = t_c,  ak_app = A_c,  fvk_app = (ak_app, nk, ri
   - `Y_i,app = Y_i + [t_app]G`;
   - `Y_app = ak_group + [t_app]G = ak_app`.
 - This is correct for every signing set, because the Lagrange coefficients at 0 sum to 1.
-- **Signing a spend.** It is rerandomized FROST (reddsa 0.5.2, frost-rerandomized 3.0.0) on the app shares, with randomizer α taken from the PCZT. The result is a RedPallas signature under `rk = ak_app + [α]G`.
+- **Signing a spend.** It is rerandomized FROST (frost-rerandomized 3.0.0 with the FROST(Pallas, BLAKE2b-512) ciphersuite; reddsa 0.5.2's until the NU7 port, now `zol_zcash::redpallas`, proven byte-identical to it on fixed seeds) on the app shares, with randomizer α taken from the PCZT. The result is a RedPallas signature under `rk = ak_app + [α]G`.
 
 **ZIP 2005 retention.** ZIP 2005 requires that `sk`, `use_qsk` and the FROST `ak` be retained for the Recovery Protocol. Here:
 
@@ -177,7 +177,7 @@ The Orchard builder picks α when it constructs the PCZT. `rk = ak + [α]G` is p
 
 ## 6. Assumptions
 
-- **ZIP 312** (Draft) rerandomized FROST, with reddsa's FROST(Pallas, BLAKE2b-512) ciphersuite:
+- **ZIP 312** (Draft) rerandomized FROST, with the FROST(Pallas, BLAKE2b-512) ciphersuite (reddsa 0.5.2's, ported unchanged to `zol_zcash::redpallas` because reddsa 0.6 dropped FROST):
   - DKG security;
   - single-use nonces;
   - signers check the sighash themselves;
