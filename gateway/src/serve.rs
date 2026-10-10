@@ -29,7 +29,7 @@ use crate::rounds;
 use crate::server::{self, ServerState};
 use crate::service::Operator;
 use crate::store::Store;
-use crate::zcashd::{OrchardReceivers, ZcashdClient};
+use crate::zcashd::{ZcashdClient, ZcashdReceivers};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct PeerCfg {
@@ -37,6 +37,10 @@ pub struct PeerCfg {
     pub url: String,
     /// Base58 guardian public key (as in `Config.guardians`).
     pub guardian: String,
+    /// Its page API as pages reach it, if different from `url` (which may be
+    /// a private address).
+    #[serde(default)]
+    pub public_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -51,6 +55,9 @@ pub struct ServeConfig {
     pub gateway: GatewayConfig,
     pub name: String,
     pub listen: String,
+    /// This host's page API as pages reach it, listed in `AppInfo.operators`.
+    #[serde(default)]
+    pub public_url: Option<String>,
     pub solana_rpc: String,
     /// This operator's relayer (fee payer) keypair JSON.
     pub relayer_keypair: PathBuf,
@@ -147,7 +154,7 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
         attestor: Attestor::new(share, pubkeys.clone(), network),
         guardian_seed: *guardian.secret_bytes(),
         apps,
-        addresses: Box::new(OrchardReceivers),
+        addresses: Box::new(ZcashdReceivers::new(&cfg.zcashd)),
     };
     let op = Operator::new(node, zcashd).map_err(|e| e.to_string())?;
     let local = SharedPeer(Arc::new(Mutex::new(op)));
@@ -163,6 +170,19 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
         ledger: Mutex::new(Box::new(ledger(&cfg, attestor)?)),
         peers: allowed,
         seen: Mutex::new(HashMap::new()),
+        gossip: cfg.peers.iter().map(|p| (p.name.clone(), p.url.clone())).collect(),
+        gossip_seed: *guardian.secret_bytes(),
+        operators: cfg
+            .order
+            .iter()
+            .filter_map(|n| {
+                if *n == cfg.name {
+                    cfg.public_url.clone()
+                } else {
+                    cfg.peers.iter().find(|p| p.name == *n).map(|p| p.public_url.clone().unwrap_or_else(|| p.url.clone()))
+                }
+            })
+            .collect(),
     });
     let server = server::spawn(&cfg.listen, state)?;
 
@@ -243,4 +263,17 @@ fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: 
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn example_config_parses() {
+        let cfg: ServeConfig = serde_json::from_str(include_str!("../examples/serve.example.json")).unwrap();
+        assert_eq!(cfg.order.len(), cfg.peers.len() + 1);
+        assert!(cfg.public_url.is_some() && cfg.peers.iter().all(|p| p.public_url.is_some()));
+        assert_eq!(cfg.gateway.rule().nu7_height, crate::config::TESTNET_NU7_HEIGHT);
+    }
 }

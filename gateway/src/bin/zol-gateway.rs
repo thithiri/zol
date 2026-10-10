@@ -2,6 +2,8 @@
 //! (all operators' nodes in one process; see `service`).
 //!
 //!   zol-gateway keygen --operators 3 --threshold 2 --out keys/
+//!   zol-gateway dkg --config serve.json --ceremony <id>   (on every host at once)
+//!   zol-gateway serve --config serve.json
 //!   zol-gateway run --config gateway.json
 
 use std::collections::BTreeMap;
@@ -14,13 +16,14 @@ use frost_ed25519::keys::{KeyPackage, PublicKeyPackage};
 use rand::rngs::OsRng;
 use serde::Deserialize;
 use solana_keypair::Keypair;
+use solana_signer::Signer;
 use zol_gateway::attestor::{dkg, group_key, Attestor};
 use zol_gateway::config::{AppSecrets, GatewayConfig};
 use zol_gateway::node::{AppRuntime, Node};
 use zol_gateway::rpc::RpcLedger;
 use zol_gateway::service::{Cluster, Operator};
 use zol_gateway::store::Store;
-use zol_gateway::zcashd::{OrchardReceivers, ZcashdClient};
+use zol_gateway::zcashd::{ZcashdClient, ZcashdReceivers};
 
 #[derive(Parser)]
 #[command(about = "ZOL gateway (Solana side)")]
@@ -31,7 +34,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Distributed key generation for the Ed25519 attestor key.
+    /// Attestor key generation in one process (local devnet, tests).
     Keygen {
         #[arg(long, default_value_t = 3)]
         operators: u16,
@@ -39,6 +42,18 @@ enum Cmd {
         threshold: u16,
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Attestor DKG across hosts: run on every operator's host at about the
+    /// same time, with the same `--ceremony`. Writes `attestor_share` and
+    /// `attestor_pubkeys` from the serve config.
+    Dkg {
+        #[arg(long)]
+        config: PathBuf,
+        /// Label shared by all operators for this ceremony, e.g. "testnet-2026-10".
+        #[arg(long)]
+        ceremony: String,
+        #[arg(long, default_value_t = 600)]
+        timeout_secs: u64,
     },
     /// Run one operator on this host (multi-host deployment).
     Serve {
@@ -117,6 +132,48 @@ fn keygen(n: u16, t: u16, out: &Path) -> Result<(), BoxErr> {
     Ok(())
 }
 
+fn dkg_over_peers(path: &Path, ceremony: String, timeout_secs: u64) -> Result<(), BoxErr> {
+    use zol_gateway::dkgnet::{self, DkgParams, Participant};
+    let cfg: zol_gateway::serve::ServeConfig = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    for p in [&cfg.attestor_share, &cfg.attestor_pubkeys] {
+        if p.exists() {
+            return Err(format!("{} exists; move it away to run a new ceremony", p.display()).into());
+        }
+    }
+    let guardian = read_keypair(&cfg.guardian_keypair)?;
+    let mut participants = Vec::new();
+    for name in &cfg.order {
+        let (url, key) = if *name == cfg.name {
+            (String::new(), guardian.pubkey().to_bytes())
+        } else {
+            let p = cfg.peers.iter().find(|p| p.name == *name).ok_or_else(|| format!("{name} is in order but not in peers"))?;
+            (p.url.clone(), p.guardian.parse::<Pubkey>()?.to_bytes())
+        };
+        participants.push(Participant { name: name.clone(), url, guardian: ed25519_dalek::VerifyingKey::from_bytes(&key)? });
+    }
+    let params = DkgParams {
+        ceremony,
+        threshold: cfg.threshold as u16,
+        participants,
+        me: cfg.name.clone(),
+        guardian_seed: *guardian.secret_bytes(),
+        listen: cfg.listen.clone(),
+        timeout: Duration::from_secs(timeout_secs),
+    };
+    println!("{}: waiting for {} peers on {}", cfg.name, cfg.peers.len(), cfg.listen);
+    let (share, pubkeys) = dkgnet::run(&params, &mut OsRng)?;
+    for p in [&cfg.attestor_share, &cfg.attestor_pubkeys] {
+        if let Some(d) = p.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+    }
+    std::fs::write(&cfg.attestor_share, serde_json::to_string_pretty(&share)?)?;
+    std::fs::write(&cfg.attestor_pubkeys, serde_json::to_string_pretty(&pubkeys)?)?;
+    println!("attestor group key (set as Config.attestor): {}", Pubkey::new_from_array(group_key(&pubkeys)));
+    println!("every operator must print the same key");
+    Ok(())
+}
+
 fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
     let cfg: Config = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let pubkeys: PublicKeyPackage = serde_json::from_str(&std::fs::read_to_string(&cfg.attestor_pubkeys)?)?;
@@ -151,7 +208,7 @@ fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
             attestor: Attestor::new(share, pubkeys.clone(), network),
             guardian_seed: *read_keypair(&o.guardian_keypair)?.secret_bytes(),
             apps,
-            addresses: Box::new(OrchardReceivers),
+            addresses: Box::new(ZcashdReceivers::new(&o.zcashd)),
         };
         operators.push(Operator::new(node, zcashd)?);
     }
@@ -187,6 +244,7 @@ fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
 fn main() -> Result<(), BoxErr> {
     match Cli::parse().cmd {
         Cmd::Keygen { operators, threshold, out } => keygen(operators, threshold, &out),
+        Cmd::Dkg { config, ceremony, timeout_secs } => dkg_over_peers(&config, ceremony, timeout_secs),
         Cmd::Run { config, rounds } => run(&config, rounds),
         Cmd::Serve { config } => {
             let cfg: zol_gateway::serve::ServeConfig = serde_json::from_str(&std::fs::read_to_string(&config)?)?;

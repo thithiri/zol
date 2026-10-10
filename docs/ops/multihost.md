@@ -6,17 +6,31 @@ Each operator runs, on its own host:
 - `zol-zcashd`, holding this operator's one Pallas spend share, on localhost only;
 - `zol-gateway serve`, holding this operator's Ed25519 attestor share, its guardian key and its relayer key, with its own Solana RPC endpoint.
 
-Gateways talk to each other over HTTP. Put that traffic behind TLS or a private network such as WireGuard; the gateway has no TLS of its own.
+Gateways talk to each other over HTTP. Put peer traffic on a private network (WireGuard) and the page API behind TLS; the gateway has no TLS of its own. [network.md](network.md) has the setup.
+
+## Attestor keys
+
+On every host at about the same time, with the same ceremony label:
 
 ```bash
-zol-gateway keygen --operators 3 --threshold 2 --out keys/
+zol-gateway dkg --config serve.json --ceremony testnet-2026-10
 ```
+
+Each host serves a mailbox on its `listen` address and exchanges the three FROST DKG rounds with the peers in its serve config, over the signed peer channel (`gateway::dkgnet`):
+
+- Round-2 packages are secret. Each one is encrypted to its recipient with ChaCha20-Poly1305 under an X25519 key that the recipient sent in round 1.
+- In a last round every host confirms the group key and a hash of all round-1 packages. That catches an operator that sent different packages to different peers.
+- Hosts whose ceremony label, threshold, `order` or guardian keys differ refuse each other.
+
+The command writes `attestor_share` and `attestor_pubkeys` from the serve config, and refuses to overwrite them. It prints the group key; every operator must print the same one. Set it as `Config.attestor` on the ledger, and register each operator's guardian key in `Config.guardians`.
+
+`zol-gateway keygen --operators 3 --threshold 2 --out keys/` does the same in one process, for local devnets and tests.
+
+## Run
 
 ```bash
 zol-gateway serve --config gateway/examples/serve.example.json
 ```
-
-`keygen` runs the attestor key generation in one process. For production, run its three parts on the three hosts; the code is `attestor::dkg`. Set the printed group key as `Config.attestor` on the ledger, and register each operator's guardian key in `Config.guardians`.
 
 ## What each gateway does
 
@@ -52,7 +66,10 @@ A receiver accepts only keys listed in `peers`, timestamps within 60 s, and each
 
 ## Page API
 
-`/v1/apps/{app}`, `/v1/apps/{app}/sessions/{session}`, `POST /v1/apps/{app}/intents` and `/v1/apps/{app}/sessions/{session}/deposits` (`zol_types::page`) are public, with CORS open. A page should register its intent with every operator, since each decides from its own store.
+`/v1/apps/{app}`, `/v1/apps/{app}/sessions/{session}`, `POST /v1/apps/{app}/intents` and `/v1/apps/{app}/sessions/{session}/deposits` (`zol_types::page`) are public, with CORS open.
+
+- **Intent gossip.** Each operator decides from its own store. An intent registered with one gateway is passed on to the others over `/peer/intent`; each receiver checks the session signature itself. Retries back off over about a minute and a half. A page that wants certainty can still register with each operator.
+- **`AppInfo.operators`** lists every operator's page API base URL in rotation order: this host's `public_url` and each peer's `public_url` (or its `url` if unset). A page can use it to fail over.
 
 ## Parameter rule found in testing
 
@@ -66,13 +83,14 @@ cargo test -p zol-gateway --test multihost -- --ignored --nocapture
 
 The test needs the Zakura regtest (`infra/zakura/scripts/up.sh`), a built `zol-zcashd` and `solana-test-validator`. It runs three gateways in one process, but they share nothing: each has its own store, zcashd, Solana RPC client and HTTP server, and they reach each other only through signed HTTP. It covers:
 
-- a deposit whose wallet dropped the memo, credited from the registered intent;
+- a deposit whose wallet dropped the memo, credited from an intent registered with one gateway and gossiped to the other two;
+- `AppInfo.operators`;
 - a voided deposit and its distributed refund;
 - authentication: no signature, an unknown key, a replay, a stale timestamp, and a same-second request with a fresh nonce;
 - one operator shut down, after which the other two pay out and mark the settlement paid. This takes about 80 s.
 
 ## Not yet
 
-- TLS termination and certificate pinning are left to the deployment.
-- The attestor key generation runs in one process (`keygen`); the multi-host version, exchanging the three parts over the peer channel, is not wired up.
+- TLS termination is left to a reverse proxy ([network.md](network.md)).
+- Intent gossip is best effort, with no anti-entropy. An operator that was down when an intent was registered won't have it, unless the page registers again.
 - A refund already mined can be re-proposed in the moment before a coordinator's node has pulled the spend. zcashd refuses it ("note already spent"), so it only adds log noise.

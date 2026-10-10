@@ -16,7 +16,7 @@ use zol_types::page;
 use zol_wire::{DepositMemo, MEMO_LEN};
 
 use crate::ledger::Ledger;
-use crate::peer::{verify_request, AttestReq, BroadcastNotice, Peer, PeerError, SharedPeer, SpendCommitReq, SpendShareReq};
+use crate::peer::{verify_request, AttestReq, BroadcastNotice, HttpPeer, IntentNotice, Peer, PeerError, SharedPeer, SpendCommitReq, SpendShareReq};
 use crate::store::{NoteKind, NoteState};
 
 /// Replay cache: (peer key, nonce) → timestamp.
@@ -30,6 +30,35 @@ pub struct ServerState {
     /// Guardian keys of the operators allowed to call `/peer/*`.
     pub peers: Vec<VerifyingKey>,
     pub seen: ReplayCache,
+    /// Where to pass on intents that pages register here: the other operators
+    /// (name, peer URL) and this host's guardian seed to sign with.
+    pub gossip: Vec<(String, String)>,
+    pub gossip_seed: [u8; 32],
+    /// Every operator's public page API base URL, for `AppInfo.operators`.
+    pub operators: Vec<String>,
+}
+
+/// Passes an intent to every other operator in the background, retrying a few
+/// times. A page that wants certainty registers with each operator itself.
+fn gossip_intent(st: &ServerState, app: [u8; 32], memo: Vec<u8>) {
+    for (name, url) in st.gossip.clone() {
+        let (seed, memo) = (st.gossip_seed, memo.clone());
+        std::thread::spawn(move || {
+            let peer = HttpPeer::new(&name, &url, &seed);
+            for wait in [1, 4, 16, 64] {
+                match peer.send_intent(&app, &memo) {
+                    Ok(()) => return,
+                    // Refused (bad memo, unknown app): retrying won't help.
+                    Err(PeerError::Refused(e)) => {
+                        eprintln!("intent to {name} refused: {e}");
+                        return;
+                    }
+                    Err(_) => std::thread::sleep(std::time::Duration::from_secs(wait)),
+                }
+            }
+            eprintln!("intent to {name}: unreachable, gave up");
+        });
+    }
 }
 
 type Resp = Response<std::io::Cursor<Vec<u8>>>;
@@ -162,6 +191,15 @@ fn peer_call(st: &ServerState, method: &str, body: &[u8]) -> Resp {
                 Err(e) => peer_err(e),
             }
         }
+        "intent" => {
+            let r = parse!(IntentNotice);
+            let Ok(m) = <[u8; MEMO_LEN]>::try_from(r.memo.as_slice()) else { return err(400, "memo must be 512 bytes") };
+            let g = st.local.0.lock().unwrap();
+            match g.node.register_intent(&r.app, &m) {
+                Ok(_) => json(200, &()),
+                Err(e) => peer_err(PeerError::Refused(e.to_string())),
+            }
+        }
         "note_broadcast" => {
             let r = parse!(BroadcastNotice);
             match local.note_broadcast(ledger, &r, now) {
@@ -220,6 +258,7 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
                     early_depth: node.cfg.rule().blocks(node.cfg.depths.early, tip),
                     full_depth: node.cfg.rule().blocks(node.cfg.depths.full, tip),
                     state: state.into(),
+                    operators: st.operators.clone(),
                 },
             )
         }
@@ -237,6 +276,7 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
             m[..bytes.len()].copy_from_slice(&bytes);
             match node.register_intent(&app, &m) {
                 Ok(_) => {
+                    gossip_intent(st, app, m.to_vec());
                     let session = DepositMemo::decode_any(&m).map(|d| d.session_key).unwrap_or([0; 32]);
                     session_info(&guard, &app, &session)
                 }

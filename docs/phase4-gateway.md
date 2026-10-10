@@ -52,7 +52,7 @@ Run them with the commands in the README. Use a fresh regtest chain (`infra/zaku
 
 ## Gaps
 
-- **Multi-host operators.** FROST rounds are driven by the in-process cluster over each operator's localhost zcashd. Separate hosts need an authenticated transport between gateways. Shares go only to the coordinator; the design's "shares to every signer, so any can aggregate" would come with that transport (`/sign/aggregate` already works on any daemon).
+- **Multi-host operators: done since** ([ops/multihost.md](ops/multihost.md)). It covers signed peer HTTP, rotating coordinators, attestor DKG across hosts (`zol-gateway dkg`), and intent gossip. Shares still go only to the coordinator. The design's "shares to every signer, so any can aggregate" is not done, although `/sign/aggregate` already works on any daemon.
 - **Pending state is local** to the daemon that aggregated, plus each gateway node's own record. A reorged-out transition blocks its app until expiry, because the node does not return it to the mempool. Keep `expiry_delta` small (40 by default).
 - **Payout memo.** The payout memo is fixed empty. A player's wallet sees an unlabelled shielded payment.
 - **Not run on testnet or devnet** (no funds).

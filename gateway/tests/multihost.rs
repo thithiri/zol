@@ -182,6 +182,7 @@ fn three_hosts_over_authenticated_http() {
             gateway: gcfg.clone(),
             name: names[i].into(),
             listen: format!("127.0.0.1:{}", gw_port + i as u16),
+            public_url: Some(format!("http://127.0.0.1:{}", gw_port + i as u16)),
             solana_rpc: url.clone(),
             relayer_keypair: write_keypair(&dir, &format!("relayer{i}"), &relayers[i]),
             store: dir.join(format!("store{i}.db")),
@@ -197,6 +198,7 @@ fn three_hosts_over_authenticated_http() {
                     name: names[j].into(),
                     url: format!("http://127.0.0.1:{}", gw_port + j as u16),
                     guardian: guardians[j].pubkey().to_string(),
+                    public_url: None,
                 })
                 .collect(),
             order: names.iter().map(|s| s.to_string()).collect(),
@@ -213,20 +215,29 @@ fn three_hosts_over_authenticated_http() {
     let info: zol_types::page::AppInfo = http.get(format!("{}/v1/apps/{}", gw(1), TEST_APP)).send().unwrap().json().unwrap();
     assert_eq!((info.state.as_str(), info.network.as_str()), ("active", "regtest"));
     assert_eq!(info.vault_address, hex::encode(vault_addr));
+    assert_eq!(info.operators, (0..3).map(gw).collect::<Vec<_>>());
     let h = node_height();
     let alice = SigningKey::from_bytes(&[0xA1; 32]);
     let bob = SigningKey::from_bytes(&[0xB0; 32]);
     let ma = session_memo(&alice, &vault_addr, h + 1_000, external_receiver());
     let mb = session_memo(&bob, &vault_addr, h + 3, external_receiver());
-    for i in 0..3 {
-        let s: zol_types::page::SessionInfo = http
-            .post(format!("{}/v1/apps/{}/intents", gw(i), TEST_APP))
-            .json(&zol_types::page::Intent { memo: hex::encode(ma.encode()) })
-            .send()
-            .unwrap()
-            .json()
-            .unwrap();
-        assert!(s.intent_registered);
+    // Registered with one operator; gossip carries it to the other two.
+    let s: zol_types::page::SessionInfo = http
+        .post(format!("{}/v1/apps/{}/intents", gw(0), TEST_APP))
+        .json(&zol_types::page::Intent { memo: hex::encode(ma.encode()) })
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert!(s.intent_registered);
+    for i in 1..3 {
+        wait_until("intent gossip", 30, || {
+            http.get(format!("{}/v1/apps/{}/sessions/{}", gw(i), TEST_APP, hex::encode(ma.session_key)))
+                .send()
+                .ok()
+                .and_then(|r| r.json::<zol_types::page::SessionInfo>().ok())
+                .is_some_and(|s| s.intent_registered)
+        });
     }
     let ra = z0.session_receiver(&app_id(), &ma.session_key).unwrap();
     let rb = z0.session_receiver(&app_id(), &mb.session_key).unwrap();

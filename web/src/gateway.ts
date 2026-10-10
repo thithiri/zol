@@ -13,6 +13,8 @@ export interface AppInfo {
   tip: number;
   early_depth: number;
   full_depth: number;
+  /** Every operator's page API base URL (intents are gossiped between them). */
+  operators?: string[];
   state: "pending" | "activating" | "active" | "frozen" | "unregistered";
 }
 export interface SessionInfo {

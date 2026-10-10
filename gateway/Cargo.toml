@@ -37,6 +37,8 @@ solana-signer = "3"
 solana-instruction = "3"
 solana-ed25519-program = "3"
 solana-hash = "4"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
 
 [dev-dependencies]
 solana-signer = "3"

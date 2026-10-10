@@ -421,6 +421,15 @@ pub struct SpendCommitReq {
     pub pczt: Vec<u8>,
 }
 
+/// A deposit intent a page registered with one operator, passed on to the
+/// others. Each receiver verifies the session signature itself.
+#[derive(Serialize, Deserialize)]
+pub struct IntentNotice {
+    pub app: AppId,
+    #[serde(with = "zol_types::b64")]
+    pub memo: Vec<u8>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct SpendShareReq {
     pub session: u64,
@@ -461,6 +470,13 @@ impl HttpPeer {
         } else {
             Err(serde_json::from_str::<PeerError>(&text).unwrap_or(PeerError::Transport(text)))
         }
+    }
+}
+
+impl HttpPeer {
+    /// Passes a page's intent on. Not part of `Peer`: it is gossip, not a round.
+    pub fn send_intent(&self, app: &AppId, memo: &[u8]) -> PResult<()> {
+        self.call("/peer/intent", &IntentNotice { app: *app, memo: memo.to_vec() })
     }
 }
 

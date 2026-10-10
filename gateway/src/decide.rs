@@ -59,6 +59,12 @@ pub enum HoldReason {
     NoMemo,
     /// A memo, but its payout address does not parse: nowhere to refund.
     NoRefundAddress,
+    /// The payout address is one of the vaults' own receivers. `zol-zcashd`
+    /// refuses to refund or pay to it, so neither a credit nor a void could be
+    /// completed; an operator settles it by hand.
+    VaultRefundAddress,
+    /// `zol-zcashd` could not say whether the payout address is a vault's.
+    ReceiverUnknown,
 }
 
 /// Credit attestation fields, owned.
@@ -120,6 +126,14 @@ pub fn decide(note: &ScannedNote, ctx: &DecideCtx) -> Decision {
     };
     if !ctx.addresses.is_valid_receiver(&memo.payout_address) {
         return Decision::Hold { reason: HoldReason::NoRefundAddress };
+    }
+    if memo.payout_address == ctx.vault_address {
+        return Decision::Hold { reason: HoldReason::VaultRefundAddress };
+    }
+    match ctx.addresses.is_vault_receiver(&memo.payout_address) {
+        Some(false) => {}
+        Some(true) => return Decision::Hold { reason: HoldReason::VaultRefundAddress },
+        None => return Decision::Hold { reason: HoldReason::ReceiverUnknown },
     }
     let void = |reason| Decision::Void { deposit_id, reason, memo: canon, refund_to: memo.payout_address };
     if memo.verify_signature(ctx.network, &ctx.vault_address).is_err() {
@@ -302,6 +316,25 @@ pub(crate) mod tests {
         // Unparseable refund address.
         let bad = signed_memo(&sk, 1_000, [0xFF; 43]);
         assert_eq!(decide(&note_with(&bad.encode(), 1_000_000), &ctx(&s, &d)), Decision::Hold { reason: HoldReason::NoRefundAddress });
+        // Payout address is the vault itself, or another vault receiver.
+        let own = signed_memo(&sk, 1_000, VAULT);
+        assert_eq!(decide(&note_with(&own.encode(), 1_000_000), &ctx(&s, &d)), Decision::Hold { reason: HoldReason::VaultRefundAddress });
+        struct Vaults(Option<bool>);
+        impl AddressCheck for Vaults {
+            fn is_valid_receiver(&self, _: &[u8; 43]) -> bool {
+                true
+            }
+            fn is_vault_receiver(&self, raw: &[u8; 43]) -> Option<bool> {
+                self.0.map(|v| v && raw[0] == 0x55)
+            }
+        }
+        let other_vault = signed_memo(&sk, 1_000, [0x55; 43]);
+        let mut c = ctx(&s, &d);
+        c.addresses = &Vaults(Some(true));
+        assert_eq!(decide(&note_with(&other_vault.encode(), 1_000_000), &c), Decision::Hold { reason: HoldReason::VaultRefundAddress });
+        assert!(matches!(decide(&note_with(&m.encode(), 1_000_000), &c), Decision::Credit { .. }));
+        c.addresses = &Vaults(None);
+        assert_eq!(decide(&note_with(&m.encode(), 1_000_000), &c), Decision::Hold { reason: HoldReason::ReceiverUnknown });
         // Head and top-up notes are not deposits.
         let head = zol_wire::HeadMemo::genesis(Network::Testnet, APP).encode();
         assert_eq!(decide(&note_with(&head, 5), &ctx(&s, &d)), Decision::NotDeposit(MemoKind::HeadV1));

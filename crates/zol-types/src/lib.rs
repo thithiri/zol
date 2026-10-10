@@ -420,6 +420,10 @@ pub mod page {
         pub full_depth: u32,
         /// "unregistered" | "pending" | "activating" | "active" | "frozen".
         pub state: String,
+        /// Every operator's page API base URL. An intent registered with one is
+        /// passed on to the others; a page can also register with each itself.
+        #[serde(default)]
+        pub operators: Vec<String>,
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

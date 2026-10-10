@@ -55,6 +55,10 @@ impl ZcashdClient {
         }
     }
 
+    pub fn valid_receiver(&self, raw: &[u8; 43]) -> Result<api::ReceiverCheck> {
+        self.get(&format!("/valid_receiver?raw={}", hex::encode(raw)))
+    }
+
     pub fn health(&self) -> bool {
         self.http.get(format!("{}/health", self.base)).send().is_ok_and(|r| r.status().is_success())
     }
@@ -136,6 +140,35 @@ impl AddressCheck for OrchardReceivers {
         let pk_d: [u8; 32] = raw[11..].try_into().unwrap();
         let p = pasta_curves::pallas::Affine::from_bytes(&pk_d);
         bool::from(p.is_some()) && !bool::from(group::prime::PrimeCurveAffine::is_identity(&p.unwrap()))
+    }
+}
+
+/// The production check: validity locally, vault membership from the
+/// operator's own `zol-zcashd`, which holds every app's viewing keys. Answers
+/// are cached; a vault's receivers never change, and new apps need a restart.
+pub struct ZcashdReceivers {
+    client: ZcashdClient,
+    cache: std::sync::Mutex<std::collections::HashMap<[u8; 43], bool>>,
+}
+
+impl ZcashdReceivers {
+    pub fn new(base: &str) -> Self {
+        Self { client: ZcashdClient::new(base), cache: Default::default() }
+    }
+}
+
+impl AddressCheck for ZcashdReceivers {
+    fn is_valid_receiver(&self, raw: &[u8; zol_wire::ORCHARD_ADDR_LEN]) -> bool {
+        OrchardReceivers.is_valid_receiver(raw)
+    }
+
+    fn is_vault_receiver(&self, raw: &[u8; zol_wire::ORCHARD_ADDR_LEN]) -> Option<bool> {
+        if let Some(v) = self.cache.lock().unwrap().get(raw) {
+            return Some(*v);
+        }
+        let v = self.client.valid_receiver(raw).ok()?.vault;
+        self.cache.lock().unwrap().insert(*raw, v);
+        Some(v)
     }
 }
 

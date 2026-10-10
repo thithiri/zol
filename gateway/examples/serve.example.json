@@ -1,6 +1,7 @@
 {
   "name": "op0",
   "listen": "0.0.0.0:8700",
+  "public_url": "https://op0.example.com",
   "network": 1,
   "depths": { "early": 30, "full": 300, "payout": 300 },
   "early_credit_cap": 10000000,
@@ -21,8 +22,8 @@
   "threshold": 2,
   "apps": [{ "program": "<app program id, base58>", "gateway_master_secret": "<32-byte hex, same on every operator>" }],
   "peers": [
-    { "name": "op1", "url": "https://op1.example:8700", "guardian": "<op1 guardian pubkey, base58>" },
-    { "name": "op2", "url": "https://op2.example:8700", "guardian": "<op2 guardian pubkey, base58>" }
+    { "name": "op1", "url": "http://10.77.0.2:8700", "public_url": "https://op1.example.com", "guardian": "<op1 guardian pubkey, base58>" },
+    { "name": "op2", "url": "http://10.77.0.3:8700", "public_url": "https://op2.example.com", "guardian": "<op2 guardian pubkey, base58>" }
   ],
   "order": ["op0", "op1", "op2"],
   "epoch_secs": 30,

@@ -9,6 +9,7 @@ pub mod attestor;
 pub mod chain;
 pub mod config;
 pub mod decide;
+pub mod dkgnet;
 pub mod ledger;
 pub mod policy;
 pub mod store;

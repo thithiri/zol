@@ -11,10 +11,18 @@ pub fn memo_array(n: &ScannedNote) -> [u8; zol_wire::MEMO_LEN] {
     m
 }
 
-/// Parses a raw receiver as a valid shielded payment address. Provided by
-/// `zol-zcash` in production; tests can stub it.
+/// Parses a raw receiver as a valid shielded payment address, and recognises
+/// the vaults' own receivers. Provided by `zol-zcash` in production; tests can
+/// stub it.
 pub trait AddressCheck {
     fn is_valid_receiver(&self, raw: &[u8; zol_wire::ORCHARD_ADDR_LEN]) -> bool;
+
+    /// Whether the receiver belongs to a vault this operator scans (any app,
+    /// either scope, any diversifier). `None` when that can't be answered now;
+    /// the deposit is then held and decided again on the next pass.
+    fn is_vault_receiver(&self, _raw: &[u8; zol_wire::ORCHARD_ADDR_LEN]) -> Option<bool> {
+        Some(false)
+    }
 }
 
 /// Accepts any receiver whose first byte is not 0xFF; for tests only.
