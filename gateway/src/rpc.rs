@@ -63,13 +63,29 @@ impl RpcLedger {
         self.relayer.pubkey()
     }
 
+    /// One JSON-RPC call. Rate limiting (HTTP 429, or a JSON-RPC error with
+    /// code 429, as public endpoints send when several gateways share an IP) is
+    /// retried with growing waits, about 7.5 s in all, before it fails the tick.
     pub fn call(&self, method: &str, params: Value) -> Result<Value> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        let v: Value = self.http.post(&self.url).json(&body).send().map_err(rpc_err)?.json().map_err(rpc_err)?;
-        if let Some(e) = v.get("error") {
-            return Err(LedgerError::Rpc(format!("{method}: {e}")));
+        let mut wait = Duration::from_millis(500);
+        for attempt in 0..5 {
+            let r = self.http.post(&self.url).json(&body).send().map_err(rpc_err)?;
+            let limited_http = r.status() == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            let v: Option<Value> = r.json().ok();
+            let limited = limited_http || v.as_ref().is_some_and(|v| v["error"]["code"] == 429);
+            if limited && attempt < 4 {
+                std::thread::sleep(wait);
+                wait *= 2;
+                continue;
+            }
+            let v = v.ok_or_else(|| rpc_err(format!("{method}: response is not JSON")))?;
+            if let Some(e) = v.get("error") {
+                return Err(LedgerError::Rpc(format!("{method}: {e}")));
+            }
+            return Ok(v["result"].clone());
         }
-        Ok(v["result"].clone())
+        unreachable!("the last attempt returns")
     }
 
     fn account_data(&self, key: &Pubkey) -> Result<Option<Vec<u8>>> {
@@ -258,5 +274,54 @@ impl Ledger for RpcLedger {
             zol_ledger::instruction::FreezeApp {},
         );
         self.send(&[ix], &[&g]).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+
+    /// A stub RPC that rate-limits the first `limited` requests (alternating
+    /// HTTP 429 and a JSON-RPC 429 error), then answers.
+    fn stub(limited: usize) -> (String, std::thread::JoinHandle<usize>) {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+        let h = std::thread::spawn(move || {
+            let mut n = 0;
+            for req in server.incoming_requests() {
+                n += 1;
+                let (code, body) = if n <= limited {
+                    if n % 2 == 1 {
+                        (429, r#"{"jsonrpc":"2.0","error":{"code":429,"message":"Too many requests"},"id":1}"#)
+                    } else {
+                        (200, r#"{"jsonrpc":"2.0","error":{"code":429,"message":"Connection rate limits exceeded"},"id":1}"#)
+                    }
+                } else {
+                    (200, r#"{"jsonrpc":"2.0","result":7,"id":1}"#)
+                };
+                req.respond(tiny_http::Response::from_string(body).with_status_code(code)).unwrap();
+                if n > limited {
+                    return n;
+                }
+            }
+            n
+        });
+        (url, h)
+    }
+
+    #[test]
+    fn rate_limits_are_retried() {
+        let (url, h) = stub(2);
+        let l = RpcLedger::new(&url, Keypair::new(), [0; 32], 2);
+        assert_eq!(l.call("getSlot", json!([])).unwrap(), json!(7));
+        assert_eq!(h.join().unwrap(), 3);
+    }
+
+    #[test]
+    fn persistent_rate_limit_fails_after_five_tries() {
+        let (url, _h) = stub(100);
+        let l = RpcLedger::new(&url, Keypair::new(), [0; 32], 2);
+        let e = l.call("getSlot", json!([])).unwrap_err().to_string();
+        assert!(e.contains("429"), "{e}");
     }
 }
