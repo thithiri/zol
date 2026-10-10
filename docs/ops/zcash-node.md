@@ -176,6 +176,17 @@ cat ~/zakura-testnet/snapshot.sha256   # must match SHA256SUMS; if not, delete t
 Pick the newest entry in `SHA256SUMS`. Its state version must match the binary: 1.6.0 runs
 state v29.1.
 
+**Found on the testnet droplet, 2026-10-10: Zakura 1.6.0 refuses every snapshot taken after
+testnet's NU7 activation.** Snapshots from Oct 7, 8 and 9 crash-loop at startup on the database
+check: `NSM seed Amount(0) does not match the configured Amount(55768414957) at
+Height(4465025)`, which is the block before NU7 (4,465,026). The snapshot producer evidently
+didn't record the NU7 reissuance (NSM) seed the way 1.6.0 expects. **Use the newest snapshot
+from before 4,465,026**: `zakura-testnet-pruned-20261001T032907Z-4425493.tar.zst` (sha256
+`b0db839fe0f0a359aee54c0b6a860e01869cf0c47d63177346d846388f6d58e4`, 9.0 GiB extracted). The
+node then crosses NU7 itself and records the seed. That means about 50,000 blocks to sync, at
+about 7 blocks/s on a 2-vCPU droplet. Worth reporting upstream; check again for the mainnet
+snapshot after mainnet's NU7.
+
 ### Zakura config (`~/zakura-testnet/zakura.toml`)
 
 ```toml
