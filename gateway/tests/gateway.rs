@@ -7,6 +7,7 @@ use anchor_lang::prelude::Pubkey;
 use common::*;
 use ed25519_dalek::SigningKey;
 use zol_gateway::chain::{ChainEvent, Scope};
+use zol_gateway::ledger::Ledger;
 use zol_gateway::node::{GenesisProblem, GuardAction, HaltReason};
 use zol_gateway::reconcile::Mismatch;
 use zol_gateway::store::NoteState;
@@ -99,6 +100,116 @@ fn invalid_memos_are_voided_and_refunds_become_due() {
     w.ledger.env.check_invariants();
 }
 
+/// A held deposit moves only when a threshold of operators each release it,
+/// and its refund only when they name the same address.
+#[test]
+fn held_deposit_is_refunded_only_when_operators_release_it_alike() {
+    let mut w = World::new();
+    let mut empty = [0u8; 512];
+    empty[0] = 0xF6;
+    let n = w.deposit(&empty, 1_000_000, None);
+    w.mine(10);
+    let id = w.secrets().deposit_id(&n.cmx);
+    w.coordinate();
+    assert_eq!(state_of(&w, 0, &id), NoteState::Held);
+
+    // One operator alone: no void.
+    let to = [7u8; 43];
+    w.nodes[0].store.put_release(&app_id(), &n.cmx, &to, 0).unwrap();
+    w.coordinate();
+    assert!(w.ledger.deposit(&id).unwrap().is_none(), "one release is not a threshold");
+
+    // A second one: voided on the ledger; both refund to the released address.
+    w.nodes[1].store.put_release(&app_id(), &n.cmx, &to, 0).unwrap();
+    let r = w.coordinate();
+    assert_eq!(r.voided.len(), 1, "{r:?}");
+    for i in [0, 1] {
+        let due = w.nodes[i].refunds_due(&w.ledger, &app_id()).unwrap();
+        assert_eq!(due.iter().map(|(n, t)| (n.note.cmx, *t)).collect::<Vec<_>>(), vec![(n.cmx, to)]);
+    }
+    // The operator that released nothing has no refund for it.
+    assert!(w.nodes[2].refunds_due(&w.ledger, &app_id()).unwrap().is_empty());
+    // An operator that names another address would not co-sign the refund.
+    w.nodes[1].store.put_release(&app_id(), &n.cmx, &[8u8; 43], 0).unwrap();
+    assert_ne!(w.nodes[1].refunds_due(&w.ledger, &app_id()).unwrap()[0].1, to);
+}
+
+/// Serves a stale `App` for the first `stale` reads, as if a credit finalized
+/// between the guardian's reads of the app and of its deposit list.
+struct StaleApp<'a> {
+    inner: &'a mut SvmLedger,
+    old: zol_ledger::state::App,
+    stale: std::cell::Cell<u32>,
+}
+
+impl Ledger for StaleApp<'_> {
+    fn config(&self) -> zol_gateway::ledger::Result<zol_ledger::state::Config> {
+        self.inner.config()
+    }
+    fn app(&self, p: &Pubkey) -> zol_gateway::ledger::Result<Option<zol_ledger::state::App>> {
+        if self.stale.get() > 0 {
+            self.stale.set(self.stale.get() - 1);
+            return Ok(Some(self.old.clone()));
+        }
+        self.inner.app(p)
+    }
+    fn deposit(&self, id: &[u8; 32]) -> zol_gateway::ledger::Result<Option<zol_ledger::state::Deposit>> {
+        self.inner.deposit(id)
+    }
+    fn deposits(&self, p: &Pubkey) -> zol_gateway::ledger::Result<Vec<([u8; 32], zol_ledger::state::Deposit)>> {
+        self.inner.deposits(p)
+    }
+    fn balance(&self, p: &Pubkey, s: &Pubkey) -> zol_gateway::ledger::Result<Option<zol_ledger::state::Balance>> {
+        self.inner.balance(p, s)
+    }
+    fn settlements(&self, p: &Pubkey) -> zol_gateway::ledger::Result<Vec<zol_ledger::state::Settlement>> {
+        self.inner.settlements(p)
+    }
+    fn now(&self) -> zol_gateway::ledger::Result<i64> {
+        self.inner.now()
+    }
+    fn submit_credit(&mut self, p: &Pubkey, a: zol_ledger::CreditArgs, s: [u8; 64]) -> zol_gateway::ledger::Result<()> {
+        self.inner.submit_credit(p, a, s)
+    }
+    fn submit_void(&mut self, p: &Pubkey, d: [u8; 32], s: [u8; 64]) -> zol_gateway::ledger::Result<()> {
+        self.inner.submit_void(p, d, s)
+    }
+    fn submit_paid(&mut self, p: &Pubkey, q: u64, s: [u8; 64]) -> zol_gateway::ledger::Result<()> {
+        self.inner.submit_paid(p, q, s)
+    }
+    fn freeze(&mut self, g: &[u8; 32], p: &Pubkey) -> zol_gateway::ledger::Result<()> {
+        self.inner.freeze(g, p)
+    }
+}
+
+/// Found by the multi-host test under load: the app account read before a
+/// credit, the deposit list after it. The guardian must not freeze on that.
+#[test]
+fn a_credit_landing_between_guardian_reads_does_not_freeze() {
+    let mut w = World::new();
+    w.mine(1);
+    w.genesis(5_000_000);
+    let program = w.nodes[0].apps[&app_id()].program;
+    let old = w.ledger.app(&program).unwrap().unwrap();
+    w.deposit(&memo(&sk(3), 10_000, [9; 43]).encode(), DENOM, None);
+    w.mine(100);
+    assert_eq!(w.coordinate().credited.len(), 1);
+    // One stale read: the guardian re-reads the app after the list and sees a
+    // consistent pair. Nothing is even marked.
+    let mut l = StaleApp { inner: &mut w.ledger, old: old.clone(), stale: std::cell::Cell::new(1) };
+    let a = w.nodes[2].guard(&mut l).unwrap();
+    assert!(a.is_empty(), "{a:?}");
+    assert!(w.nodes[2].suspect.borrow().is_empty());
+    // A backend that keeps serving the old app (a load-balanced RPC): one pass
+    // marks the app; the next, reading consistently, clears it. No freeze.
+    let mut l = StaleApp { inner: &mut w.ledger, old, stale: std::cell::Cell::new(5) };
+    assert!(w.nodes[2].guard(&mut l).unwrap().is_empty());
+    assert!(w.nodes[2].suspect.borrow().contains(&app_id()));
+    assert!(w.nodes[2].guard(&mut w.ledger).unwrap().is_empty());
+    assert!(w.nodes[2].suspect.borrow().is_empty());
+    assert_eq!(w.ledger.env.app_state().state, AppState::Active);
+}
+
 #[test]
 fn a_note_seen_by_one_operator_is_not_signed() {
     let mut w = World::new();
@@ -132,6 +243,9 @@ fn forged_credit_freezes_the_app() {
     }));
     ok!(w.ledger.env.credit_with(args, &rogue));
 
+    // The first failing pass only marks the app; the second freezes it.
+    assert!(w.nodes[2].guard(&mut w.ledger).unwrap().is_empty());
+    assert_eq!(w.ledger.env.app_state().state, AppState::Active);
     let actions = w.nodes[2].guard(&mut w.ledger).unwrap();
     match &actions[..] {
         [GuardAction::Froze { mismatches, .. }] => {
@@ -163,6 +277,7 @@ fn misbound_credit_of_a_real_note_freezes_the_app() {
     let args = w.ledger.env.credit_args(id, DENOM, Pubkey::new_unique(), [0xEE; 32], 0);
     ok!(w.ledger.env.credit_with(args, &rogue));
 
+    assert!(w.nodes[0].guard(&mut w.ledger).unwrap().is_empty(), "one failing pass only marks the app");
     let actions = w.nodes[0].guard(&mut w.ledger).unwrap();
     assert!(matches!(&actions[..], [GuardAction::Froze { mismatches, .. }] if mismatches.contains(&Mismatch::DigestDiffers { deposit_id: id })), "{actions:?}");
     assert_eq!(w.ledger.env.app_state().state, AppState::Frozen);

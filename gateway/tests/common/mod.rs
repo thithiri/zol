@@ -163,6 +163,7 @@ pub fn make_nodes(keys: Vec<frost_ed25519::keys::KeyPackage>, pubkeys: &PublicKe
             );
             Node {
                 heads: Default::default(),
+                suspect: Default::default(),
                 name: format!("op{i}"),
                 store: Store::in_memory().unwrap(),
                 cfg: gw_config(),

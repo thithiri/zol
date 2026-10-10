@@ -59,6 +59,11 @@ impl ZcashdClient {
         self.get(&format!("/valid_receiver?raw={}", hex::encode(raw)))
     }
 
+    pub fn parse_ua(&self, ua: &str) -> Result<api::ParsedUa> {
+        let r = self.http.get(format!("{}/parse_ua", self.base)).query(&[("ua", ua)]).send().map_err(http)?;
+        Self::decode(r)
+    }
+
     pub fn health(&self) -> bool {
         self.http.get(format!("{}/health", self.base)).send().is_ok_and(|r| r.status().is_success())
     }

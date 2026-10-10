@@ -4,6 +4,7 @@
 //!   zol-gateway keygen --operators 3 --threshold 2 --out keys/
 //!   zol-gateway dkg --config serve.json --ceremony <id>   (on every host at once)
 //!   zol-gateway serve --config serve.json
+//!   zol-gateway held list|release --config serve.json ...
 //!   zol-gateway run --config gateway.json
 
 use std::collections::BTreeMap;
@@ -55,6 +56,12 @@ enum Cmd {
         #[arg(long, default_value_t = 600)]
         timeout_secs: u64,
     },
+    /// Held deposits (no memo, an unusable refund address, or a vault address):
+    /// list them, or release one to an address the depositor gives.
+    Held {
+        #[command(subcommand)]
+        cmd: HeldCmd,
+    },
     /// Run one operator on this host (multi-host deployment).
     Serve {
         #[arg(long)]
@@ -67,6 +74,30 @@ enum Cmd {
         /// Stop after this many rounds (0 = forever).
         #[arg(long, default_value_t = 0)]
         rounds: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum HeldCmd {
+    /// Held deposits in this operator's store.
+    List {
+        #[arg(long)]
+        config: PathBuf,
+    },
+    /// Refund a held deposit to `--to`. Each operator runs this on its own host
+    /// with the same address; nothing moves until a threshold of them agree.
+    Release {
+        #[arg(long)]
+        config: PathBuf,
+        /// App program ID, base58.
+        #[arg(long)]
+        app: String,
+        /// The held note's cmx, hex (from `held list`).
+        #[arg(long)]
+        cmx: String,
+        /// Unified Address to refund to (needs an Orchard receiver).
+        #[arg(long)]
+        to: String,
     },
 }
 
@@ -174,6 +205,63 @@ fn dkg_over_peers(path: &Path, ceremony: String, timeout_secs: u64) -> Result<()
     Ok(())
 }
 
+fn held(cmd: HeldCmd) -> Result<(), BoxErr> {
+    use zol_gateway::store::{NoteKind, NoteState};
+    let path = match &cmd {
+        HeldCmd::List { config } | HeldCmd::Release { config, .. } => config.clone(),
+    };
+    let cfg: zol_gateway::serve::ServeConfig = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    let store = Store::open(cfg.store.to_str().ok_or("store path")?)?;
+    match cmd {
+        HeldCmd::List { .. } => {
+            for a in &cfg.apps {
+                let app: Pubkey = a.program.parse()?;
+                for n in store.notes(&app.to_bytes())? {
+                    if n.kind != NoteKind::Deposit || n.state != NoteState::Held || n.rolled_back || n.spent.is_some() {
+                        continue;
+                    }
+                    let mut txid = n.note.txid;
+                    txid.reverse();
+                    let memo = zol_wire::DepositMemo::decode_any(&zol_gateway::chain::memo_array(&n.note)).ok();
+                    let why = match memo {
+                        None => "no memo".to_string(),
+                        Some(m) => format!("memo refund address {} unusable", hex::encode(m.payout_address)),
+                    };
+                    let release = store.release(&app.to_bytes(), &n.note.cmx)?.map(hex::encode).unwrap_or_else(|| "-".into());
+                    println!(
+                        "app {app}  cmx {}  value {}  height {}  txid {}  {why}  release {release}",
+                        hex::encode(n.note.cmx),
+                        n.note.value,
+                        n.note.height,
+                        hex::encode(txid)
+                    );
+                }
+            }
+        }
+        HeldCmd::Release { app, cmx, to, .. } => {
+            let app: Pubkey = app.parse()?;
+            let cmx = hex32(&cmx)?;
+            let note = store
+                .notes(&app.to_bytes())?
+                .into_iter()
+                .find(|n| n.note.cmx == cmx)
+                .ok_or("no such note in this operator's store")?;
+            if note.state != NoteState::Held {
+                return Err(format!("note is {:?}, not held", note.state).into());
+            }
+            let p = ZcashdClient::new(&cfg.zcashd).parse_ua(&to)?;
+            if !p.valid || p.vault {
+                return Err("refund address must be a valid, non-vault receiver".into());
+            }
+            let raw: [u8; 43] = p.receiver.as_slice().try_into().map_err(|_| "receiver length")?;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64;
+            store.put_release(&app.to_bytes(), &cmx, &raw, now)?;
+            println!("released {} to {} ({}); other operators must release it to the same address", hex::encode(cmx), to, hex::encode(raw));
+        }
+    }
+    Ok(())
+}
+
 fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
     let cfg: Config = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let pubkeys: PublicKeyPackage = serde_json::from_str(&std::fs::read_to_string(&cfg.attestor_pubkeys)?)?;
@@ -202,6 +290,7 @@ fn run(path: &Path, rounds: u64) -> Result<(), BoxErr> {
         }
         let node = Node {
             heads: Default::default(),
+            suspect: Default::default(),
             name: o.name.clone(),
             store: Store::open(o.store.to_str().ok_or("store path")?)?,
             cfg: cfg.gateway.clone(),
@@ -246,6 +335,7 @@ fn main() -> Result<(), BoxErr> {
         Cmd::Keygen { operators, threshold, out } => keygen(operators, threshold, &out),
         Cmd::Dkg { config, ceremony, timeout_secs } => dkg_over_peers(&config, ceremony, timeout_secs),
         Cmd::Run { config, rounds } => run(&config, rounds),
+        Cmd::Held { cmd } => held(cmd),
         Cmd::Serve { config } => {
             let cfg: zol_gateway::serve::ServeConfig = serde_json::from_str(&std::fs::read_to_string(&config)?)?;
             let name = cfg.name.clone();

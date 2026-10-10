@@ -425,6 +425,20 @@ async fn valid_receiver(State(n): S, Query(q): Query<RawQ>) -> Json<api::Receive
     })
 }
 
+#[derive(Deserialize)]
+struct UaQ {
+    ua: String,
+}
+
+/// `ParsedUa`: 400 unless `ua` is a Unified Address on this network with an
+/// Orchard-protocol receiver.
+async fn parse_ua(State(n): S, Query(q): Query<UaQ>) -> R<api::ParsedUa> {
+    let r = zol_zcash::keys::decode_ua_orchard(&n.params, q.ua.trim())
+        .ok_or_else(|| bad("not a unified address with an Orchard receiver on this network"))?;
+    let Json(c) = valid_receiver(State(n), Query(RawQ { raw: hex::encode(r) })).await;
+    Ok(Json(api::ParsedUa { receiver: r.to_vec(), valid: c.valid, vault: c.vault }))
+}
+
 async fn health(State(n): S) -> Json<serde_json::Value> {
     let (tip, err) = {
         let i = n.inner.lock().await;
@@ -1529,6 +1543,7 @@ async fn run() -> Result<(), String> {
         .route("/vault", get(vault))
         .route("/session_receiver", get(session_receiver))
         .route("/valid_receiver", get(valid_receiver))
+        .route("/parse_ua", get(parse_ua))
         .route("/refund", post(post_refund))
         .route("/refund/propose", post(refund_propose))
         .route("/head", get(get_head))

@@ -115,6 +115,7 @@ impl Store {
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
+             PRAGMA busy_timeout=5000;
              CREATE TABLE IF NOT EXISTS notes (
                 app BLOB NOT NULL, cmx BLOB NOT NULL, deposit_id BLOB NOT NULL, nullifier BLOB NOT NULL,
                 value INTEGER NOT NULL, memo BLOB NOT NULL, receiver BLOB NOT NULL, receiver_index TEXT NOT NULL,
@@ -129,6 +130,9 @@ impl Store {
              CREATE TABLE IF NOT EXISTS intents (
                 app BLOB NOT NULL, receiver_index TEXT NOT NULL, session_key BLOB NOT NULL, memo BLOB NOT NULL,
                 PRIMARY KEY (app, receiver_index));
+             CREATE TABLE IF NOT EXISTS releases (
+                app BLOB NOT NULL, cmx BLOB NOT NULL, refund_to BLOB NOT NULL, at INTEGER NOT NULL,
+                PRIMARY KEY (app, cmx));
              CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, hash BLOB NOT NULL);
              CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v BLOB NOT NULL);",
         )?;
@@ -281,6 +285,31 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?)
+    }
+
+    // ------------------------------------------------------------ releases
+
+    /// An operator's decision to refund a held deposit to `refund_to` (an
+    /// address the depositor gave out of band). Each operator records its own;
+    /// the void is signed only when a threshold of them agree, and the refund
+    /// only when they agree on the address. Replacing it is allowed until the
+    /// refund is broadcast.
+    pub fn put_release(&self, app: &AppId, cmx: &[u8; 32], refund_to: &[u8; 43], at: i64) -> Result<()> {
+        self.db.execute(
+            "INSERT OR REPLACE INTO releases (app,cmx,refund_to,at) VALUES (?1,?2,?3,?4)",
+            params![&app[..], &cmx[..], &refund_to[..], at],
+        )?;
+        Ok(())
+    }
+
+    pub fn release(&self, app: &AppId, cmx: &[u8; 32]) -> Result<Option<[u8; 43]>> {
+        Ok(self
+            .db
+            .query_row("SELECT refund_to FROM releases WHERE app=?1 AND cmx=?2", params![&app[..], &cmx[..]], |r| {
+                r.get::<_, Vec<u8>>(0)
+            })
+            .optional()?
+            .and_then(|v| v.try_into().ok()))
     }
 
     // ------------------------------------------------------------ blocks, halt

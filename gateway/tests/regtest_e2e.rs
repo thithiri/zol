@@ -103,6 +103,7 @@ fn setup() -> Setup {
             );
             let node = Node {
                 heads: Default::default(),
+                suspect: Default::default(),
                 name: format!("op{i}"),
                 store: Store::in_memory().unwrap(),
                 cfg: cfg.clone(),

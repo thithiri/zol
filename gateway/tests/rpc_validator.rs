@@ -217,6 +217,8 @@ fn relayer_credits_voids_and_freezes_on_a_real_validator() {
     let digest = Env::credit_digest(&args, &TEST_APP);
     use ed25519_dalek::Signer as _;
     rogue_ledger.submit_credit(&TEST_APP, args, rogue.sign(&digest).to_bytes()).unwrap();
+    // Two failing passes in a row freeze it (one only marks the app).
+    assert!(nodes[1].guard(&mut ledger).unwrap().is_empty());
     let actions = nodes[1].guard(&mut ledger).unwrap();
     assert!(matches!(&actions[..], [GuardAction::Froze { .. }]), "{actions:?}");
     assert_eq!(ledger.app(&TEST_APP).unwrap().unwrap().state, AppState::Frozen);

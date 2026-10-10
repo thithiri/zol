@@ -71,6 +71,28 @@ A receiver accepts only keys listed in `peers`, timestamps within 60 s, and each
 - **Intent gossip.** Each operator decides from its own store. An intent registered with one gateway is passed on to the others over `/peer/intent`; each receiver checks the session signature itself. Retries back off over about a minute and a half. A page that wants certainty can still register with each operator.
 - **`AppInfo.operators`** lists every operator's page API base URL in rotation order: this host's `public_url` and each peer's `public_url` (or its `url` if unset). A page can use it to fail over.
 
+## Held deposits
+
+A deposit is held, neither credited nor voided, when:
+- it has no memo and no registered intent;
+- its memo's refund address doesn't parse;
+- its refund address is a vault receiver;
+- or zol-zcashd couldn't answer whether it is one.
+
+The depositor has to come forward with the transaction ID and an address to refund to.
+
+```bash
+zol-gateway held list --config serve.json
+zol-gateway held release --config serve.json --app <program id> --cmx <cmx> --to <unified address>
+```
+
+- **`list`** shows each held note's cmx, value, height, transaction ID, the reason, and any release already recorded.
+- **`release`** decodes the address with this operator's own zol-zcashd and refuses a vault address. It then records the release in this operator's store only.
+
+**Each operator runs `release` on its own host, with the same address.** The release turns a node's decision into a void. The void reaches the ledger only when a threshold of operators each released the deposit. The refund is signed only by operators that recorded the same address. So one operator alone can't redirect a deposit, and operators that disagree move nothing. A release can be replaced until the refund is broadcast.
+
+Before releasing, check that the person asking can show they made the payment, for example the transaction from their wallet.
+
 ## Parameter rule found in testing
 
 The ledger's per-payout `network_fee_allowance` must be at least 5,000 × the smallest padded action size (`payout.action_sizes[0]`). With the default sizes that is 20,000 zat. Otherwise a single-payout transition's ZIP 317 fee exceeds the fee pool, and the planner waits with `FeePool { need, have }`. The test harness uses 10,000 (LiteSVM ledger tests only); the multi-host test uses 20,000.

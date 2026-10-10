@@ -232,6 +232,17 @@ url = "{node_url}"
             vault: false
         }
     );
+    // `/parse_ua`: the player's UA gives back its receiver; the vault's UA is flagged;
+    // garbage and other networks are refused.
+    let player_ua = zol_zcash::keys::encode_ua(&zol_zcash::params::ChainParams::REGTEST, &refund_to);
+    let p: api::ParsedUa = get(&d, &format!("/parse_ua?ua={player_ua}")).await;
+    assert_eq!(p, api::ParsedUa { receiver: refund_to.to_vec(), valid: true, vault: false });
+    let p: api::ParsedUa = get(&d, &format!("/parse_ua?ua={}", v.ua)).await;
+    assert!(p.vault && p.receiver == v.address);
+    for bad in ["nonsense", "u1qqqq"] {
+        let r = reqwest::get(format!("{}/parse_ua?ua={bad}", d.base)).await.unwrap();
+        assert_eq!(r.status(), 400, "{bad}");
+    }
     let addr: [u8; 43] = v.address.clone().try_into().unwrap();
     let mut m = DepositMemo::new(
         0,

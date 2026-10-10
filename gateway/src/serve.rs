@@ -148,6 +148,7 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
     }
     let node = Node {
         heads: Default::default(),
+        suspect: Default::default(),
         name: cfg.name.clone(),
         store: Store::open(cfg.store.to_str().ok_or("store path")?)?,
         cfg: cfg.gateway.clone(),

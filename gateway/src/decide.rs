@@ -51,6 +51,8 @@ pub enum VoidReason {
     AppUnavailable,
     OverCap,
     PayoutAddressChanged,
+    /// A held deposit an operator released to an address given out of band.
+    Released,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

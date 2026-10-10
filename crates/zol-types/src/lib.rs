@@ -193,6 +193,16 @@ pub mod api {
         pub vault: bool,
     }
 
+    /// `GET /parse_ua?ua=<unified address>`: the UA's Orchard-protocol receiver on
+    /// this daemon's network, with the same checks as `/valid_receiver`. An
+    /// operator uses it to turn the address a depositor gives into a refund target.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ParsedUa {
+        pub receiver: Vec<u8>,
+        pub valid: bool,
+        pub vault: bool,
+    }
+
     // ------------------------------------------------------------------
     // Phase 4: the vault head, payouts, and distributed spend signing.
 

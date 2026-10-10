@@ -81,6 +81,10 @@ pub struct Node {
     pub name: String,
     /// Head chains last read from this operator's own zcashd, per app.
     pub heads: std::cell::RefCell<BTreeMap<AppId, zol_types::api::HeadChain>>,
+    /// Apps whose reconciliation failed on the last guardian pass. A freeze
+    /// needs two failing passes in a row, so one inconsistent read (an RPC
+    /// behind a load balancer whose backends lag differently) can't freeze an app.
+    pub suspect: std::cell::RefCell<std::collections::BTreeSet<AppId>>,
     pub store: Store,
     pub cfg: GatewayConfig,
     pub attestor: Attestor,
@@ -346,6 +350,18 @@ impl Node {
             if d == Depth::Unconfirmed || ledger.deposit(&n.deposit_id)?.is_some() {
                 continue;
             }
+            // A held deposit this operator released: void it, refund to the release address.
+            if n.state == NoteState::Held {
+                if let Some(to) = self.store.release(app, &n.note.cmx)? {
+                    let deposit_id = n.deposit_id;
+                    out.push((
+                        n,
+                        Statement::Void { app: *app, deposit_id },
+                        Decision::Void { deposit_id, reason: crate::decide::VoidReason::Released, memo: [0; MEMO_LEN], refund_to: to },
+                    ));
+                    continue;
+                }
+            }
             let intent = self.intent(app, n.note.receiver_index);
             let existing = match crate::decide::resolve_memo(&n.note, intent.as_ref()) {
                 Some((m, _, _)) => ledger.balance(&rt.program, &Pubkey::new_from_array(m.session_key))?.map(|b| b.payout_commitment),
@@ -409,7 +425,7 @@ impl Node {
                     }
                 }
                 AppState::Active | AppState::Activating => {
-                    let deposits = ledger.deposits(&rt.program)?;
+                    let Some((acc, deposits)) = consistent_view(ledger, &rt.program)? else { continue };
                     let intents = |idx: u128| self.intent(app, idx);
                     let ctx = ReconcileCtx {
                         network: self.network(),
@@ -422,7 +438,9 @@ impl Node {
                     if compute_reserve(&acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref()).is_short() {
                         self.halt(HaltReason::ReserveShort { app: *app })?;
                     }
-                    if !mismatches.is_empty() {
+                    if mismatches.is_empty() {
+                        self.suspect.borrow_mut().remove(app);
+                    } else if !self.suspect.borrow_mut().insert(*app) {
                         ledger.freeze(&self.guardian_seed, &rt.program)?;
                         actions.push(GuardAction::Froze { app: *app, mismatches });
                     }
@@ -445,6 +463,12 @@ impl Node {
             if d.state != DepositState::Voided {
                 continue;
             }
+            // A release recorded by this operator wins over the memo (whose address
+            // was unusable, or there was no memo).
+            if let Some(to) = self.store.release(app, &n.note.cmx)? {
+                out.push((n, to));
+                continue;
+            }
             let memo = n
                 .decided_memo
                 .as_ref()
@@ -456,6 +480,29 @@ impl Node {
         }
         Ok(out)
     }
+}
+
+/// The app account and its deposit list as one view. They are separate RPC
+/// reads, and a credit finalized between them looks like a reconciliation
+/// mismatch (a deposit the app does not count), which would freeze the app for
+/// nothing. So the app is read again after the list, and the pair is used only
+/// if both reads agree. `None` if it kept changing; the next pass tries again.
+type AppView = (App, Vec<([u8; 32], zol_ledger::state::Deposit)>);
+
+fn consistent_view(ledger: &dyn Ledger, program: &Pubkey) -> Result<Option<AppView>> {
+    let bytes = |a: &App| {
+        let mut v = Vec::new();
+        anchor_lang::AccountSerialize::try_serialize(a, &mut v).map(|_| v).ok()
+    };
+    for _ in 0..3 {
+        let Some(before) = ledger.app(program)? else { return Ok(None) };
+        let deposits = ledger.deposits(program)?;
+        let Some(after) = ledger.app(program)? else { return Ok(None) };
+        if bytes(&before) == bytes(&after) {
+            return Ok(Some((after, deposits)));
+        }
+    }
+    Ok(None)
 }
 
 /// Guardians cancel an activation unless the genesis head exists in this
