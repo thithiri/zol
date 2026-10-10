@@ -4,7 +4,7 @@ Real-time apps for shielded ZEC: the ZEC stays in per-app Zcash vaults, a Solana
 ledger records who is owed what, and sessions run in MagicBlock ephemeral rollups.
 Design: [docs/design-v0.3.md](docs/design-v0.3.md). Plan: [docs/plan-v0.3.md](docs/plan-v0.3.md).
 
-Status: Phases 0–2 of the plan. Spike findings are in [docs/spikes/](docs/spikes/).
+Status: Phases 0–3 of the plan. Spike findings: [docs/spikes/](docs/spikes/). Gateway: [docs/phase3-gateway.md](docs/phase3-gateway.md), [docs/phase3-zol-zcash.md](docs/phase3-zol-zcash.md).
 
 ## Layout
 
@@ -12,6 +12,9 @@ Status: Phases 0–2 of the plan. Spike findings are in [docs/spikes/](docs/spik
 |---|---|
 | `crates/zol-wire` | `no_std` wire formats: deposit memo v2, head and top-up memos, credit/void/paid digests, settlement record digests, keyed deposit IDs and payout commitments. Golden vectors in `vectors/v0.3.json`; TypeScript twin in `ts/` |
 | `programs/zol-ledger` | Anchor 1.2.1 kernel ledger, with MagicBlock delegation via ephemeral-rollups-sdk 0.17.3 |
+| `crates/zol-types` | Contract between the gateway's two processes: chain events, the `zol-zcashd` JSON API, the session-receiver index |
+| `crates/zol-zcash` | Zcash side (own workspace): per-app vault keys, Zebra RPC, Ironwood scanner, refund and genesis builders, Pallas FROST; the `zol-zcashd` daemon |
+| `gateway` | Solana side: decisions, Ed25519 FROST attestor, reconciliation, guardians, halt, RPC relayer; the `zol-gateway` binary |
 | `programs/zol-test-app` | Test-only app that forwards ledger calls signed with its `zol-app` address |
 | `tests` | LiteSVM harness and test suites: flow, lifecycle, adversarial, invariant fuzzing |
 | `spikes/` | Phase 0 throwaway code (standalone workspaces) |
@@ -41,11 +44,31 @@ cd crates/zol-wire/ts && bun test
 ~/.avm/bin/anchor-1.2.1 idl build -p zol-ledger -o idl/zol_ledger.json
 ```
 
+The Zcash side is a separate workspace. pczt 0.9.3 and anchor-lang 1.2 need incompatible `sha2` releases, so they can't be built together.
+
+```bash
+cd crates/zol-zcash && cargo test && cargo build --release --bin zol-zcashd
+```
+
+Regtest and validator tests are ignored by default. Start the Zebra regtest pair with `spikes/zebra/scripts/up.sh pair`, then:
+
+```bash
+cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture
+```
+
+```bash
+cargo test -p zol-gateway --test rpc_validator -- --ignored --nocapture
+```
+
+```bash
+cd crates/zol-zcash && cargo test --release -- --ignored --test-threads=1
+```
+
 `tests/fixtures/dlp.so` is MagicBlock's delegation program (`DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`), dumped from devnet with `solana program dump`. `delegate_pot` runs the real delegation CPI against it. A return from the rollup is simulated by restoring the pot's ledger ownership with the data a validator would commit, including faulty data. The real rollup path (`move_seat` and `close_pot` in an ephemeral validator) is exercised by `spikes/magicblock/ledger-e2e` on MagicBlock's local stack; see `docs/spikes/0.9-magicblock.md`.
 
 ## Program hash
 
-Signers pin the ledger's code hash (design rule 2). Build `0cb9292678bd0d69c92d4dea1bbc7e291fc849173b1f87fc0c2b624f16beaf88` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
+Signers pin the ledger's code hash (design rule 2). Build `e5800526b27f417b814d75f8ad1d8fa1eea2bddfa3288de1f496e2e030dcd490` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
 
 ## Ledger notes
 

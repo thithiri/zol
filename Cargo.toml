@@ -5,8 +5,12 @@ members = [
     "programs/zol-ledger",
     "programs/zol-test-app",
     "tests",
+    "gateway",
+    "crates/zol-types",
 ]
-exclude = ["spikes"]
+# zol-zcash pins pczt 0.9.3, whose sha2 0.11 pre-release cannot share a build with
+# anchor-lang 1.2 (sha2 0.11): it is its own workspace and runs as the zol-zcashd process.
+exclude = ["spikes", "crates/zol-zcash"]
 
 [workspace.package]
 edition = "2021"

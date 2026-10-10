@@ -2,7 +2,7 @@
 
 Source: `design-v0.3.md`, now `design-v0.3.1.md` after the Phase 0 gate.
 
-**Status (2026-10-10):** Phases 0–2 are complete; see [spikes/0.12-gate-review.md](spikes/0.12-gate-review.md) for each task, what is outstanding (testnet broadcast, devnet deployment, the ledger in a real rollup), and what carries into Phases 3–5. Read "Orchard" below as the Ironwood pool (NU6.3).
+**Status (2026-10-10):** Phases 0–3 are complete (Phase 3: [phase3-gateway.md](phase3-gateway.md)); see [spikes/0.12-gate-review.md](spikes/0.12-gate-review.md) for each task, what is outstanding (testnet broadcast, devnet deployment, the ledger in a real rollup), and what carries into Phases 3–5. Read "Orchard" below as the Ironwood pool (NU6.3).
 
 Original plan: Each phase ends at a gate; don't start the next phase's safety-critical work until the gate passes. Tasks are numbered `phase.task`. A task marked **[gate]** must be finished before the phase can close.
 

@@ -1,0 +1,10 @@
+[package]
+name = "zol-types"
+version = "0.3.0"
+description = "Types shared by zol-gateway and zol-zcashd: chain events and the zcashd JSON API"
+edition = "2021"
+license = "UNLICENSED"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+blake2b_simd = "1"

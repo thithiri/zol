@@ -1,0 +1,58 @@
+# ZOL Zcash side: per-app vault keys, Zebra RPC, Ironwood scanner, refund and genesis
+# builders, FROST spend authorization. The Zcash crate stack is pinned exactly.
+# Its own workspace: pczt 0.9.3 needs a sha2 0.11 pre-release that cannot share a
+# build with anchor-lang 1.2, so the gateway talks to it as a separate process.
+[workspace]
+
+[package]
+name = "zol-zcash"
+version = "0.3.1"
+edition = "2021"
+rust-version = "1.88"
+license = "UNLICENSED"
+publish = false
+description = "ZOL gateway Zcash layer (Ironwood / NU6.3)"
+
+[dependencies]
+zol-wire = { path = "../zol-wire" }
+zol-types = { path = "../zol-types" }
+
+# Pinned, coherent Zcash stack (spikes 0.3-0.8). orchard 0.16 / reddsa 0.6 dropped FROST.
+orchard = { version = "=0.15.5", features = ["circuit"] }
+reddsa = { version = "=0.5.2", features = ["frost"] }
+frost-rerandomized = "=3.0.0"
+pczt = { version = "=0.9.3", features = ["orchard", "io-finalizer", "prover", "signer", "spend-finalizer", "tx-extractor", "zcp-builder"] }
+zcash_primitives = "=0.30.1"
+zcash_protocol = { version = "=0.10.6", features = ["local-consensus"] }
+zcash_address = "=0.13.0"
+zcash_note_encryption = "=0.4.2"
+incrementalmerkletree = "=0.8.2"
+shardtree = "=0.7.1"
+pasta_curves = "=0.5.2"
+ff = "0.13"
+group = "0.13"
+blake2b_simd = "1"
+blake3 = "1.8"
+rand = "0.8"
+rand_core = { version = "0.6", features = ["getrandom"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1.3"
+thiserror = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# zol-zcashd
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util", "sync", "signal"] }
+toml = "0.8"
+rand_chacha = "0.3"
+
+[dev-dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+[profile.dev]
+opt-level = 1
+
+# Halo2 proving is very slow unoptimised.
+[profile.dev.package."*"]
+opt-level = 3
