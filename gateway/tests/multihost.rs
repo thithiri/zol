@@ -175,7 +175,6 @@ fn three_hosts_over_authenticated_http() {
     let zurls = [base, base + 1, base + 2].map(|p| format!("http://127.0.0.1:{p}"));
     let mut gcfg = gw_config();
     gcfg.network = Network::Regtest as u8;
-    gcfg.denominations = vec![1_000_000, 10_000_000];
     gcfg.early_credit_cap = 10_000_000;
     let mut handles = Vec::new();
     for i in 0..3 {

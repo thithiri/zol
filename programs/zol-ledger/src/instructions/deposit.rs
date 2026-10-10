@@ -50,6 +50,7 @@ pub fn handle_credit_deposit(ctx: Context<CreditDeposit>, args: CreditArgs) -> R
     app.refresh(Clock::get()?.unix_timestamp);
     app.require_active(config)?;
     require!(args.amount > 0, ZolError::ZeroAmount);
+    require!(config.params.is_denomination(args.amount), ZolError::BadDenomination);
     require!(args.flags & !FLAGS_KNOWN == 0, ZolError::BadFlags);
     require!(args.app_data.len() <= limits::MAX_APP_DATA, ZolError::AppDataTooLong);
 

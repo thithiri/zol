@@ -24,6 +24,7 @@ pub mod limits {
     #[cfg(feature = "dev-timings")]
     pub const MIN_REFUND_GRACE_SECS: i64 = 10;
     pub const MAX_APP_DATA: usize = zol_wire::memo::APP_DATA_MAX;
+    pub const MAX_DENOMINATIONS: usize = 4;
 }
 
 pub mod seeds {
@@ -55,6 +56,9 @@ pub struct Params {
     pub activation_delay_secs: i64,
     /// Lamports moved into the App account at registration.
     pub registration_bond: u64,
+    /// Permitted deposit values in zatoshi; 0 marks an unused slot. The single
+    /// source for the gateway's decisions and for apps (e.g. coin-flip stakes).
+    pub denominations: [u64; limits::MAX_DENOMINATIONS],
 }
 
 impl Params {
@@ -74,7 +78,19 @@ impl Params {
             .and_then(|v| v.checked_sub(self.network_fee_allowance))
             .ok_or(ZolError::BadParams)?;
         require!(net > 0, ZolError::BadParams);
+        // At least one denomination; no duplicates; each at least the minimum exit.
+        let d = &self.denominations;
+        require!(d.iter().any(|v| *v > 0), ZolError::BadParams);
+        for (i, v) in d.iter().enumerate() {
+            if *v > 0 {
+                require!(*v >= self.min_exit && !d[i + 1..].contains(v), ZolError::BadParams);
+            }
+        }
         Ok(())
+    }
+
+    pub fn is_denomination(&self, amount: u64) -> bool {
+        amount > 0 && self.denominations.contains(&amount)
     }
 }
 

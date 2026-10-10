@@ -2555,6 +2555,11 @@
       "code": 6037,
       "name": "BadFlags",
       "msg": "Unknown deposit flags"
+    },
+    {
+      "code": 6038,
+      "name": "BadDenomination",
+      "msg": "Deposit amount is not a permitted denomination"
     }
   ],
   "types": [
@@ -3257,6 +3262,19 @@
               "Lamports moved into the App account at registration."
             ],
             "type": "u64"
+          },
+          {
+            "name": "denominations",
+            "docs": [
+              "Permitted deposit values in zatoshi; 0 marks an unused slot. The single",
+              "source for the gateway's decisions and for apps (e.g. coin-flip stakes)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
           }
         ]
       }

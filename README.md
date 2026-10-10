@@ -124,7 +124,7 @@ An app is an Anchor program plus a web page; it holds no ZEC and no keys. `progr
 
 ## Program hash
 
-Signers pin the ledger's code hash (design rule 2). Build `600a1cc76ea6b40dc27ead106c654d44a79b3db6e730db78b8c07a9ec4f0ab7c` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
+Signers pin the ledger's code hash (design rule 2). Build `c5acd985b75a2ce02cce0c49ede162932ea6d59dd695c8251192ef453b95f0a5` is the SHA-256 of `target/deploy/zol_ledger.so` from `scripts/build-sbf.sh`. Two clean builds in different directories gave the same hash on this machine. For a deployed program, compare against `solana-verify get-program-hash`, which hashes the program data without trailing padding, and use `solana-verify build` (Docker) for builds that reproduce across machines.
 
 ## Ledger notes
 

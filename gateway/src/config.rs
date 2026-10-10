@@ -78,8 +78,6 @@ pub struct GatewayConfig {
     pub depths: Depths,
     /// Largest deposit that may be credited before full depth.
     pub early_credit_cap: u64,
-    /// Permitted deposit values in zatoshi.
-    pub denominations: Vec<u64>,
     /// Seconds without a new tip before the gateway halts.
     pub tip_stall_secs: i64,
     #[serde(default)]

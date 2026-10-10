@@ -48,6 +48,7 @@ fn params() -> Params {
         refund_grace_secs: if dev_timings() { 10 } else { 3_900 },
         activation_delay_secs: if dev_timings() { 5 } else { 3_600 },
         registration_bond: 0,
+        denominations: [1_000_000, 10_000_000, 0, 0],
     }
 }
 

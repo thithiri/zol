@@ -41,7 +41,7 @@ fn credit_needs_the_attestor_over_the_exact_digest() {
     // Right key, but the relayer inflates the amount after signing.
     let digest = Env::credit_digest(&args, &TEST_APP);
     let mut inflated = args.clone();
-    inflated.amount = 2_000_000;
+    inflated.amount = 10_000_000; // a valid denomination, so the signature check is what fails
     let ix = env.credit_ix(inflated);
     let r = env.relayer.insecure_clone();
     let att = env.attestor.clone();
@@ -394,7 +394,10 @@ fn settle_rules() {
     let mut env = Env::new();
     let a = env.player(1_000_000);
     let b = env.player(1_000_000);
-    let poor = env.player(50_000);
+    // Leave "poor" with 47,000 by staking the rest in an open pot.
+    let poor = env.player(1_000_000);
+    ok!(env.open_pot([0xEE; 32], 600));
+    ok!(env.buy_in([0xEE; 32], &poor, 950_000));
     assert_zerr!(env.settle(&[a.pubkey()]), NotExiting);
     assert_zerr!(env.request_exit(&poor), BelowMinExit);
     ok!(env.request_exit(&a));
@@ -441,4 +444,14 @@ fn delegation_needs_an_explicit_validator() {
     ix.data[n - 32..].copy_from_slice(&[0u8; 32]);
     let r = env.relayer.insecure_clone();
     assert_zerr!(env.send(&[via_app(ix)], &[&r]), BadParams);
+}
+
+#[test]
+fn credit_amount_must_be_a_ledger_denomination() {
+    let mut env = Env::new();
+    let k = Keypair::new();
+    assert_zerr!(env.credit([1; 32], 1_234_567, k.pubkey(), [7; 32]), BadDenomination);
+    ok!(env.credit([2; 32], 1_000_000, k.pubkey(), [7; 32]));
+    ok!(env.credit([3; 32], 10_000_000, k.pubkey(), [7; 32]));
+    env.check_invariants();
 }

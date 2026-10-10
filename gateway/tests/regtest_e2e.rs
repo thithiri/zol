@@ -85,7 +85,6 @@ fn setup() -> Setup {
     }));
     let mut cfg = gw_config();
     cfg.network = Network::Regtest as u8;
-    cfg.denominations = vec![1_000_000, 10_000_000];
     cfg.early_credit_cap = 10_000_000;
     let clients = [z0, z1, z2];
     let operators: Vec<Operator> = keys

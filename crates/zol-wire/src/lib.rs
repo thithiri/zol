@@ -17,6 +17,7 @@ pub mod head;
 #[cfg(feature = "keyed")]
 pub mod keyed;
 pub mod memo;
+pub mod receipt;
 pub mod text;
 
 pub use digest::{CreditAttestation, Hasher, Payout};

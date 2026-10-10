@@ -333,6 +333,7 @@ impl Node {
         let Some(app_acc) = ledger.app(&rt.program)? else { return Ok(vec![]) };
         let cfg = ledger.config()?;
         let status = app_status(&app_acc, &cfg, ledger.now()?);
+        let denominations: Vec<u64> = cfg.params.denominations.iter().copied().filter(|d| *d > 0).collect();
         let notes = self.store.notes(app)?;
         let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.depths, self.head(app).as_ref());
         let mut pending = pending_early(&notes, tip, &self.cfg.depths);
@@ -355,7 +356,7 @@ impl Node {
                 network: self.network(),
                 vault_address: rt.vault_address,
                 tip,
-                denominations: &self.cfg.denominations,
+                denominations: &denominations,
                 secrets: &rt.secrets,
                 addresses: self.addresses.as_ref(),
                 status,

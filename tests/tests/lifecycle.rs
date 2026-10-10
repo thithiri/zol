@@ -166,7 +166,7 @@ fn cap_bounds_credits() {
     ok!(env.set_cap(&TEST_APP, 1_000_000));
     let k = Keypair::new();
     ok!(env.credit([1; 32], 1_000_000, k.pubkey(), [7; 32])); // net 997_000 fits
-    assert_zerr!(env.credit([2; 32], 10_000, k.pubkey(), [7; 32]), OverCap);
+    assert_zerr!(env.credit([2; 32], 1_000_000, k.pubkey(), [7; 32]), OverCap);
 }
 
 #[test]

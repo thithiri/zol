@@ -26,6 +26,7 @@ pub struct DecideCtx<'a> {
     /// The address the session key signs: the app's primary vault address.
     pub vault_address: [u8; ORCHARD_ADDR_LEN],
     pub tip: u32,
+    /// Permitted deposit values, from the ledger's `Config.params.denominations`.
     pub denominations: &'a [u64],
     pub secrets: &'a AppSecrets,
     pub addresses: &'a dyn AddressCheck,

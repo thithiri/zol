@@ -206,7 +206,7 @@ fn relayer_credits_voids_and_freezes_on_a_real_validator() {
     let mut rogue_ledger = RpcLedger::new(&url, relayer.insecure_clone(), rogue.verifying_key().to_bytes(), NETWORK);
     let args = zol_ledger::CreditArgs {
         deposit_id: [0xF0; 32],
-        amount: 5 * DENOM,
+        amount: 10 * DENOM,
         session_key: Pubkey::new_unique(),
         payout_commitment: [1; 32],
         flags: 0,

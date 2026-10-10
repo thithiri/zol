@@ -135,7 +135,6 @@ pub fn gw_config() -> GatewayConfig {
         network: Network::Testnet as u8,
         depths: Depths { early: 10, full: 100, payout: 100 },
         early_credit_cap: 5_000_000,
-        denominations: vec![DENOM, 10 * DENOM],
         tip_stall_secs: 1_800,
         payout: Default::default(),
     }

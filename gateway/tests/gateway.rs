@@ -123,7 +123,7 @@ fn forged_credit_freezes_the_app() {
 
     // A compromised attestor quorum credits a deposit that has no note.
     let rogue = SigningKey::from_bytes(&[0xBA; 32]);
-    let args = w.ledger.env.credit_args([0xF0; 32], 5 * DENOM, Pubkey::new_unique(), [1; 32], 0);
+    let args = w.ledger.env.credit_args([0xF0; 32], 10 * DENOM, Pubkey::new_unique(), [1; 32], 0);
     ok!(w.ledger.env.set_config(zol_ledger::SetConfigArgs {
         new_admin: None,
         attestor: Some(Pubkey::new_from_array(rogue.verifying_key().to_bytes())),

@@ -39,7 +39,7 @@ fn op() -> impl Strategy<Value = Op> {
     let p = 0..PLAYERS;
     let pot = 0..POTS;
     prop_oneof![
-        4 => (p.clone(), prop::sample::select(vec![100_000u64, 500_000, 1_000_000, 7_777_777])).prop_map(|(p, amount)| Op::Credit { p, amount }),
+        4 => (p.clone(), prop::sample::select(vec![1_000_000u64, 1_000_000, 10_000_000, 7_777_777])).prop_map(|(p, amount)| Op::Credit { p, amount }),
         2 => pot.clone().prop_map(|pot| Op::OpenPot { pot }),
         5 => (pot.clone(), p.clone(), 1u64..400_000).prop_map(|(pot, p, amount)| Op::BuyIn { pot, p, amount }),
         1 => (pot.clone(), p.clone()).prop_map(|(pot, p)| Op::Leave { pot, p }),

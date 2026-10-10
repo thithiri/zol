@@ -183,10 +183,12 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
     let app = program.to_bytes();
     // Lock order everywhere: ledger before operator. Read what the ledger is
     // needed for first and release it.
-    let app_state = if matches!((method, &parts[1..]), (Method::Get, [])) {
-        st.ledger.lock().unwrap().app(&program).ok().flatten().map(|a| a.state)
+    let (app_state, denominations) = if matches!((method, &parts[1..]), (Method::Get, [])) {
+        let l = st.ledger.lock().unwrap();
+        let d = l.config().map(|c| c.params.denominations.iter().copied().filter(|d| *d > 0).collect()).unwrap_or_default();
+        (l.app(&program).ok().flatten().map(|a| a.state), d)
     } else {
-        None
+        (None, Vec::new())
     };
     let guard = st.local.0.lock().unwrap();
     let node = &guard.node;
@@ -211,7 +213,7 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
                     }
                     .into(),
                     vault_address: hex::encode(rt.vault_address),
-                    denominations: node.cfg.denominations.clone(),
+                    denominations,
                     tip: node.store.tip().ok().flatten().unwrap_or(0),
                     early_depth: node.cfg.depths.early,
                     full_depth: node.cfg.depths.full,

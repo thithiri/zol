@@ -78,4 +78,6 @@ pub enum ZolError {
     AppDataTooLong,
     #[msg("Unknown deposit flags")]
     BadFlags,
+    #[msg("Deposit amount is not a permitted denomination")]
+    BadDenomination,
 }
