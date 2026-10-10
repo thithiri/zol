@@ -35,10 +35,14 @@ pub use scan::{Account, Pool, ScannedNote, Scanner, SpentNote};
 /// ZIP 317 marginal fee and grace actions.
 pub const ZIP317_MARGINAL_FEE: u64 = 5_000;
 pub const ZIP317_GRACE_ACTIONS: u64 = 2;
-/// Upper bound on `expiry_height - target_height` for transactions this crate builds.
-pub const MAX_EXPIRY_DELTA: u32 = 100;
-/// Default expiry delta (Zcash's default, `DEFAULT_TX_EXPIRY_DELTA`).
-pub const DEFAULT_EXPIRY_DELTA: u32 = 40;
+/// Upper bound on `expiry_height - target_height` for transactions this crate builds:
+/// 300 blocks is about 2 h at NU7's 25 s spacing (ZIP 218).
+pub const MAX_EXPIRY_DELTA: u32 = 300;
+/// Default expiry delta for refunds, genesis and dev sends: 120 blocks, about 50 min at
+/// 25 s spacing (Zcash's 40-block default was set for 75 s blocks). Payouts take theirs
+/// from the plan (the gateway's `payout.expiry_delta`, 40 by default, kept short so a
+/// reorged-out transition blocks its app for less time).
+pub const DEFAULT_EXPIRY_DELTA: u32 = 120;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

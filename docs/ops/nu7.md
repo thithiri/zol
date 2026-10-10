@@ -172,11 +172,19 @@ they logged `nu7: None` and the tip branch was `37a5165b`.
 
 ## 25-second blocks: block-denominated parameters
 
-Nothing is changed here; these are proposals. Zcash difficulty retargets to 25 s, so a block
+**Applied 2026-10-10:**
+
+- gateway `Depths::default()` is now `Depths::NU7` (30/300/300), with `Depths::PRE_NU7` (10/100/100) for a pre-NU7 deployment;
+- `DEFAULT_EXPIRY_DELTA` is 120 (refunds, genesis, dev sends), and payouts keep the gateway's 40;
+- `MAX_EXPIRY_DELTA` is 300;
+- the payout verifier's anchor window is `ANCHOR_WINDOW` = 300;
+- the example serve config uses the NU7 depths.
+
+Depths are not yet height-dependent, so a mainnet deployment switches its config at NU7 activation. Zcash difficulty retargets to 25 s, so a block
 carries about a third of the work and wall-clock time of a pre-NU7 block. Keeping today's
 security and timing needs about 3× the block counts.
 
-| Parameter (where) | Today | Pre-NU7 time | Post-NU7 time | Proposed NU7-era default |
+| Parameter (where) | Before | Pre-NU7 time | Post-NU7 time | NU7-era default (applied) |
 | --- | --- | --- | --- | --- |
 | `depths.early` (gateway `config.rs`) | 10 | 12.5 min | 4.2 min | **30** |
 | `depths.full` (gateway; also the deep-reorg halt threshold) | 100 | 2.1 h | 42 min | **300**, still below the node's 1,000-block reorg window |

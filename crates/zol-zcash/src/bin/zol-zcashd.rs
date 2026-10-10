@@ -67,7 +67,7 @@ fn default_poll() -> u64 {
     500
 }
 fn default_expiry() -> u32 {
-    40
+    zol_zcash::DEFAULT_EXPIRY_DELTA
 }
 
 #[derive(Debug, Deserialize)]

@@ -234,8 +234,8 @@ Zcash has no protocol finality. Zebra keeps a rollback window of 1,000 blocks, a
 
 Depth is therefore a policy with a stated exposure:
 
-- **Early credit.** About 10 confirmations for deposits under a per-deposit cap. For each app, the sum of early credits not yet at full depth may not exceed that app's remaining float; see Reserve accounting.
-- **Full depth.** 100 blocks to start, after which a deposit stops counting against the cap. Payout depth is also 100 blocks to start. Both stay far inside Zebra's 1,000-block window.
+- **Early credit.** About 12 minutes of confirmations (10 blocks before NU7, 30 after NU7's 25 s spacing) for deposits under a per-deposit cap. For each app, the sum of early credits not yet at full depth may not exceed that app's remaining float; see Reserve accounting.
+- **Full depth.** About 2 hours to start (100 blocks before NU7, 300 after), after which a deposit stops counting against the cap. Payout depth is the same. Both stay far inside the node's 1,000-block reorg window. The gateway's defaults are the NU7 values (`Depths::NU7`); a pre-NU7 deployment sets `Depths::PRE_NU7`.
 - **Rolled-back early credit.** The loss falls on the float and the app keeps running. The cap falls by the same amount until operators top the float up. A pending payout that was spending the lost note is replaced by one that is not. The signer keeps its record of the note it accepted, so reconciliation still matches; a signer that has lost that record freezes the app, which is safe.
 - **Global halt.** If a deposit past full depth or a paid transaction rolls back, if a rolled-back early credit exceeds an app's remaining float, or if signers' nodes disagree on the chain, all credits and payouts stop until operators intervene. The gateway detects these itself: the block hash it stored for a height at or past full depth changes; a paid transaction's block leaves the best chain; operators' signed height and hash pairs disagree; or a node's tip stops advancing.
 
@@ -496,10 +496,10 @@ Planned simplifications, to be extracted after a second app exists:
 
 | Step | Time | Driver |
 |---|---|---|
-| Deposit to early credit | About 12 minutes | About 10 Zcash confirmations at 75 seconds |
-| Deposit to full depth | About 2 hours | 100 blocks at 75 seconds, to start; see Confirmation policy |
+| Deposit to early credit | About 12 minutes | 30 Zcash confirmations at 25 seconds (NU7; 10 at 75 seconds before) |
+| Deposit to full depth | About 2 hours | 300 blocks at 25 seconds (NU7; 100 at 75 seconds before), to start; see Confirmation policy |
 | Actions in a session | Milliseconds | Rollup |
-| Pot return to payout | Several minutes to about 2 hours | About 1 s for the return, about 17 s to Solana finality, then the payout schedule and payout depth (100 blocks to start) before `mark_paid`; the player's wallet sees the payout after one confirmation. Each app gets one vault transaction per block |
+| Pot return to payout | Several minutes to about 2 hours | About 1 s for the return, about 17 s to Solana finality, then the payout schedule and payout depth (300 blocks at NU7's 25 s spacing) before `mark_paid`; the player's wallet sees the payout after one confirmation. Each app gets one vault transaction per block |
 
 MagicBlock charges 0.003 SOL per delegated account per session and 0.001 SOL per commit after the first, taken at undelegation and capped at the delegation deposit; spike 0.9 saw the whole pot deposit (2,951,040 lamports) charged on devnet, and one tenth of those rates on the mainnet program. An account without a fee payer stops after 10 commits, but commit-and-undelegate still works after that. Rollup transactions are currently free. The app or a relayer pays Solana fees and account rent.
 

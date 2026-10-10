@@ -2,7 +2,7 @@
   "name": "op0",
   "listen": "0.0.0.0:8700",
   "network": 1,
-  "depths": { "early": 10, "full": 100, "payout": 100 },
+  "depths": { "early": 30, "full": 300, "payout": 300 },
   "early_credit_cap": 10000000,
   "denominations": [1000000, 10000000],
   "tip_stall_secs": 1800,

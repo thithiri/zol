@@ -14,9 +14,19 @@ pub struct Depths {
     pub payout: u32,
 }
 
+impl Depths {
+    /// Before NU7 (75 s blocks): 10 / 100 / 100, about 12 min / 2 h / 2 h.
+    pub const PRE_NU7: Depths = Depths { early: 10, full: 100, payout: 100 };
+    /// From NU7 (25 s blocks, ZIP 218): the same times, three times the blocks.
+    /// Still far inside the node's 1,000-block reorg window.
+    pub const NU7: Depths = Depths { early: 30, full: 300, payout: 300 };
+}
+
 impl Default for Depths {
+    /// NU7 is active on testnet and scheduled for mainnet; a pre-NU7 mainnet
+    /// deployment should configure `Depths::PRE_NU7` explicitly.
     fn default() -> Self {
-        Self { early: 10, full: 100, payout: 100 }
+        Self::NU7
     }
 }
 
@@ -121,6 +131,15 @@ impl AppSecrets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nu7_depths_keep_pre_nu7_wall_clock_times() {
+        // ZIP 218: 75 s -> 25 s blocks, so the same times need 3x the blocks.
+        let (a, b) = (Depths::PRE_NU7, Depths::NU7);
+        assert_eq!((b.early, b.full, b.payout), (3 * a.early, 3 * a.full, 3 * a.payout));
+        assert_eq!(Depths::default(), Depths::NU7);
+        assert!(b.full < 1_000, "inside the node's reorg window");
+    }
 
     #[test]
     fn secrets_are_per_app_and_per_network() {

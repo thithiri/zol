@@ -30,6 +30,10 @@ use crate::{
     Error, Scanner, MAX_EXPIRY_DELTA, ZIP317_GRACE_ACTIONS, ZIP317_MARGINAL_FEE,
 };
 
+/// Anchors accepted from the last this-many blocks: 300 blocks is about 2 h at NU7's
+/// 25 s spacing (was 100 at 75 s).
+pub const ANCHOR_WINDOW: u32 = 300;
+
 /// Every failure name [`verify`] can report.
 pub const FAILURES: &[&str] = &[
     "pczt_parse",
@@ -463,7 +467,7 @@ pub fn verify(
     }
     let elig = eligible(scanner, keys, plan, &head.note.cmx);
     let fvk = keys.fvk();
-    let anchors: Vec<_> = (tip.saturating_sub(100)..=tip)
+    let anchors: Vec<_> = (tip.saturating_sub(ANCHOR_WINDOW)..=tip)
         .filter_map(|h| scanner.anchor_at(h).ok().flatten())
         .collect();
     let r = tx::with_ironwood(&pczt, |b| {
