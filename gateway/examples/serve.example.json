@@ -1,0 +1,32 @@
+{
+  "name": "op0",
+  "listen": "0.0.0.0:8700",
+  "network": 1,
+  "depths": { "early": 10, "full": 100, "payout": 100 },
+  "early_credit_cap": 10000000,
+  "denominations": [1000000, 10000000],
+  "tip_stall_secs": 1800,
+  "payout": {
+    "max_records_per_tx": 4, "max_inputs": 8, "action_sizes": [4, 8, 16, 32],
+    "interval_secs": 0, "batch_records": 1, "payout_cap": 100000000000, "large_delay_secs": 3600,
+    "hourly_cap": 18446744073709551615, "consolidate_interval_secs": 3600, "consolidate_at_notes": 16,
+    "expiry_delta": 40
+  },
+  "solana_rpc": "https://api.devnet.solana.com",
+  "relayer_keypair": "keys/op0-relayer.json",
+  "store": "state/op0.db",
+  "zcashd": "http://127.0.0.1:18300",
+  "guardian_keypair": "keys/op0-guardian.json",
+  "attestor_share": "keys/attestor-share-0.json",
+  "attestor_pubkeys": "keys/attestor-pubkeys.json",
+  "threshold": 2,
+  "apps": [{ "program": "<app program id, base58>", "gateway_master_secret": "<32-byte hex, same on every operator>" }],
+  "peers": [
+    { "name": "op1", "url": "https://op1.example:8700", "guardian": "<op1 guardian pubkey, base58>" },
+    { "name": "op2", "url": "https://op2.example:8700", "guardian": "<op2 guardian pubkey, base58>" }
+  ],
+  "order": ["op0", "op1", "op2"],
+  "epoch_secs": 30,
+  "poll_ms": 1000,
+  "send_commitment": "confirmed"
+}

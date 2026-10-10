@@ -59,6 +59,10 @@ impl RpcLedger {
         }
     }
 
+    pub fn relayer_pubkey(&self) -> Pubkey {
+        self.relayer.pubkey()
+    }
+
     pub fn call(&self, method: &str, params: Value) -> Result<Value> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
         let v: Value = self.http.post(&self.url).json(&body).send().map_err(rpc_err)?.json().map_err(rpc_err)?;

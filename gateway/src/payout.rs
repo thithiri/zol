@@ -35,6 +35,10 @@ pub enum Wait {
     /// Schedule: too soon after the last payout.
     Schedule,
     NoHead,
+    /// The padded transition's ZIP 317 fee exceeds what is left in the fee pool.
+    /// Raise the ledger's network fee allowance to at least 5,000 × the smallest
+    /// action size, or top up the fee pool.
+    FeePool { need: u64, have: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -198,6 +202,13 @@ pub fn plan(node: &Node, ledger: &dyn Ledger, app: &AppId, now: i64) -> Result<s
 
     let outputs = records.iter().map(|r| r.payouts.len() as u32).sum::<u32>() + 1;
     let target = action_target(&pol.action_sizes, outputs.max(2));
+    // ZIP 317: 5,000 zat per logical action, at least 2. Inputs are capped at
+    // target − 1 besides the head, so the transition has exactly `target` actions.
+    let need = 5_000 * target.max(2) as u64;
+    let have = (acc.fee_pool as u128 + current.fee_topups_swept as u128).saturating_sub(current.network_fees_spent as u128) as u64;
+    if need > have {
+        return Ok(Err(Wait::FeePool { need, have }));
+    }
     let plan = PayoutPlan {
         app: *app,
         genesis_head: acc.genesis_head,

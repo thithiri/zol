@@ -2,6 +2,8 @@
 //! three-operator gateway cluster with a DKG attestor key, and a fake chain.
 #![allow(dead_code)]
 
+pub mod regtest;
+
 use anchor_lang::prelude::Pubkey;
 use ed25519_dalek::{Signer as _, SigningKey};
 use frost_ed25519::keys::PublicKeyPackage;

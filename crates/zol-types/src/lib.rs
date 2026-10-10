@@ -377,3 +377,70 @@ pub mod api {
         pub fee: u64,
     }
 }
+
+pub mod page {
+    //! Public HTTP API that `zol-gateway` serves to app pages (browsers). CORS
+    //! open, JSON bodies, hex for byte strings in paths and queries. Errors are
+    //! 4xx/5xx with `{"error": "..."}`.
+    //!
+    //! - `GET  /v1/apps/{app}`                         → `AppInfo`
+    //! - `GET  /v1/apps/{app}/sessions/{session}`      → `SessionInfo`
+    //! - `POST /v1/apps/{app}/intents`  body `Intent`  → `SessionInfo`
+    //! - `GET  /v1/apps/{app}/sessions/{session}/deposits` → `Vec<DepositStatus>`
+    //!
+    //! `{app}` is the app program ID in base58 (Solana form); `{session}` is the
+    //! 32-byte session public key in hex.
+
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct AppInfo {
+        /// App program ID, base58.
+        pub app: String,
+        /// "regtest" | "testnet" | "mainnet".
+        pub network: String,
+        /// The address deposit memos sign: raw 43-byte receiver, hex.
+        pub vault_address: String,
+        /// Permitted deposit amounts in zatoshi.
+        pub denominations: Vec<u64>,
+        /// Current Zcash tip height seen by this gateway (memo expiry is a height).
+        pub tip: u32,
+        /// Confirmations for early credit and full depth.
+        pub early_depth: u32,
+        pub full_depth: u32,
+        /// "unregistered" | "pending" | "activating" | "active" | "frozen".
+        pub state: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct SessionInfo {
+        /// The session's own vault receiver as an Orchard-only unified address,
+        /// to put in the ZIP 321 link.
+        pub ua: String,
+        /// 88-bit diversifier index as a decimal string (JSON numbers lose
+        /// precision past 2^53 in browsers).
+        pub receiver_index: String,
+        /// True once an intent (signed memo) is registered for this session.
+        pub intent_registered: bool,
+    }
+
+    /// The signed deposit memo, registered before the player pays so a wallet
+    /// that drops the memo cannot lose the deposit.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Intent {
+        /// Canonical 512-byte memo or its `ZOL1:` text form, hex.
+        pub memo: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct DepositStatus {
+        /// Note commitment, hex.
+        pub cmx: String,
+        pub value: u64,
+        pub height: u32,
+        pub confirmations: u32,
+        /// "seen" | "held" | "credited" | "voided" | "refunded"
+        pub state: String,
+    }
+}
+

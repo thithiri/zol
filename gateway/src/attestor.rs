@@ -25,7 +25,7 @@ use crate::chain::AppId;
 use crate::decide::Credit;
 use crate::store::{Store, StoreError};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Statement {
     Credit { app: AppId, credit: Credit },
     Void { app: AppId, deposit_id: [u8; 32] },

@@ -11,11 +11,10 @@ use anchor_lang::prelude::Pubkey;
 use frost_ed25519::keys::PublicKeyPackage;
 use rand::{CryptoRng, RngCore};
 use zol_ledger::state::{App, AppState, Config, DepositState};
-use zol_ledger::CreditArgs;
 use zol_wire::memo::classify;
 use zol_wire::{DepositMemo, HeadMemo, MemoKind, Network, MEMO_LEN, ORCHARD_ADDR_LEN};
 
-use crate::attestor::{attest, AttestError, Attestor, Participant, Statement};
+use crate::attestor::{AttestError, Attestor, Statement};
 use crate::chain::{AddressCheck, AppId, ChainEvent, Scope};
 use crate::config::{AppSecrets, GatewayConfig};
 use crate::decide::{decide, AppStatus, DecideCtx, Decision};
@@ -66,7 +65,7 @@ impl std::fmt::Display for HaltReason {
 }
 
 /// Maps a session key to the diversifier index of its vault receiver.
-pub type SessionIndex = Box<dyn Fn(&[u8; 32]) -> u128>;
+pub type SessionIndex = Box<dyn Fn(&[u8; 32]) -> u128 + Send + Sync>;
 
 /// Per-app runtime data on a node.
 pub struct AppRuntime {
@@ -88,7 +87,7 @@ pub struct Node {
     /// This operator's guardian key (Ed25519 seed of its Solana keypair).
     pub guardian_seed: [u8; 32],
     pub apps: BTreeMap<AppId, AppRuntime>,
-    pub addresses: Box<dyn AddressCheck>,
+    pub addresses: Box<dyn AddressCheck + Send + Sync>,
 }
 
 /// What a node did on a reconciliation pass.
@@ -252,7 +251,7 @@ impl Node {
             .map(|v| u64::from_le_bytes(v.try_into().unwrap_or([0; 8]))))
     }
 
-    pub(crate) fn set_marked_paid(&self, app: &AppId, seq: u64) -> Result<()> {
+    pub fn set_marked_paid(&self, app: &AppId, seq: u64) -> Result<()> {
         if self.marked_paid(app)?.is_none_or(|m| seq > m) {
             self.store.set_meta(&format!("marked_paid:{}", hex::encode(app)), &seq.to_le_bytes())?;
         }
@@ -302,6 +301,12 @@ impl Node {
     /// Brings note states in line with what is already on the ledger (decisions
     /// other operators' quorums signed).
     pub fn sync_with_ledger(&self, ledger: &dyn Ledger, app: &AppId) -> Result<()> {
+        // Settlements marked paid on the ledger must stay paid by the head chain.
+        if let Some(acc) = ledger.app(&self.apps[app].program)? {
+            if acc.paid_count > 0 {
+                self.set_marked_paid(app, acc.paid_count - 1)?;
+            }
+        }
         for n in self.store.notes(app)? {
             if n.kind != NoteKind::Deposit || matches!(n.state, NoteState::Credited | NoteState::Voided) {
                 continue;
@@ -380,25 +385,6 @@ impl Node {
             out.push((n, st, decision));
         }
         Ok(out)
-    }
-
-    /// Records locally that this node's quorum signed `decision` for `note`.
-    fn mark_decided(&self, note: &NoteRecord, decision: &Decision, digest: &[u8; 32]) -> Result<()> {
-        let tip = self.store.tip()?.unwrap_or(0);
-        let (state, memo) = match decision {
-            Decision::Credit { memo, .. } => (NoteState::Credited, memo),
-            Decision::Void { memo, .. } => (NoteState::Voided, memo),
-            _ => return Ok(()),
-        };
-        self.store.set_decision(
-            &note.note.app,
-            &note.note.cmx,
-            state,
-            Some(&memo[..]),
-            Some(digest),
-            Some(confirmations(note.note.height, tip)),
-        )?;
-        Ok(())
     }
 
     // ------------------------------------------------------------ guardian duties
@@ -501,137 +487,22 @@ pub struct Round {
 }
 
 /// Proposes every statement the coordinator node sees, gathers a threshold of
-/// agreeing nodes, and relays the aggregate signature to the ledger.
+/// agreeing nodes, and relays the aggregate signature to the ledger. In-process
+/// nodes; the same rounds run over remote peers in serve mode.
 pub fn coordinate<R: RngCore + CryptoRng>(
     nodes: &mut [Node],
     coordinator: usize,
     pubkeys: &PublicKeyPackage,
     threshold: usize,
     ledger: &mut dyn Ledger,
-    session: &mut u64,
+    _session: &mut u64,
     rng: &mut R,
 ) -> Result<Round> {
-    let mut round = Round::default();
-    let app_ids: Vec<AppId> = nodes[coordinator].apps.keys().copied().collect();
-    for app in app_ids {
-        for n in nodes.iter() {
-            n.sync_with_ledger(ledger, &app)?;
-        }
-        let proposals = nodes[coordinator].own_statements(ledger, &app)?;
-        for (_, statement, _) in proposals {
-            // Each node's own view of this deposit.
-            let key = statement.log_key();
-            let mut views = Vec::new();
-            for n in nodes.iter() {
-                let own = match n.own_statements(ledger, &app) {
-                    Ok(v) => v.into_iter().find(|(_, s, _)| s.log_key() == key),
-                    Err(_) => None,
-                };
-                views.push(own);
-            }
-            *session += 1;
-            let net = nodes[coordinator].network();
-            let program = nodes[coordinator].apps[&app].program;
-            let result = {
-                let mut parts: Vec<Participant> = nodes
-                    .iter_mut()
-                    .zip(&views)
-                    .map(|(n, v)| Participant { attestor: &mut n.attestor, log: &n.store, own_view: v.as_ref().map(|(_, s, _)| s.clone()) })
-                    .collect();
-                attest(&statement, net, pubkeys, threshold, &mut parts, *session, rng)
-            };
-            let id = match &statement {
-                Statement::Credit { credit, .. } => credit.deposit_id,
-                Statement::Void { deposit_id, .. } => *deposit_id,
-                Statement::Paid { .. } => [0; 32],
-            };
-            let sig = match result {
-                Ok((sig, _)) => sig,
-                Err(e) => {
-                    round.failed.push((id, e.to_string()));
-                    continue;
-                }
-            };
-            let sent = match &statement {
-                Statement::Credit { credit, .. } => ledger.submit_credit(
-                    &program,
-                    CreditArgs {
-                        deposit_id: credit.deposit_id,
-                        amount: credit.amount,
-                        session_key: Pubkey::new_from_array(credit.session_key),
-                        payout_commitment: credit.payout_commitment,
-                        flags: credit.flags,
-                        pot_id: credit.pot_id,
-                        app_data: credit.app_data.clone(),
-                    },
-                    sig,
-                ),
-                Statement::Void { deposit_id, .. } => ledger.submit_void(&program, *deposit_id, sig),
-                Statement::Paid { sequence, .. } => ledger.submit_paid(&program, *sequence, sig),
-            };
-            if let Err(e) = sent {
-                round.failed.push((id, e.to_string()));
-                continue;
-            }
-            let digest = statement.digest(net);
-            for (n, v) in nodes.iter().zip(&views) {
-                if let Some((note, s, d)) = v {
-                    if *s == statement {
-                        n.mark_decided(note, d, &digest)?;
-                    }
-                }
-            }
-            match statement {
-                Statement::Credit { .. } => round.credited.push(id),
-                Statement::Void { .. } => round.voided.push(id),
-                Statement::Paid { .. } => {}
-            }
-        }
-
-        // mark_paid, strictly in order, for settlements whose paying head
-        // transition each signer sees at payout depth in its own head chain.
-        let proposals = match nodes[coordinator].own_paid_statements(ledger, &app) {
-            Ok(p) => p,
-            Err(NodeError::Halted(_)) => vec![],
-            Err(e) => return Err(e),
-        };
-        for statement in proposals {
-            let Statement::Paid { sequence, .. } = statement else { continue };
-            let views: Vec<Option<Statement>> = nodes
-                .iter()
-                .map(|n| n.own_paid_statements(ledger, &app).ok().and_then(|v| v.into_iter().find(|s| *s == statement)))
-                .collect();
-            *session += 1;
-            let net = nodes[coordinator].network();
-            let program = nodes[coordinator].apps[&app].program;
-            let result = {
-                let mut parts: Vec<Participant> = nodes
-                    .iter_mut()
-                    .zip(&views)
-                    .map(|(n, v)| Participant { attestor: &mut n.attestor, log: &n.store, own_view: v.clone() })
-                    .collect();
-                attest(&statement, net, pubkeys, threshold, &mut parts, *session, rng)
-            };
-            let mut id = [0u8; 32];
-            id[..8].copy_from_slice(&sequence.to_le_bytes());
-            let sent = result.map_err(|e| e.to_string()).and_then(|(sig, _)| {
-                ledger.submit_paid(&program, sequence, sig).map_err(|e| e.to_string())
-            });
-            match sent {
-                Ok(()) => {
-                    for (n, v) in nodes.iter().zip(&views) {
-                        if v.is_some() {
-                            n.set_marked_paid(&app, sequence)?;
-                        }
-                    }
-                    round.marked_paid.push(sequence);
-                }
-                Err(e) => {
-                    round.failed.push((id, format!("mark_paid {sequence}: {e}")));
-                    break;
-                }
-            }
-        }
+    if let Some(h) = nodes[coordinator].halted()? {
+        return Err(NodeError::Halted(h));
     }
-    Ok(round)
+    let net = nodes[coordinator].network();
+    let mut peers: Vec<Box<dyn crate::peer::Peer + '_>> =
+        nodes.iter_mut().map(|n| Box::new(crate::peer::LocalPeer { node: n, zcashd: None }) as Box<dyn crate::peer::Peer>).collect();
+    Ok(crate::rounds::attest_rounds(&mut peers, coordinator, ledger, net, pubkeys, threshold, rng))
 }

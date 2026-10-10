@@ -61,7 +61,7 @@ pub enum HoldReason {
 }
 
 /// Credit attestation fields, owned.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Credit {
     pub deposit_id: [u8; 32],
     pub amount: u64,

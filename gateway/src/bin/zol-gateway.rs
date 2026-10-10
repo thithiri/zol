@@ -40,7 +40,12 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Run the service loop.
+    /// Run one operator on this host (multi-host deployment).
+    Serve {
+        #[arg(long)]
+        config: PathBuf,
+    },
+    /// Run every operator in this process (cluster mode: local devnet, tests).
     Run {
         #[arg(long)]
         config: PathBuf,
@@ -183,5 +188,14 @@ fn main() -> Result<(), BoxErr> {
     match Cli::parse().cmd {
         Cmd::Keygen { operators, threshold, out } => keygen(operators, threshold, &out),
         Cmd::Run { config, rounds } => run(&config, rounds),
+        Cmd::Serve { config } => {
+            let cfg: zol_gateway::serve::ServeConfig = serde_json::from_str(&std::fs::read_to_string(&config)?)?;
+            let name = cfg.name.clone();
+            let listen = cfg.listen.clone();
+            let h = zol_gateway::serve::start(cfg).map_err(|e| e.to_string())?;
+            println!("{name} serving on {listen}");
+            h.thread.join().map_err(|_| "loop panicked")?;
+            Ok(())
+        }
     }
 }
