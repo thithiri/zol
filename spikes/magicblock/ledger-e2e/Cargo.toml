@@ -8,6 +8,7 @@ publish = false
 [workspace]
 
 [dependencies]
+hex = "0.4"
 anchor-lang = "1.2.1"
 zol-ledger = { path = "../../../programs/zol-ledger", features = ["no-entrypoint"] }
 zol-test-app = { path = "../../../programs/zol-test-app", features = ["no-entrypoint"] }
