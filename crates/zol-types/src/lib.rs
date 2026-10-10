@@ -183,6 +183,16 @@ pub mod api {
         pub error: String,
     }
 
+    /// `GET /valid_receiver?raw=<hex>`: whether a raw 43-byte receiver is a valid
+    /// shielded payment address, and whether it belongs to a vault this daemon
+    /// scans (any app, either scope, any diversifier). A refund to a vault
+    /// receiver is refused, so the gateway holds such deposits for an operator.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ReceiverCheck {
+        pub valid: bool,
+        pub vault: bool,
+    }
+
     // ------------------------------------------------------------------
     // Phase 4: the vault head, payouts, and distributed spend signing.
 
