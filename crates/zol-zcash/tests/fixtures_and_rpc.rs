@@ -1,32 +1,37 @@
-//! Offline: a real Zebra 6.4.2 regtest block (Ironwood shielded coinbase to the fixed key
-//! `SpendingKey([7; 32])`, captured by `regtest_make_block_fixture`), and the JSON-RPC
+//! Offline: a real Zakura regtest NU7 block (Ironwood shielded coinbase to the dev wallet of
+//! the fixture's `dev_seed`, captured by `regtest_make_block_fixture`), and the JSON-RPC
 //! client against a canned local HTTP responder.
 
-use orchard::keys::{FullViewingKey, Scope, SpendingKey};
+use orchard::keys::{FullViewingKey, Scope};
 use zol_zcash::{
     block::parse_block,
     display_hex,
+    node::NodeClient,
     scan::{parse_legacy_tree, Account, Pool, ScannerConfig},
-    zebra::ZebraClient,
-    ChainParams, Error, Scanner,
-};
-
-/// The fixtures are Zebra 6.4.2 regtest blocks (NU6.3 at 1, no NU7): parsing checks the
-/// coinbase height against the branch ID, so they need the pre-NU7 heights.
-const PRE_NU7_REGTEST: ChainParams = ChainParams {
-    network: zol_zcash::Network::Regtest,
-    regtest: zol_zcash::params::RegtestHeights::PRE_NU7,
+    testing, ChainParams, Error, Scanner,
 };
 
 fn fixture() -> serde_json::Value {
     serde_json::from_str(include_str!("fixtures/coinbase_block.json")).unwrap()
 }
 
+/// The regtest heights the fixture was mined under (`infra/zakura/regtest-nu7.toml`: NU7
+/// at 1). Parsing checks the coinbase height against the branch ID.
+fn params(f: &serde_json::Value) -> ChainParams {
+    let mut p = ChainParams::REGTEST;
+    p.regtest.nu7 = f["regtest_nu7"].as_u64().map(|h| h as u32);
+    p
+}
+
+fn wallet(f: &serde_json::Value) -> FullViewingKey {
+    FullViewingKey::from(&testing::dev_seed_keys(f["dev_seed"].as_str().unwrap()).wallet)
+}
+
 #[test]
 fn parses_and_scans_real_regtest_block() {
     let f = fixture();
     let raw = hex::decode(f["raw"].as_str().unwrap()).unwrap();
-    let b = parse_block(&raw, &PRE_NU7_REGTEST).unwrap();
+    let b = parse_block(&raw, &params(&f)).unwrap();
     let height = f["height"].as_u64().unwrap() as u32;
     assert_eq!(b.height, height);
     assert_eq!(display_hex(&b.hash), f["hash"].as_str().unwrap());
@@ -34,12 +39,12 @@ fn parses_and_scans_real_regtest_block() {
     let cb = &b.txs[0];
     assert!(cb.ironwood_bundle().is_some() && cb.orchard_bundle().is_none());
 
-    let fvk = FullViewingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap());
+    let fvk = wallet(&f);
     let frontier =
         parse_legacy_tree(&hex::decode(f["ironwood_final_state_prev"].as_str().unwrap()).unwrap())
             .unwrap();
     let mut sc = Scanner::new(
-        ScannerConfig::new(PRE_NU7_REGTEST),
+        ScannerConfig::new(params(&f)),
         vec![Account { id: [7; 32], fvk }],
         height,
         Some(b.prev_hash),
@@ -51,7 +56,12 @@ fn parses_and_scans_real_regtest_block() {
     let n = &ev.received[0];
     assert_eq!(
         (n.pool, n.value, n.scope, n.receiver_index),
-        (Pool::Ironwood, 625_000_000, Scope::External, [0; 11])
+        (
+            Pool::Ironwood,
+            f["miner_subsidy_zat"].as_u64().unwrap(),
+            Scope::External,
+            [0; 11]
+        )
     );
     // The witness roots to the tree state after this block.
     let sp = sc.spendable(&n.cmx, None).unwrap();
@@ -65,12 +75,12 @@ fn wrong_prev_hash_is_a_reorg() {
     let f = fixture();
     let raw = hex::decode(f["raw"].as_str().unwrap()).unwrap();
     let height = f["height"].as_u64().unwrap() as u32;
-    let fvk = FullViewingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap());
+    let fvk = wallet(&f);
     let frontier =
         parse_legacy_tree(&hex::decode(f["ironwood_final_state_prev"].as_str().unwrap()).unwrap())
             .unwrap();
     let mut sc = Scanner::new(
-        ScannerConfig::new(PRE_NU7_REGTEST),
+        ScannerConfig::new(params(&f)),
         vec![Account { id: [7; 32], fvk }],
         height,
         Some([1; 32]),
@@ -126,7 +136,7 @@ async fn rpc_envelope_results_and_errors() {
         r#"{"jsonrpc":"2.0","id":1,"result":{"chain":"test","blocks":5,"bestblockhash":"aa","consensus":{"chaintip":"37a5165b"},"valuePools":[{"id":"ironwood","chainValueZat":625000000}]}}"#.into(),
     ])
     .await;
-    let c = ZebraClient::new(url);
+    let c = NodeClient::new(url);
     assert_eq!(c.get_block_count().await.unwrap(), 215);
     assert_eq!(
         c.get_block_raw_by_height(3).await.unwrap(),

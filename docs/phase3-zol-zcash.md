@@ -1,11 +1,13 @@
 # Phase 3: `crates/zol-zcash`
 
-Date: 2026-10-10. Status: **built and tested.** 15 tests pass offline. 4 regtest tests (`--ignored`) pass against Zebra 6.4.2:
+Date: 2026-10-10. Status: **built and tested.** 15 tests pass offline. 4 regtest tests (`--ignored`) passed against Zebra 6.4.2 when this phase was built:
 
 - the full flow: deposit, scan, genesis head, refund signed 2-of-3 with FROST, then the spend detected;
 - a two-node reorg that the scanner rewinds;
 - a fixture generator;
 - the `zol-zcashd` daemon end to end (see [zol-zcashd](#zol-zcashd)).
+
+**Update (2026-10-10, later):** ZOL now runs on Zakura 1.6.0 (`infra/zakura`, [docs/ops/zcash-node.md](ops/zcash-node.md)) and Zebra was removed. The node module and client were renamed `zebra` → `node` and `ZebraClient` → `NodeClient` (`Scanner::from_zebra` → `from_node`), and the daemon's config section `[zebra]` → `[node]`. Regtest funding uses `generate` to the node's `miner_address`, because Zakura has no `generatetoaddress`. The API, config and run instructions below are current. The findings marked as Zebra 6.4.2 are the record of what was measured then.
 
 Clippy is clean.
 
@@ -22,7 +24,7 @@ It depends on `zol-wire` and `zol-types` by path.
 
 ## API summary
 
-All 32-byte hashes (txids, block hashes) are in **internal byte order**. Use `display_hex()` and `from_display_hex()` for Zebra and explorer form. Receivers are raw 43-byte Orchard-protocol receivers; Ironwood uses the same ones.
+All 32-byte hashes (txids, block hashes) are in **internal byte order**. Use `display_hex()` and `from_display_hex()` for the node's and explorers' form. Receivers are raw 43-byte Orchard-protocol receivers; Ironwood uses the same ones.
 
 ### `keys`
 
@@ -63,13 +65,13 @@ ChainParams::{MAINNET, TESTNET, REGTEST}; ChainParams::new(Network);
 fn branch_id(&self, h: u32) -> BranchId;  fn ironwood_active(&self, h: u32) -> bool;
 ```
 
-Regtest defaults to every upgrade through NU6.3 at height 1, matching `spikes/zebra/regtest.toml`.
+Regtest defaults to every upgrade through NU7 at height 1 (`infra/zakura/regtest-nu7.toml`); `RegtestHeights::PRE_NU7` stops at NU6.3, and `ChainParams::regtest_from_upgrades` reads the heights from the node (see [docs/ops/nu7.md](ops/nu7.md)).
 
-### `zebra`
+### `node`
 
 ```rust
-pub struct ZebraClient;  // Clone + Send + Sync
-impl ZebraClient {
+pub struct NodeClient;  // Clone + Send + Sync
+impl NodeClient {
     pub fn new(url: impl Into<String>) -> Self;
     pub fn with_basic_auth(self, user, password) -> Self;        // cookie auth: "__cookie__"
     pub async fn call<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<T, Error>;
@@ -82,8 +84,7 @@ impl ZebraClient {
     pub async fn get_raw_transaction(&self, txid: &str) -> Result<Vec<u8>, Error>;
     pub async fn get_raw_transaction_verbose(&self, txid: &str) -> Result<Value, Error>;
     pub async fn send_raw_transaction(&self, raw: &[u8]) -> Result<String, Error>;   // txid
-    pub async fn generate(&self, n: u32) -> Result<Vec<String>, Error>;              // regtest
-    pub async fn generate_to_address(&self, n: u32, address: &str) -> Result<Vec<String>, Error>;
+    pub async fn generate(&self, n: u32) -> Result<Vec<String>, Error>;              // regtest: pays [mining] miner_address
     pub async fn z_get_treestate(&self, hash_or_height: &str) -> Result<Value, Error>;
     pub async fn get_raw_mempool(&self) -> Result<Vec<String>, Error>;
 }
@@ -109,13 +110,13 @@ pub struct SyncReport { pub blocks: u32, pub rewound_to: Option<u32>, pub events
 impl Scanner {   // Send + Sync; sync() future is Send
     pub fn new(cfg, accounts: Vec<Account>, start_height: u32, prev_hash: Option<[u8; 32]>,
                ironwood_frontier: Option<Frontier<MerkleHashOrchard, 32>>) -> Result<Self, Error>;
-    pub async fn from_zebra(cfg, accounts, client: &ZebraClient, start_height: u32) -> Result<Self, Error>; // z_gettreestate(start-1)
+    pub async fn from_node(cfg, accounts, client: &NodeClient, start_height: u32) -> Result<Self, Error>; // z_gettreestate(start-1)
     pub fn add_account(&mut self, a: Account);            // effective from the next block
     pub fn tip(&self) -> (u32, [u8; 32]);  pub fn next_height(&self) -> u32;
     pub fn ingest_block(&mut self, raw: &[u8]) -> Result<BlockEvents, Error>;  // Err(Error::Reorg{height}) if not linked
     pub fn ingest_parsed(&mut self, b: &ParsedBlock) -> Result<BlockEvents, Error>;
     pub fn rewind(&mut self, to_height: u32) -> Result<(), Error>;
-    pub async fn sync(&mut self, client: &ZebraClient, until: Option<u32>) -> Result<SyncReport, Error>; // finds the fork itself
+    pub async fn sync(&mut self, client: &NodeClient, until: Option<u32>) -> Result<SyncReport, Error>; // finds the fork itself
     pub fn spendable(&self, cmx: &[u8; 32], anchor_height: Option<u32>) -> Result<Spendable, Error>;
     pub fn note_by_cmx(&self, &[u8; 32]) -> Option<&ScannedNote>;  pub fn spend_of(&self, cmx) -> Option<&SpentNote>;
     pub fn unspent(&self, app_id) -> impl Iterator<Item=&ScannedNote>;  pub fn all_notes(&self); pub fn spent_notes(&self);
@@ -269,18 +270,18 @@ ZIP 2005 § 4.2.3, use_qsk = true, with ak^P = A_c:
 ### Scanner
 
 - A shardtree with one checkpoint per block (id = height) and our leaves marked. That is what lets witnesses survive rewinds: truncating to a checkpoint keeps earlier marks.
-- Reorg window: `max_reorg_depth` (default 1,000, Zebra's window). The tree keeps 1,010 checkpoints. A rewind deeper than the window is an error: global halt.
+- Reorg window: `max_reorg_depth` (default 1,000, the node's window). The tree keeps 1,010 checkpoints. A rewind deeper than the window is an error: global halt.
 - Marks of notes spent beyond the window are released.
 - `snapshot()`/`restore()` serialize everything except keys: the tree shards and cap, checkpoints, notes, spends and block hashes. They use bincode with a version tag. The snapshot was 6.6 kB after the regtest flow.
 
-### Regtest funding
+### Regtest funding (measured on Zebra 6.4.2; Zakura has no `generatetoaddress` and funds through `generate` to `miner_address`)
 
 - Zebra 6.4.2's `generatetoaddress` **is implemented**. The trait default at `methods.rs` L770-801 is a stub, which is what spike 0.2 read, but `RpcImpl` overrides it at L3362.
 - With a UA holding an Orchard receiver, it pays the coinbase **into the Ironwood pool** from NU6.3 (zebra-rpc `TransactionTemplate::new_coinbase`, OVK all-zero): 6.25 ZEC per block, as one Ironwood note.
 - The shielded coinbase note was **spendable in the very next block**. Zebra checks maturity only for transparent coinbase (`MIN_TRANSPARENT_COINBASE_MATURITY`).
 - `mining.miner_address` would also work, but needs a config change. `generatetoaddress` funds any test wallet.
 
-### Reorg observation
+### Reorg observation (Zebra 6.4.2)
 
 After the reorg, Zebra did **not** return the orphaned deposit transaction to its mempool. A deposit reorged out disappears until the depositor's wallet rebroadcasts it. The early-credit rollback path in the design must assume that.
 
@@ -290,7 +291,7 @@ After the reorg, Zebra did **not** return the orphaned deposit transaction to it
 |---|---|---|
 | `lib` unit (9) | params/branches; key derivation (network binding, ỹ, determinism, ZIP 2005 components, counter retry about ½); receivers and UA round trip; bad group key; FROST 2-of-3 under the app tweak for every pair, 1-of-3 fails; shardtree rewind, old witness and snapshot round trip; `Send`/`Sync` | pass |
 | `offline` (3) | Real proven v6 transactions in in-memory blocks: `ZOL1:` deposit to a session receiver (memo signature verified, app B sees nothing); FROST 2-of-3 refund (`check` rejects wrong destination and wrong app); spend detected; genesis head (cmx, internal scope, genesis memo); snapshot/restore; reorg error; rewind drops spend and head and keeps the deposit witness at the old anchor. Single-key refund; refund to a vault receiver refused. Orchard pool scanned only when opted in | pass, about 11 s |
-| `fixtures_and_rpc` (3) | A real Zebra regtest block (Ironwood shielded coinbase to `SpendingKey([7;32])`): parse, hash and prev hash, scan from the `z_gettreestate` frontier, witness at tip; unlinked block is a reorg; JSON-RPC envelope, params and error mapping against a local responder | pass |
+| `fixtures_and_rpc` (3) | A real regtest block (now a Zakura NU7 block with an Ironwood shielded coinbase to the `zol-dev` dev wallet; originally Zebra 6.4.2 and `SpendingKey([7;32])`): parse, hash and prev hash, scan from the `z_gettreestate` frontier, witness at tip; unlinked block is a reorg; JSON-RPC envelope, params and error mapping against a local responder | pass |
 | `regtest` (`--ignored`) | Amounts are relative to the funded coinbase: deposit = coinbase/4, float = deposit/2. The test fails with a "restart the chain" message if a coinbase is under 0.01 ZEC. `regtest_deposit_genesis_refund`: fund via `generatetoaddress`, then a `ZOL1:` deposit to a session receiver is broadcast and mined at height 217; scanned; genesis head broadcast and scanned; refund signed 2-of-3 FROST, broadcast, mined at 219; the deposit spend is detected and the player receives 99,990,000 at the memo address. `regtest_reorg_drops_deposit`: b partitioned; deposit mined on a at 323; b mines 3; heal; a reorgs; `sync` → `rewound_to = Some(322)`, deposit dropped, funding note spendable again | pass (about 14 s with the pair up) |
 | `zcashd` (`--ignored`) | Amounts scale with the current block subsidy: float = subsidy/2, deposit = 2.5 × subsidy, so the deposit must combine about 3 dev notes, and the test asserts at least 2 inputs. Spawns `zol-zcashd --dev`. `/health`, `/vault`, `/session_receiver`, `/valid_receiver`. `/dev/genesis` (the dev wallet mines its own coinbase); then `/dev/send` of a signed `ZOL1:` deposit to a session receiver. `/events`: seqs contiguous from 1, the head and deposit `Note` events, each `Note` before its `Block`. `/refund`: a head is rejected (400); the deposit refund is broadcast; a repeat returns the same txid with `existing: true`; a different `to` while pending gets 409. After mining, a `Spent` event with the refund txid. Restart on the same state dir: identical events and seqs, refund still `existing`, new events continue after the old cursor | pass (about 9 s) |
 
@@ -298,13 +299,14 @@ How to run:
 
 ```sh
 cd crates/zol-zcash && cargo test                      # offline
-(cd ../../spikes/zebra && ./scripts/up.sh pair)
+../../infra/zakura/scripts/up.sh pair                  # ZOL_NODE_CONFIG=pre-nu7 for an NU6.3 chain
 cargo test --test regtest -- --ignored --nocapture --test-threads=1
 cargo test --test zcashd -- --ignored --nocapture
-ZOL_REGEN_FIXTURE=1 cargo test --test regtest regtest_make_block_fixture -- --ignored   # refresh fixture
+ZOL_REGEN_FIXTURE=1 cargo test --test regtest regtest_make_block_fixture -- --ignored   # refresh fixture (nu7 config)
+../../infra/zakura/scripts/down.sh                     # state is ephemeral
 ```
 
-I left the regtest pair running after the runs. Its state is ephemeral; stop it with `spikes/zebra/scripts/down.sh`.
+Env: `ZOL_NODE_URL`, `ZOL_NODE_B_URL` and `ZOL_DEV_SEED` (default `zol-dev`, the node's miner wallet).
 
 ## Gaps and what the gateway should know
 
@@ -324,8 +326,8 @@ I left the regtest pair running after the runs. Its state is ephemeral; stop it 
 
    `verify::vault_outputs`, `verify::nullifiers`, `checks` and `tx::build_ironwood` are the pieces for them.
 7. **The refund memo is the ZIP 302 empty memo.** `zol-wire` has no refund memo format. If one is added, `refund::build` and `check` must use it.
-8. **Testnet and mainnet are not exercised.** There are no funds and no synced node. `Scanner::from_zebra` (birthday from `z_gettreestate`) was exercised only on regtest.
-9. **`generatetoaddress` blocks.** The regtest test funds through it, and its coinbase includes mempool fees (one run got 625,010,000). Tests take values from the scan, not constants.
+8. **Testnet and mainnet are not exercised.** There are no funds and no synced node. `Scanner::from_node` (birthday from `z_gettreestate`) was exercised only on regtest.
+9. **Funding blocks include the mempool.** The regtest test funds by mining (then `generatetoaddress`, now `generate`), and the coinbase includes mempool fees (one run got 625,010,000). Tests take values from the scan, not constants.
 
 ## zol-zcashd
 
@@ -346,14 +348,14 @@ cargo run --bin zol-zcashd -- --print-dev-keys [--dev-seed s]   # prints a [keys
 listen = "127.0.0.1:18300"
 network = "regtest"              # "mainnet" | "testnet" | "regtest"
 state_dir = "./zcashd-state"
-start_height = 1                 # optional: first block on a fresh state dir; default zebra tip + 1
+start_height = 1                 # optional: first block on a fresh state dir; default node tip + 1
 poll_ms = 500                    # optional, default 500
 expiry_delta = 40                # optional, default 40 (max 100)
 apps = ["a1a1…a1"]               # app program IDs, 32-byte hex
 
-[zebra]
+[node]
 url = "http://127.0.0.1:18232/"
-# user = "__cookie__"            # optional basic auth (Zebra cookie auth)
+# user = "__cookie__"            # optional basic auth (node cookie auth)
 # password = "<cookie>"
 
 [keys]                           # required unless --dev
@@ -432,7 +434,7 @@ Hex query parameters are lowercase hex of internal byte order. Errors are `{"err
   - **Expired unmined** (`tip ≥ expiry_height`): rebuilt with a fresh anchor and expiry, broadcast, `existing: false`.
 - **Errors:**
   - 422: build or check failure.
-  - 502: Zebra rejected the broadcast.
+  - 502: the node rejected the broadcast.
   - 501: not enough shares in this process.
 - Refund records persist in `state.bin`.
 
@@ -445,8 +447,8 @@ Hex query parameters are lowercase hex of internal byte order. Errors are `{"err
 `POST /dev/genesis {app, float}` and `POST /dev/send {to, value, memo}`
 - **Funding.** Both fund from the dev wallet by **combining notes**:
   - They pick free dev notes (unspent, and not used by an unmined dev transaction), largest first, until they cover the amount plus the ZIP 317 fee for that many inputs: 5,000 × max(inputs, 2).
-  - If the free notes fall short, the daemon reads `getblocksubsidy`, mines `ceil(deficit / subsidy) + 1` coinbase blocks to the dev wallet with `generatetoaddress`, syncs, and retries.
-  - `generatetoaddress` **also mines whatever is in the mempool**.
+  - If the free notes fall short, the daemon reads `getblocksubsidy`, mines `ceil(deficit / subsidy) + 1` coinbase blocks with `generate`, syncs, and retries. The node's `[mining] miner_address` must be the dev wallet's UA (`/health` `dev_wallet_ua`, `--print-dev-keys`); `infra/zakura` sets the one for dev seed `zol-dev`.
+  - `generate` **also mines whatever is in the mempool**.
   - Bounds: at most 40 inputs per transaction and 200 mined blocks per request.
   - Past either bound, or when the regtest subsidy is 0, the request fails with 400 and an error naming the amount, the free notes and the current subsidy.
   - Why this matters: regtest halves the subsidy every few hundred blocks. At height 900 it is 0.78125 ZEC.

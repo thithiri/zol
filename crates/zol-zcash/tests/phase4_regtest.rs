@@ -1,18 +1,16 @@
-//! Phase 4 on regtest (spikes/zebra pair): head transitions signed by three `zol-zcashd`
+//! Phase 4 on regtest (infra/zakura pair): head transitions signed by three `zol-zcashd`
 //! processes holding ONE Pallas FROST share each (2-of-3), over /payout/* and /sign/*.
 //! Ignored by default:
 //! `cargo test --test phase4_regtest -- --ignored --nocapture --test-threads=1`
-//! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/; the reorg test needs the
-//! spikes/zebra pair), `ZOL_DEV_SEED` (default "phase4-test"; for Zakura, the seed whose
-//! dev wallet UA is the node's miner_address).
-//! Reorg tests drive the node pair with `docker exec`/`spikes/zebra/scripts`; `ZOL_ZEBRA=zebra7`
-//! selects the Zebra 7 NU7 pair (containers zol-zebra7-a/b, RPC 18272/18282).
+//! Env: `ZOL_NODE_URL` (default http://127.0.0.1:18232/), `ZOL_DEV_SEED` (default "zol-dev",
+//! the seed whose dev wallet UA is the node's miner_address). The reorg test drives the
+//! pair with `docker exec` (containers zol-zakura-a/b) and `infra/zakura/scripts`.
 
 use std::{process::Child, time::Duration};
 
 use rand::RngCore;
 use zol_types::{api, ChainEvent};
-use zol_zcash::{display_hex, zebra::ZebraClient};
+use zol_zcash::{display_hex, node::NodeClient};
 
 struct Daemon {
     child: Child,
@@ -26,10 +24,10 @@ impl Drop for Daemon {
 }
 
 fn seed() -> String {
-    std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "phase4-test".into())
+    std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zol-dev".into())
 }
-fn zebra_url() -> String {
-    std::env::var("ZOL_ZEBRA_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into())
+fn node_url() -> String {
+    std::env::var("ZOL_NODE_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into())
 }
 const BIN: &str = env!("CARGO_BIN_EXE_zol-zcashd");
 
@@ -47,9 +45,9 @@ fn spawn(dir: &std::path::Path, app_hex: &str, i: usize) -> Daemon {
     let port = free_port();
     let state = dir.join(format!("state{i}"));
     let mut cfg = format!(
-        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\npoll_ms = 200\napps = [\"{app_hex}\"]\n[zebra]\nurl = \"{}\"\n",
+        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\npoll_ms = 200\napps = [\"{app_hex}\"]\n[node]\nurl = \"{}\"\n",
         state.display(),
-        zebra_url()
+        node_url()
     );
     let mut args = vec![
         "--config".to_string(),
@@ -138,7 +136,7 @@ async fn health(d: &Daemon) -> serde_json::Value {
     panic!("daemon did not start");
 }
 
-async fn synced(ds: &[&Daemon], z: &ZebraClient) {
+async fn synced(ds: &[&Daemon], z: &NodeClient) {
     let h = z.get_block_count().await.unwrap();
     for d in ds {
         for i in 0..240 {
@@ -152,7 +150,7 @@ async fn synced(ds: &[&Daemon], z: &ZebraClient) {
     }
 }
 
-async fn mine(z: &ZebraClient, ds: &[&Daemon], n: u32) {
+async fn mine(z: &NodeClient, ds: &[&Daemon], n: u32) {
     z.generate(n).await.unwrap();
     synced(ds, z).await;
 }
@@ -224,7 +222,7 @@ fn receiver() -> Vec<u8> {
 }
 
 struct Env {
-    z: ZebraClient,
+    z: NodeClient,
     dir: std::path::PathBuf,
     app: [u8; 32],
     app_hex: String,
@@ -305,10 +303,10 @@ impl Env {
 }
 
 async fn setup(tag: &str) -> Env {
-    let z = ZebraClient::new(zebra_url());
+    let z = NodeClient::new(node_url());
     z.get_block_count()
         .await
-        .expect("regtest up (spikes/zebra/scripts/up.sh pair)");
+        .expect("regtest up (infra/zakura/scripts/up.sh pair)");
     let sub: serde_json::Value = z
         .call("getblocksubsidy", serde_json::json!([]))
         .await
@@ -684,10 +682,7 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
     let out = std::process::Command::new("docker")
         .args([
             "exec",
-            &format!(
-                "zol-{}-{node}",
-                std::env::var("ZOL_ZEBRA").unwrap_or_else(|_| "zebra".into())
-            ),
+            &format!("zol-zakura-{node}"),
             "curl",
             "-s",
             "-H",
@@ -704,7 +699,7 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
 }
 
 fn script(name: &str) {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../spikes/zebra/scripts/");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../infra/zakura/scripts/");
     let _ = std::process::Command::new("bash")
         .arg(format!("{path}{name}"))
         .output();

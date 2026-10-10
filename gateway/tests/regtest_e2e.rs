@@ -1,14 +1,16 @@
 //! Phase 3 end to end, across processes (ignored by default):
 //!
-//! Zebra regtest  ←→  3 × zol-zcashd (one per operator, own scan)  ←→  gateway
+//! Zakura regtest  ←→  3 × zol-zcashd (one per operator, own scan)  ←→  gateway
 //! cluster (3 nodes, 2-of-3 FROST attestor)  ←→  ledger program on LiteSVM.
 //!
-//! Needs the regtest pair (`spikes/zebra/scripts/up.sh pair`) and a built
+//! Needs the regtest pair (`infra/zakura/scripts/up.sh pair`; its miner address is
+//! the "zol-dev" dev wallet the daemons fund from) and a built
 //! `zol-zcashd` (`cargo build --release --manifest-path crates/zol-zcash/Cargo.toml --bin zol-zcashd`):
 //!
 //!     cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture --test-threads=1
 //!
-//! Env: ZOL_ZEBRA_URL (default http://127.0.0.1:18232/), ZOL_ZCASHD_BIN.
+//! Env: ZOL_NODE_URL (default http://127.0.0.1:18232/), ZOL_DEV_SEED (default zol-dev),
+//! ZOL_ZCASHD_BIN.
 
 mod common;
 
@@ -48,7 +50,7 @@ fn sync(c: &Cluster) {
 /// Three single-share dev daemons, a genesis head, the ledger with the app
 /// activated after the guardians' genesis check, and the gateway cluster.
 fn setup() -> Setup {
-    let start_height = zebra_height();
+    let start_height = node_height();
     static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
     let base = 18_700 + (std::process::id() % 100) as u16 * 3 + 400 * NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (p0, z0) = spawn_zcashd(0, base, start_height);
@@ -139,7 +141,7 @@ fn phase3_end_to_end_on_regtest() {
     let Setup { _procs, mut world, mut cluster, vault_addr } = setup();
     // A player deposits through an ordinary wallet send to their session receiver,
     // with the ZOL1 text memo a payment link carries. Another deposit's memo is expired.
-    let h = zebra_height();
+    let h = node_height();
     let alice = SigningKey::from_bytes(&[0xA1; 32]);
     let bob = SigningKey::from_bytes(&[0xB0; 32]);
     let refund_to = external_receiver();
@@ -193,7 +195,7 @@ fn phase3_end_to_end_on_regtest() {
 #[ignore]
 fn phase4_payout_end_to_end_on_regtest() {
     let Setup { _procs, mut world, mut cluster, vault_addr } = setup();
-    let h = zebra_height();
+    let h = node_height();
     let players = [SigningKey::from_bytes(&[0xC1; 32]), SigningKey::from_bytes(&[0xC2; 32])];
     let dests = [external_receiver(), external_receiver()];
     for (p, to) in players.iter().zip(&dests) {

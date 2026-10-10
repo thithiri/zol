@@ -33,7 +33,7 @@ b_first=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0])' "$bfor
 b_last=$(tip b)
 echo "partitioned: a height=$(h a) tip=$(tip a) | b height=$(h b) tip=$b_last (b fork first=$b_first) mined in $(( $(ts) - t0 ))s"
 
-# Hold the partition long enough for Zebra's heartbeats to drop the old TCP connections,
+# Hold the partition long enough for the nodes' heartbeats to drop the old TCP connections,
 # then prove nothing leaked across.
 sleep "$hold"
 echo "after ${hold}s partition: a height=$(h a) tip=$(tip a) | b height=$(h b) tip=$(tip b) peers_b=$(rpc b getpeerinfo | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["result"]))')"

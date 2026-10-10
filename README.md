@@ -13,12 +13,13 @@ Status: Phases 0–4 of the plan, and the flagship app (Phase 5.3). Spike findin
 | `crates/zol-wire` | `no_std` wire formats: deposit memo v2, head and top-up memos, credit/void/paid digests, settlement record digests, keyed deposit IDs and payout commitments. Golden vectors in `vectors/v0.3.json`; TypeScript twin in `ts/` |
 | `programs/zol-ledger` | Anchor 1.2.1 kernel ledger, with MagicBlock delegation via ephemeral-rollups-sdk 0.17.3 |
 | `crates/zol-types` | Contract between the gateway's two processes: chain events, the `zol-zcashd` JSON API, the session-receiver index |
-| `crates/zol-zcash` | Zcash side (own workspace): per-app vault keys, Zebra RPC, Ironwood scanner, refund and genesis builders, Pallas FROST; the `zol-zcashd` daemon |
+| `crates/zol-zcash` | Zcash side (own workspace): per-app vault keys, Zcash node RPC (Zakura), Ironwood scanner, refund and genesis builders, Pallas FROST; the `zol-zcashd` daemon |
 | `gateway` | Solana side: decisions, Ed25519 FROST attestor, reconciliation, guardians, halt, RPC relayer; the `zol-gateway` binary |
 | `programs/zol-test-app` | Test-only app that forwards ledger calls signed with its `zol-app` address |
 | `programs/zol-coinflip` | Flagship app: two-player coin flip on a ledger pot with MagicBlock VRF ([phase5-coinflip.md](docs/phase5-coinflip.md)) |
 | `web` | The coin flip page: session key, payout address (UA decoding), signed memo, ZIP 321 link and QR, table actions, exit |
 | `tests` | LiteSVM harness and test suites: flow, lifecycle, adversarial, invariant fuzzing |
+| `infra/zakura` | Dev and test Zcash node: a Zakura regtest pair (Docker), NU7 or pre-NU7 configs, scripts ([zcash-node.md](docs/ops/zcash-node.md)) |
 | `spikes/` | Phase 0 throwaway code (standalone workspaces) |
 | `idl/zol_ledger.json` | Generated IDL |
 
@@ -56,7 +57,7 @@ The Zcash side is a separate workspace. pczt 0.9.3 and anchor-lang 1.2 need inco
 cd crates/zol-zcash && cargo test && cargo build --release --bin zol-zcashd
 ```
 
-Regtest and validator tests are ignored by default. Start the Zebra regtest pair with `spikes/zebra/scripts/up.sh pair`, then:
+Regtest and validator tests are ignored by default. Start the Zakura regtest pair with `infra/zakura/scripts/up.sh pair` (NU7 active at height 1; `ZOL_NODE_CONFIG=pre-nu7` for an NU6.3 chain), then:
 
 ```bash
 cargo test -p zol-gateway --test regtest_e2e -- --ignored --nocapture --test-threads=1
@@ -86,7 +87,7 @@ An app is an Anchor program plus a web page; it holds no ZEC and no keys. `progr
    - `cash_out` is permissionless.
 4. **Your own state** can be delegated with the pot (`#[delegate]`) and committed with it (`MagicIntentBundleBuilder::commit_and_undelegate`). Keep player keys out of it; the receipt is the source of truth.
 5. **Randomness.** `#[vrf]` and `#[vrf_callback]` from `ephemeral-rollups-sdk` (feature `vrf`). The callback is safe only if the queue is pinned: accept MagicBlock's queues only.
-6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zebra regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
+6. **The page** creates the session key, decodes the player's payout UA to the 43-byte receiver, builds and signs memo v2 (`crates/zol-wire/ts/wire.ts`), registers it with **every** gateway operator (`POST /v1/apps/{app}/intents`; operators do not share intents), and shows the ZIP 321 link for the session's UA. Rollup transactions need no SOL. `spikes/magicblock/zcash-leg/run.sh` runs the whole thing locally: Zakura regtest, three `zol-zcashd`, three `zol-gateway serve`, the validator, the rollup and the VRF oracle.
 
 ## Release and dev builds of the ledger
 

@@ -1,6 +1,6 @@
 # Phase 4: `zol-zcash` head chain, payouts and distributed FROST
 
-Date: 2026-10-10. Status: **built and tested.** 17 offline tests pass, including 2 new payout suites. 6 regtest tests pass against Zebra 6.4.2, including 2 new Phase 4 tests that drive three `zol-zcashd` processes holding one share each. Clippy is clean.
+Date: 2026-10-10. Status: **built and tested.** 17 offline tests pass, including 2 new payout suites. 6 regtest tests pass (against Zebra 6.4.2 when built; since rerun on the Zakura 1.6.0 regtest, NU7 and pre-NU7, see [docs/ops/nu7.md](ops/nu7.md)), including 2 new Phase 4 tests that drive three `zol-zcashd` processes holding one share each. Clippy is clean.
 
 The contract is `crates/zol-types` (`api::{HeadChain, PayoutPlan, Proposal, VerifyRequest/Response, SignKind, Commit*/Share*/AggregateRequest, Broadcast, RefundProposal}`). I made no changes to it.
 
@@ -137,7 +137,7 @@ The sighash returned is computed by the pczt Signer from the parsed effects. Sig
 - **Which app:** from this daemon's own session if it signed, otherwise from the app whose key the spends' `rk` follow.
 - **Steps:** aggregates per action (frost-core verifies each share and the result), inserts the signatures, finalizes and extracts, verifies the raw transaction fully (proof, all signatures, sighash), then broadcasts.
 - **Records:** a head spend becomes `pending`; a refund is recorded so `/refund` and `/refund/propose` stay idempotent. Both are persisted.
-- Errors with 502 when Zebra rejects the broadcast.
+- Errors with 502 when the node rejects the broadcast.
 
 **Signer selection, and `--dev-share <i>`:**
 - The signing share is the daemon's only share in operator mode, or the first share in cluster/dev mode.
@@ -150,7 +150,7 @@ The sighash returned is computed by the pczt Signer from the parsed effects. Sig
 |---|---|
 | `payout_offline::honest_payout_then_consolidation_advance_the_head` | Payout of record 0 (2 inputs: head plus credited deposit; fee 10,000) verifies and advances the chain: position 1, paid 1, fees spent = fee. A second honest proposal for the same record differs in sighash but spends the same head nullifier, and `head_pending` fires when the first is pending. Re-paying record 0 gives `records_not_next`. A consolidation with `action_target` 4 sweeps the credited deposit and a fee top-up: paid count unchanged, `fee_topups_swept` +1,000,000, fee 20,000 |
 | `payout_offline::malicious_coordinator_is_rejected_by_name` | extra payout → `unexpected_value_output`; missing → `payout_missing`; wrong amount → `payout_missing`; wrong receiver → `unexpected_value_output`; non-credited note → `spend_not_allowed`; two vault outputs → `vault_outputs_count`; another key's note (non-zero "dummy") → `dummy_nonzero`; leftover dummy key → `dummy_key_present`; wrong memo advance → `head_memo_advance`; fee above the operator's pool → `fee_pool`; reserve shortfall → `reserve`; wrong sequence → `records_not_next`; tampered payout ciphertext → `enc_ciphertext`; redacted rseed → `redacted_field`; **app B's head with α shifted by t_B − t_A** (rk passes as app A) → `real_spend_unknown_note`, `head_not_spent` |
-| `phase4_regtest::phase4_distributed_payouts_consolidation_and_double_spend` (`--ignored`) | Three processes: two `--dev --dev-share 0|1` and one plain operator with share 2. Genesis and deposit via `/dev/*`. Payout 1 is proposed by d0, verified by all three, committed and shared by d0 and d1, and aggregated by d2. A disagreeing plan is refused at commit. txid = sighash. `/head` shows the pending transition, then the advanced chain on every daemon. Payout 2 is signed by d1 and d2 (operator) and aggregated by d0. A consolidation (padded to 4 actions) sweeps a new deposit. **Double payment:** two different proposals for record 2 are both fully signed; A broadcasts; B is rejected by Zebra's mempool; after mining, the chain shows record 2 paid exactly once by A, and B is not in the chain. Nonce reuse gets 409. A refund through `/refund/propose` and `/sign/*` mines and the `Spent` event appears; the head is untouched |
+| `phase4_regtest::phase4_distributed_payouts_consolidation_and_double_spend` (`--ignored`) | Three processes: two `--dev --dev-share 0|1` and one plain operator with share 2. Genesis and deposit via `/dev/*`. Payout 1 is proposed by d0, verified by all three, committed and shared by d0 and d1, and aggregated by d2. A disagreeing plan is refused at commit. txid = sighash. `/head` shows the pending transition, then the advanced chain on every daemon. Payout 2 is signed by d1 and d2 (operator) and aggregated by d0. A consolidation (padded to 4 actions) sweeps a new deposit. **Double payment:** two different proposals for record 2 are both fully signed; A broadcasts; B is rejected by the node's mempool; after mining, the chain shows record 2 paid exactly once by A, and B is not in the chain. Nonce reuse gets 409. A refund through `/refund/propose` and `/sign/*` mines and the `Spent` event appears; the head is untouched |
 | `phase4_regtest::phase4_reorged_payout_restores_head_and_pays_once` (`--ignored`) | Partition; a payout is mined on a (head advanced); b mines 4; heal; a reorgs. The daemons' walk is back to the genesis head and the orphaned payout is not resurrected. After its expiry, record 0 is paid again by a different quorum and mined once; a third attempt gets `records_not_next` |
 | Earlier suites | All pass: lib 9, offline 3, fixtures/RPC 3, regtest 3, zcashd 1 |
 
@@ -158,7 +158,7 @@ How to run:
 
 ```sh
 cd crates/zol-zcash && cargo test
-(cd ../../spikes/zebra && ./scripts/up.sh pair)
+../../infra/zakura/scripts/up.sh pair     # Zakura regtest; ZOL_NODE_CONFIG=pre-nu7 for NU6.3
 cargo test -- --ignored --nocapture --test-threads=1
 ```
 
@@ -167,7 +167,7 @@ cargo test -- --ignored --nocapture --test-threads=1
 - **Pending is local.**
   - `pending` / `head_pending` reflect only transitions **this** daemon aggregated. Other operators' daemons cannot know about a broadcast they did not aggregate.
   - Two quorums racing on one head is still safe, because the nullifier is shared, but liveness depends on the gateway not proposing while a transition is pending.
-  - Pending is held until its expiry, even if the transaction was orphaned by a reorg (Zebra does not return it to the mempool). This is conservative, per the design ("ties up the head until it confirms or its bounded expiry passes"). Use small `expiry_delta` values.
+  - Pending is held until its expiry, even if the transaction was orphaned by a reorg (the node does not return it to the mempool: measured on Zebra 6.4.2 and on Zakura 1.6.0). This is conservative, per the design ("ties up the head until it confirms or its bounded expiry passes"). Use small `expiry_delta` values.
 - **`full_depth` also gates the head.** A payout waits until the current head has `full_depth` confirmations, so with `full_depth = N` an app gets one head transition per N blocks. Use 1 for the early-credit style.
 - **Inputs:** `max_inputs` counts inputs besides the head. Selection takes the minimum needed for payouts, except for consolidations.
 - **Padding and fee:** `action_target` is a floor. The verifier requires exactly `max(target, spends, payouts + 1)` actions, so the fee is predictable from the plan and the inputs.

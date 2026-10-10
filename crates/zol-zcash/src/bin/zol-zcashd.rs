@@ -1,6 +1,6 @@
 //! `zol-zcashd`: the Zcash half of a ZOL gateway operator.
 //!
-//! Scans Zebra for every configured app vault, serves an append-only, sequence-numbered
+//! Scans the Zcash node (Zakura) for every configured app vault, serves an append-only, sequence-numbered
 //! event log, builds/signs/broadcasts deposit refunds with Pallas FROST, and (with `--dev`)
 //! simulates a player wallet and the genesis funding. API: `zol_types::api`.
 //! See docs/phase3-zol-zcash.md, "zol-zcashd".
@@ -31,11 +31,11 @@ use zol_wire::{HeadMemo, TopUpMemo};
 use zol_zcash::{
     encode_ua,
     frost::{self, Identifier, KeyPackage, PublicKeyPackage},
-    genesis, payout, refund,
+    genesis,
+    node::NodeClient,
+    payout, refund,
     scan::{Account, BlockItem, Pool, ScannerConfig, SyncStep},
-    testing,
-    zebra::ZebraClient,
-    AppKeys, ChainParams, Network, Scanner,
+    testing, AppKeys, ChainParams, Network, Scanner,
 };
 
 const DEV_WALLET_ID: [u8; 32] = [0xDE; 32];
@@ -50,7 +50,7 @@ struct Config {
     /// "regtest" | "testnet" | "mainnet"
     network: String,
     state_dir: PathBuf,
-    /// First block to scan on a fresh state dir (birthday). Default: Zebra tip + 1.
+    /// First block to scan on a fresh state dir (birthday). Default: node tip + 1.
     start_height: Option<u32>,
     #[serde(default = "default_poll")]
     poll_ms: u64,
@@ -58,7 +58,7 @@ struct Config {
     expiry_delta: u32,
     /// App program IDs, hex (32 bytes).
     apps: Vec<String>,
-    zebra: ZebraCfg,
+    node: NodeCfg,
     /// Required unless `--dev`.
     keys: Option<KeysCfg>,
 }
@@ -71,7 +71,7 @@ fn default_expiry() -> u32 {
 }
 
 #[derive(Debug, Deserialize)]
-struct ZebraCfg {
+struct NodeCfg {
     url: String,
     user: Option<String>,
     password: Option<String>,
@@ -164,7 +164,7 @@ struct Node {
     params: ChainParams,
     expiry_delta: u32,
     state_dir: PathBuf,
-    client: ZebraClient,
+    client: NodeClient,
     apps: BTreeMap<[u8; 32], AppKeys>,
     shares: BTreeMap<Identifier, KeyPackage>,
     /// The share this daemon uses for distributed signing (/sign/*): its only share in
@@ -1002,17 +1002,17 @@ const MAX_DEV_BLOCKS: u32 = 200;
 
 /// Selects free (unspent, not used by an unmined dev transaction) dev wallet notes, largest
 /// first, covering `amount` plus the ZIP 317 fee for the resulting action count (inputs vs.
-/// 2 outputs). If the free notes do not cover it, mines coinbase blocks to the dev wallet
-/// with `generatetoaddress` (sized from `getblocksubsidy`; this also mines whatever is in the
-/// mempool) and retries, up to `MAX_DEV_BLOCKS` blocks and `MAX_DEV_INPUTS` inputs.
-/// All inputs are witnessed at the same anchor (the scanner tip).
+/// 2 outputs). If the free notes do not cover it, mines coinbase blocks with `generate`
+/// (sized from `getblocksubsidy`; this also mines whatever is in the mempool) and retries, up to `MAX_DEV_BLOCKS` blocks and `MAX_DEV_INPUTS` inputs.
+/// The coinbase goes to the node's `[mining] miner_address`, which must be the dev wallet's
+/// UA (infra/zakura sets the one for dev seed "zol-dev"). All inputs are witnessed at the same
+/// anchor (the scanner tip).
 async fn dev_inputs(
     n: &Node,
     amount: u64,
 ) -> Result<(Vec<zol_zcash::scan::Spendable>, u32), ApiErr> {
     let dev = n.dev.as_ref().ok_or_else(|| not_found("dev mode only"))?;
     let mut mined = 0u32;
-    let mut used_generate = false;
     loop {
         let (deficit, free_sum, free_n) = {
             let inner = n.inner.lock().await;
@@ -1065,27 +1065,14 @@ async fn dev_inputs(
         }
         if mined >= MAX_DEV_BLOCKS {
             return Err(bad(format!(
-                "dev wallet cannot fund {amount} zat within {MAX_DEV_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {free_sum} zat in {free_n} notes; block subsidy {per_block} zat{}",
-                if used_generate {
-                    "; the node has no generatetoaddress (Zakura?), so blocks paid its [mining] miner_address: set that to the dev wallet UA (GET /health dev_wallet_ua, or --print-dev-keys)"
-                } else {
-                    ""
-                }
+                "dev wallet cannot fund {amount} zat within {MAX_DEV_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {free_sum} zat in {free_n} notes; block subsidy {per_block} zat. The node's [mining] miner_address must be the dev wallet UA {}: GET /health dev_wallet_ua, or --print-dev-keys",
+                encode_ua(&n.params, &dev.fvk.address_at(0u32, OScope::External).to_raw_address_bytes())
             )));
         }
         let blocks = (deficit.div_ceil(per_block) + 1)
             .min(MAX_DEV_INPUTS as u64)
             .min((MAX_DEV_BLOCKS - mined) as u64) as u32;
-        let ua = encode_ua(
-            &n.params,
-            &dev.fvk
-                .address_at(0u32, OScope::External)
-                .to_raw_address_bytes(),
-        );
-        let (_, fallback) = n.client.mine_to(blocks, &ua).await.map_err(upstream)?;
-        if fallback {
-            used_generate = true;
-        }
+        n.client.generate(blocks).await.map_err(upstream)?;
         mined += blocks;
         n.sync_once().await.map_err(internal)?;
     }
@@ -1280,7 +1267,7 @@ async fn run() -> Result<(), String> {
         let (k, _) = dev_keys(&seed);
         println!("# ak_group = {}", hex::encode(frost::group_key(&k.pubkeys)));
         println!(
-            "# dev_wallet_ua (regtest; Zakura [mining] miner_address) = {}",
+            "# dev_wallet_ua (regtest [mining] miner_address) = {}",
             testing::dev_wallet_ua(&ChainParams::new(Network::Regtest), &seed)
         );
         println!("[keys]");
@@ -1366,8 +1353,8 @@ async fn run() -> Result<(), String> {
     } else {
         "operator"
     };
-    let mut client = ZebraClient::new(cfg.zebra.url.clone());
-    if let (Some(u), Some(p)) = (&cfg.zebra.user, &cfg.zebra.password) {
+    let mut client = NodeClient::new(cfg.node.url.clone());
+    if let (Some(u), Some(p)) = (&cfg.node.user, &cfg.node.password) {
         client = client.with_basic_auth(u.clone(), p.clone());
     }
     std::fs::create_dir_all(&cfg.state_dir).map_err(|e| e.to_string())?;
@@ -1384,14 +1371,14 @@ async fn run() -> Result<(), String> {
         });
     }
 
-    // Wait for Zebra.
+    // Wait for the node.
     let mut tries = 0;
-    let zebra_tip = loop {
+    let node_tip = loop {
         match client.get_block_count().await {
             Ok(h) => break h,
             Err(e) if tries < 60 => {
                 tries += 1;
-                eprintln!("waiting for zebra: {e}");
+                eprintln!("waiting for the node: {e}");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Err(e) => return Err(e.to_string()),
@@ -1422,7 +1409,7 @@ async fn run() -> Result<(), String> {
         if need < prune_height {
             Err(format!(
                 "the node is pruned below height {prune_height} but {what} needs block {need}: \
-                 point [zebra] at an archive node or one whose retention covers it \
+                 point [node] at an archive node or one whose retention covers it \
                  (docs/ops/zcash-node.md)"
             ))
         } else {
@@ -1467,9 +1454,9 @@ async fn run() -> Result<(), String> {
             },
         )
     } else {
-        let start = cfg.start_height.unwrap_or(zebra_tip + 1).max(1);
+        let start = cfg.start_height.unwrap_or(node_tip + 1).max(1);
         check_prune(start - 1, "start_height (tree state at start_height - 1)")?;
-        let sc = Scanner::from_zebra(ScannerConfig::new(params), accounts, &client, start)
+        let sc = Scanner::from_node(ScannerConfig::new(params), accounts, &client, start)
             .await
             .map_err(|e| e.to_string())?;
         let _ = std::fs::remove_file(&log_path);

@@ -48,12 +48,12 @@ Refunds use the same distributed path: `POST /refund/propose`, then `/sign/*` wi
 | `crates/zol-zcash/tests/phase4_regtest.rs` (ignored) | Three single-share processes: two payouts by different quorums, a consolidation, a double-payment race (one broadcast, the other rejected by Zebra), nonce reuse refused, a disagreeing plan refused, a distributed refund. A reorged payout restores the head, and the record is paid exactly once afterwards |
 | `gateway/tests/regtest_e2e.rs` (ignored) | **Gateway across processes**, three single-share `zol-zcashd`. Phase 3 flow with a distributed refund. Phase 4: two players credited, exit and settle; the quorum proposes, verifies and signs; the head advances on-chain to position 1 with `paid_count` 1; after payout depth the settlement is marked paid on the ledger; everything reconciles |
 
-Run them with the commands in the README. Use a fresh regtest chain (`spikes/zebra/scripts/down.sh && up.sh pair`) once the regtest block subsidy has fallen below 0.1 ZEC.
+Run them with the commands in the README. Use a fresh regtest chain (`infra/zakura/scripts/down.sh && up.sh pair`) once the regtest block subsidy has fallen below 0.1 ZEC.
 
 ## Gaps
 
 - **Multi-host operators.** FROST rounds are driven by the in-process cluster over each operator's localhost zcashd. Separate hosts need an authenticated transport between gateways. Shares go only to the coordinator; the design's "shares to every signer, so any can aggregate" would come with that transport (`/sign/aggregate` already works on any daemon).
-- **Pending state is local** to the daemon that aggregated, plus each gateway node's own record. A reorged-out transition blocks its app until expiry, because Zebra does not return it to the mempool. Keep `expiry_delta` small (40 by default).
+- **Pending state is local** to the daemon that aggregated, plus each gateway node's own record. A reorged-out transition blocks its app until expiry, because the node does not return it to the mempool. Keep `expiry_delta` small (40 by default).
 - **Payout memo.** The payout memo is fixed empty. A player's wallet sees an unlabelled shielded payment.
 - **Not run on testnet or devnet** (no funds).
 - Carried over from Phase 3: ZIP 2005 derivation needs reference vectors; refunds to a vault receiver; scanner throughput.

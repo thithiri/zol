@@ -1,8 +1,8 @@
-//! Spawns `zol-zcashd --dev` against the regtest pair (spikes/zebra) and drives the API.
+//! Spawns `zol-zcashd --dev` against the Zakura regtest (infra/zakura) and drives the API.
 //! Ignored by default:
 //! `cargo test --test zcashd -- --ignored --nocapture`
-//! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/), `ZOL_DEV_SEED` (default
-//! "zcashd-test"; for Zakura, the seed whose dev wallet UA is the node's miner_address).
+//! Env: `ZOL_NODE_URL` (default http://127.0.0.1:18232/), `ZOL_DEV_SEED` (default "zol-dev",
+//! the seed whose dev wallet UA is the node's miner_address).
 
 use std::{process::Child, time::Duration};
 
@@ -10,7 +10,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use rand::RngCore;
 use zol_types::{api, ChainEvent, Scope};
 use zol_wire::{DepositMemo, Network};
-use zol_zcash::zebra::ZebraClient;
+use zol_zcash::node::NodeClient;
 
 struct Daemon {
     child: Child,
@@ -31,7 +31,7 @@ fn spawn(cfg: &std::path::Path, port: u16) -> Daemon {
             cfg.to_str().unwrap(),
             "--dev",
             "--dev-seed",
-            &std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zcashd-test".into()),
+            &std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zol-dev".into()),
         ])
         .spawn()
         .expect("spawn zol-zcashd");
@@ -80,8 +80,8 @@ async fn wait_health(d: &Daemon) -> serde_json::Value {
     panic!("zol-zcashd did not come up");
 }
 
-/// Waits until the daemon's log reaches Zebra's tip.
-async fn wait_synced(d: &Daemon, z: &ZebraClient) {
+/// Waits until the daemon's log reaches the node's tip.
+async fn wait_synced(d: &Daemon, z: &NodeClient) {
     let h = z.get_block_count().await.unwrap();
     for _ in 0..120 {
         let e: api::Events = get(d, "/events?after=0&limit=1").await;
@@ -109,12 +109,12 @@ async fn all_events(d: &Daemon) -> Vec<(u64, ChainEvent)> {
 #[tokio::test]
 #[ignore]
 async fn zcashd_dev_flow() {
-    let zebra_url =
-        std::env::var("ZOL_ZEBRA_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into());
-    let z = ZebraClient::new(&zebra_url);
+    let node_url =
+        std::env::var("ZOL_NODE_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into());
+    let z = NodeClient::new(&node_url);
     z.get_block_count()
         .await
-        .expect("regtest up (spikes/zebra/scripts/up.sh)");
+        .expect("regtest up (infra/zakura/scripts/up.sh)");
     let mut app = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut app);
     let app_hex = hex::encode(app);
@@ -133,8 +133,8 @@ network = "regtest"
 state_dir = "{}"
 poll_ms = 200
 apps = ["{app_hex}"]
-[zebra]
-url = "{zebra_url}"
+[node]
+url = "{node_url}"
 "#,
             dir.join("state").display()
         ),

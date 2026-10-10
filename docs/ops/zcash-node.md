@@ -1,94 +1,91 @@
-# Zcash node for zol-zcashd: Zebra or Zakura
+# Zcash node for zol-zcashd: Zakura
 
-Status: 2026-10-10. Evaluated Zakura 1.6.0 (`zakuracore/zakura:1.6.0`, git `ebda15e`; source
-read at upstream `a29a968`). The crates.io `zakura` 1.0.3 named in the request is old: 1.6.0 is
-the current release (2026-10-01).
+Status: 2026-10-10. ZOL runs on **Zakura 1.6.0**, a fork of Zebra by Sean Bowe and Valar
+Group. It is used for dev and test (`infra/zakura`) and is the node operators should run.
 
-## Verdict
+| Item | Value |
+| --- | --- |
+| Image | `zakuracore/zakura:1.6.0`, git `ebda15e` |
+| Image digest (multi-arch index) | `sha256:bf53c178e9549217fce7cfaa21efc85c478129ba6dc5307d55640514affeb0ac` |
+| NU7 | Follows NU7 (ZIP 259, branch `0x77190ad9`): testnet at 4,465,026, and `NU7 = 1` on regtest |
+| Dev/test pair | `infra/zakura/` (below) |
 
-- **RPC: drop-in for zol-zcashd on mainnet and regtest, with one regtest-only gap.**
-  - Every method the scanner and daemon use exists and returns the same encoding.
-    `generatetoaddress` is missing; zol-zcash now falls back to `generate`.
-  - On Zakura 1.6.0 regtest, `regtest_deposit_genesis_refund`, `zcashd_dev_flow` and
-    `phase4_distributed_payouts_consolidation_and_double_spend` all pass, on both an archive
-    node and a pruned one (`tx_retention = 1001`).
-  - The two reorg tests were not run on Zakura. They drive the `zol-zebra-a/b` containers and
-    the `spikes/zebra/scripts` partition scripts.
-- **Pruning works for us**, provided the scanner starts near the tip and never falls further
-  behind than the retention window. It cannot backfill from an old start height. The daemon
-  now refuses to start in that case instead of failing every sync.
-- **Testnet NU7 (update 2026-10-10): unblocked by a minimal patch.** Testnet activated NU7 at
-  height 4,465,026 (ZIP 259, branch `0x77190ad9`). The pinned crates now recognise it through a
-  small vendored patch, validated on Zebra 7.0.0-rc.0 regtest. See [nu7.md](nu7.md). Operators
-  need an NU7-capable node: Zebra 7.0.0-rc.0 or later, or a Zakura release that follows NU7.
-  Zebra 6.4.2 forks off at the activation height. Mainnet NU7 is targeted for November 5; its
-  height must be added to the patch once it is set (October 20).
+What Zakura offers that matters to us:
 
-## RPC compatibility
+- native pruning;
+- pruned snapshots;
+- the same RPC surface zol-zcashd uses.
 
-| Method (our use) | Zebra 6.4.2 | Zakura 1.6.0 | Notes |
-| --- | --- | --- | --- |
-| `getblockchaininfo` | yes | yes | Same shape; `consensus.chaintip`, `valuePools` (incl. `ironwood`). Zakura adds `pruned`, `pruneheight`. |
-| `getbestblockhash`, `getblockcount`, `getblockhash` | yes | yes | `getblockhash` works below `pruneheight` (headers are kept). |
-| `getblock [height_str, 0]`, `getblock [hash, 0]` | yes | yes | Same raw hex. Below `pruneheight`: error -8 "Block not found". |
-| `getrawtransaction [txid, 0/1]` | yes | yes | Wrappers only; neither the daemon nor the scanner calls it. |
-| `sendrawtransaction` | yes | yes | Same -25/-26 errors; the double-spend test sees "any transaction with the same effects will be rejected". |
-| `z_gettreestate` | yes | yes | Same JSON; empty tree is `"000000"`. Below `pruneheight`: error -8 "the requested block is not in the main chain". |
-| `getrawmempool` | yes | yes | |
-| `generate` (regtest) | yes | yes | Pays `[mining] miner_address`; a UA with an Orchard receiver gets an Ironwood coinbase note. |
-| `generatetoaddress` (regtest) | yes | **no** (-32601) | Fallback: `ZebraClient::mine_to`. |
-| `getblocksubsidy` | yes | yes | Same fields. |
+Zakura keeps Zebra's 1,000-block rollback window.
 
-Other Zakura behaviour that matters:
+## RPC used by zol-zcashd
 
-- **Reorg window.** The non-finalized window (`MAX_BLOCK_REORG_HEIGHT`) is 1,000 blocks
-  (Zebra: 100). This is local policy, not consensus.
-- **Mempool limits.** Mempool ancestors are limited to 2. The conventional fee is 400 zat
-  per action; ours is 5,000 per action, which is above it.
-- **NU6.1 lockbox disbursement on regtest.** If a node activates NU6.1 on regtest, it must
-  set a lockbox disbursement (see below).
-- **End-of-support halt.** The Zakura 1.6.0 binary halts on mainnet at height 3,536,468
-  (about 2026-11-01), so operators must track releases. Testnet is exempt.
-- **zcashd-compat mode is not needed.** `--zcashd-compat` runs a zcashd wallet sidecar
-  behind Zakura, for exchanges. It needs about 30 GiB on testnet and 275 GiB on mainnet.
-  Zakura's own RPC already covers everything we call.
+`zol_zcash::node::NodeClient` calls only the methods below. All of them are in Zakura's
+unauthenticated method set, so they work on a restricted listener without cookie auth.
 
-## Regtest with Zakura
+| Method | Use | Notes |
+| --- | --- | --- |
+| `getblockchaininfo` | tip, `consensus.chaintip`, `upgrades` (regtest activation heights), `pruned` / `pruneheight` | |
+| `getbestblockhash`, `getblockcount`, `getblockhash` | scanner | `getblockhash` works below `pruneheight` (headers are kept) |
+| `getblock [height_str \| hash, 0]` | scanner (raw block) | error -8 "Block not found" below `pruneheight` |
+| `z_gettreestate` | scanner birthday (`start_height - 1`) | An empty tree is `"000000"`. A missing Ironwood `finalState` is treated as an error, not as an empty tree. Error -8 below `pruneheight`. |
+| `sendrawtransaction` | genesis, refunds, payouts | -25/-26 errors, e.g. "any transaction with the same effects will be rejected" |
+| `getrawmempool`, `getrawtransaction` | helpers | |
+| `getblocksubsidy`, `generate` | regtest dev funding and tests | `generate` pays `[mining] miner_address` |
 
-Config: [`zakura-regtest.toml`](zakura-regtest.toml). It differs from
-`spikes/zebra/regtest.toml` in two ways:
+Zakura behaviour to know about:
 
-1. **Lockbox disbursement.** It sets
-   `lockbox_disbursements = [{ address = "t27eWDgjFYJGVXmzrXeVjnb5J3uXDM9xH9v", amount = 0 }]`.
-   - Zakura enforces the one-time NU6.1 lockbox output in the NU6.1 activation block.
-   - Without it, the first `generate` fails with "missing lockbox disbursements for NU6.1
-     activation block".
-   - A zero-value P2SH output satisfies the rule. Zakura's `local_genesis.rs` uses the same
-     approach.
-2. **Miner address.** `miner_address` is the dev wallet UA of dev seed `zol-zakura`.
-   Zakura has no `generatetoaddress`, so funding goes through `generate`.
+- **No `generatetoaddress`.** On regtest, `generate` pays `miner_address`. With a UA holding an
+  Orchard receiver, that payment is an Ironwood coinbase note. `infra/zakura` sets
+  `miner_address` to the dev wallet of dev seed `zol-dev`. That seed is zol-zcashd's default,
+  and the tests use it too (`ZOL_DEV_SEED`).
+  - `zol-zcashd --print-dev-keys --dev-seed <seed>` prints the UA for another seed.
+  - A running dev daemon reports it as `dev_wallet_ua` in `/health`.
+- **NU6.1 lockbox disbursement.** Zakura enforces the one-time NU6.1 lockbox output on every
+  network. A regtest config therefore needs
+  `lockbox_disbursements = [{ address = "t27eWDgjFYJGVXmzrXeVjnb5J3uXDM9xH9v", amount = 0 }]`.
+  Without it the first `generate` fails with "missing lockbox disbursements for NU6.1
+  activation block".
+- **Regtest peering.** Regtest peers are joined with the `addnode` RPC (`scripts/peer.sh`).
+  The configs set `crawl_new_peer_interval = "5s"` so the pair connects within seconds
+  instead of the default 61 s crawl.
+- **Mempool:** at most 2 ancestors per transaction. The conventional fee is 400 zat per
+  action; ours is 5,000.
+- **Release end of support.** Each release halts on mainnet at a set height; for 1.6.0 that
+  is 3,536,468, about 2026-11-01. Testnet is exempt. Operators must track releases; the
+  mainnet NU7 activation (targeted for November 5) needs a newer release anyway.
+- **Not needed:** `--zcashd-compat`, a zcashd wallet sidecar for exchanges.
 
-Run the node and the suites:
+## Dev and test: `infra/zakura`
+
+A Zakura regtest pair runs in Docker, with ephemeral state.
+- **Containers:** `zol-zakura-a` (RPC `127.0.0.1:18232`) and `zol-zakura-b` (RPC
+  `127.0.0.1:18242`), on the p2p network `zol-zakura-p2p`.
+- **Config:** `ZOL_NODE_CONFIG` picks it.
+  - `nu7` (the default) uses `regtest-nu7.toml`: every upgrade through NU7 at height 1.
+  - `pre-nu7` uses `regtest-pre-nu7.toml`: everything through NU6.3 (Ironwood) at height 1,
+    and no NU7.
 
 ```sh
-docker run -d --name zol-zakura-a -p 127.0.0.1:18252:18232 \
-  -e CONFIG_FILE_PATH=/etc/zakura/regtest.toml \
-  -v "$PWD/docs/ops/zakura-regtest.toml:/etc/zakura/regtest.toml:ro" zakuracore/zakura:1.6.0
-cd crates/zol-zcash
-export ZOL_ZEBRA_URL=http://127.0.0.1:18252/ ZOL_DEV_SEED=zol-zakura
-cargo test --test regtest -- --ignored --exact regtest_deposit_genesis_refund
-cargo test --test zcashd -- --ignored
-cargo test --test phase4_regtest -- --ignored --exact phase4_distributed_payouts_consolidation_and_double_spend
+infra/zakura/scripts/up.sh pair          # or `up.sh` for node a only
+infra/zakura/scripts/mine.sh 5 [a|b]
+infra/zakura/scripts/height.sh [a|b]
+infra/zakura/scripts/peer.sh             # (re)join b to a
+infra/zakura/scripts/partition.sh        # cut b off the p2p network
+infra/zakura/scripts/reorg.sh B_LEN A_LEN [HOLD_S] [TIMEOUT_S]
+infra/zakura/scripts/down.sh
+ZOL_NODE_CONFIG=pre-nu7 infra/zakura/scripts/up.sh pair
 ```
 
-To use another seed, print its UA and put it in `miner_address`:
+zol-zcashd reads the regtest activation heights from the node, so the same build works
+against both configs. Test environment variables:
 
-```sh
-zol-zcashd --print-dev-keys --dev-seed <seed>   # prints "# dev_wallet_ua (regtest ...) = uregtest1..."
-```
+- `ZOL_NODE_URL` (default `http://127.0.0.1:18232/`);
+- `ZOL_NODE_B_URL` (default `http://127.0.0.1:18242/`, for the reorg tests);
+- `ZOL_DEV_SEED` (default `zol-dev`).
 
-A running daemon also reports the UA as `dev_wallet_ua` in `/health`. If funding stalls, the
-dev-funding error message names this setting.
+The reorg tests drive `zol-zakura-a/b` with `docker exec` and the scripts above. Measured on
+the pair: a 3-vs-5-block partition reorg converged 16 s after healing.
 
 ## Pruning
 
@@ -102,9 +99,9 @@ dev-funding error message names this setting.
 
 ### What is kept and deleted
 
-- **Deleted:** raw transaction bytes, meaning the block bodies.
+- **Deleted:** raw transaction bytes (the block bodies) older than the window.
 - **Kept:**
-  - headers and hashes, so `getblockhash` and `getblockheader` still work;
+  - headers and hashes;
   - UTXO, nullifier and anchor state;
   - the txid index.
 
@@ -114,90 +111,55 @@ With `tx_retention = 1001`, at tip 2,300 the node reports `pruneheight = 300`.
 
 - **Retention is counted from the finalized tip.** Pruning works on the finalized tip, which
   is the tip minus about 1,000. So the node actually serves bodies for about
-  `tx_retention + 1000` blocks below the tip. On testnet with 10,000 that is about 11,000.
+  `tx_retention + 1000` blocks below the tip.
 - **Below `pruneheight`:**
   - `getblock` (verbosity 0 and 1) fails.
   - **`z_gettreestate` fails.** Zakura loads the block first, so it errors instead of
     returning `null`.
-  - `getblockhash` still works.
-- **At or above `pruneheight`:** everything works.
+  - `getblockhash` and `getblockheader` still work.
 
-Upstream's historical-treestate work (`docs/design/historical-treestate-serving.md`) lists
-pruned nodes as a non-goal. Pruned nodes will not serve old tree states.
+Upstream's historical-treestate work lists pruned nodes as a non-goal. A pruned node will not
+serve old tree states.
 
 ### What zol-zcashd needs
 
-- **Fresh state directory.** It needs `z_gettreestate(start_height - 1)` and every block
-  from `start_height` on.
-  - Default: `start_height` = tip + 1, so the tree state is read at the tip, which is always
-    retained.
-  - **Do not set `start_height` on a pruned node unless it is at or above
-    `getblockchaininfo.pruneheight` + 1.**
-- **Steady state.** The scanner reads only new blocks. Reorgs are rewound locally from its
-  own checkpoints, and neither the daemon nor the gateway fetches old transactions. The head
-  chain and refunds come from scanner state.
-- **Restart.** It resumes at `next_height`, which must be at or above `pruneheight`. **The
-  daemon must not be down longer than the retention window.**
-  - At about 11,000 blocks, that is about 76 hours with 25 s post-NU7 testnet blocks.
-  - On mainnet (75 s blocks) it is about 9 days.
-  - Past that, the node no longer has the blocks. The vault state directory cannot be
-    rebuilt from that node; it needs an archive node.
-- **New fail-fast check.** At startup the daemon reads `pruned`/`pruneheight`. If the
-  resume height, or `start_height - 1` for a fresh directory, is below `pruneheight`, it
-  exits with a clear error. Verified against the pruned regtest node.
-- **Start height for a fresh testnet vault.** Leave `start_height` unset, which gives tip + 1.
-  - Start zol-zcashd, and let its scanner see the tip, **before** the app's genesis head
-    transaction is broadcast.
-  - The scanner only needs blocks from the app's genesis onward, so nothing older is needed.
-- **Recommended retention: `tx_retention = 30000`** (about 9 days at 25 s, plus the
-  1,000-block window). Testnet blocks are small, so the extra 20,000 bodies should cost tens
-  to a few hundred MB.
-  - Raising the retention after restoring a 10,000-retention snapshot is allowed.
-  - The node simply stops pruning until the larger window fills. It cannot recover bodies
-    that were already pruned.
+- **Fresh state directory.** It needs `z_gettreestate(start_height - 1)` and every block from
+  `start_height` on.
+  - Leave `start_height` unset. The default is tip + 1, so the tree state is read at the tip.
+  - Start zol-zcashd **before** the app's genesis head transaction is broadcast. The scanner
+    needs nothing older than the app's genesis.
+- **Steady state.** The scanner reads only new blocks. Reorgs are rewound from its own
+  checkpoints, and neither the daemon nor the gateway fetches old transactions.
+- **Restart.** It resumes at `next_height`, which must be at or above `pruneheight`.
+  **The daemon must not be down longer than the retention window.**
+  - With the 10,000 minimum that is about 11,000 blocks: about 76 h at 25 s blocks (testnet
+    after NU7, mainnet after its NU7), or about 9 days at 75 s.
+  - Past that, the vault state can only be rebuilt from an archive node.
+- **Fail-fast check.** At startup the daemon compares the height it needs with `pruneheight`
+  and exits with a clear error instead of failing every sync.
+- **Recommended: `tx_retention = 30000`.** That covers about 8.7 days at 25 s blocks plus the
+  1,000-block window. The extra bodies cost tens to a few hundred MB on testnet.
+  - Raising the retention after restoring a 10,000-retention snapshot is allowed. The node
+    just stops pruning until the window fills.
+- **Keep one archive node per operator set** for recovery. Also mix node implementations in
+  production; see the open item in `docs/design-v0.3.1.md`.
 
-## Testnet NU7 (historical: resolved by the patch in [nu7.md](nu7.md))
-
-Testnet activated NU7 (ZIP 259) at height 4,465,026. Zakura 1.6.0 and Zebra main (7.0.0-rc)
-follow it. NU7 brings no new transaction format, but every v5 and v6 transaction after
-activation commits to branch ID `0x77190ad9`.
-
-| Component | Status |
-| --- | --- |
-| Zebra 6.4.2 (spikes pin) | No testnet NU7 height. It forks off or stalls at 4,465,026. |
-| Zakura 1.6.0 | Follows testnet NU7. |
-| `zcash_protocol 0.10.6` (our pin) | `BranchId::try_from(0x77190ad9)` returns an error, and NU7 exists only under `cfg(zcash_unstable = "nu7")` with a placeholder ID. |
-| `zcash_primitives 0.30.1` | `Transaction::read` of any post-NU7 v5 or v6 transaction fails. So `scan::sync` fails, and `tx::build` / pczt would sign under the NU6.3 branch ID. |
-| Upgrade path | Only pre-releases know ZIP 259: `zcash_protocol 0.11.0-pre.0`, `zcash_primitives 0.31.0-pre.1`, `pczt 0.10.0-pre.1`. **`orchard 0.16` drops the FROST/rerandomization API we use**, so this is a real port, not a version bump. |
-
-NU7 also changes the target block spacing to 25 s, so every depth parameter expressed as time
-needs revisiting:
-
-- `expiry_delta = 40` drops from about 50 minutes to about 17 minutes;
-- confirmation depths;
-- the retention arithmetic above.
-
-Until the port lands, ZOL on Zcash runs on regtest only. Mainnet is unaffected for now: no NU7
-height is set, though Zakura 1.6.0's halt height means operators must upgrade anyway.
-
-## Testnet operator setup (once the NU7 port lands)
+## Operator setup (testnet)
 
 ### Snapshot
 
-Valar publishes testnet pruned snapshots (retention 10,000). They are not listed on
-zakura.com/snapshots, which shows mainnet only, but are served next to the mainnet ones:
+Valar publishes testnet pruned snapshots with retention 10,000. They are not listed on
+zakura.com/snapshots (mainnet only) but are served alongside the mainnet ones:
 
 - Index: `https://zakura.valargroup.dev/testnet-pruned/SHA256SUMS`
 - Latest file, checked 2026-10-10: `zakura-testnet-pruned-20261009T212835Z-4471701.tar.zst`
   - **7.75 GB (7.22 GiB) compressed**;
-  - height 4,471,701;
+  - height 4,471,701, past NU7;
   - sha256 `4646be6d8f991306e9575a5718882b8da204d087ec63a7bc427a0efbeea429a8`.
-- For comparison, the mainnet pruned snapshot is 11.6 GB, mainnet archive is 255 GiB, and
-  there is no testnet archive snapshot.
+- For comparison: mainnet pruned is 11.6 GB, and mainnet archive is 255 GiB. There is no
+  testnet archive snapshot.
 
-Stream it straight into the state directory, so the archive file never touches disk and the
-peak usage is the extracted size alone. With only about 14 GiB free, keeping the `.tar.zst`
-next to its extraction would not fit.
+Stream it straight into the state directory, so the archive never lands on disk:
 
 ```sh
 mkdir -p ~/zakura-testnet/cache
@@ -216,7 +178,7 @@ state v29.1.
 [network]
 network = "Testnet"
 listen_addr = "0.0.0.0:18233"
-cache_dir = "/home/zebra/.cache/zakura"
+cache_dir = "/home/zebra/.cache/zakura"   # the image's home directory is /home/zebra
 
 [state]
 cache_dir = "/home/zebra/.cache/zakura"
@@ -226,7 +188,7 @@ tx_retention = 30000          # >= 10000; see "Pruning"
 
 [rpc]
 listen_addr = "0.0.0.0:18232" # published on 127.0.0.1 only (below)
-enable_cookie_auth = false    # or keep cookies and set [zebra] user/password in zol-zcashd
+enable_cookie_auth = false    # restricted listener: still serves every method zol-zcashd uses
 
 [mining]
 internal_miner = false
@@ -241,11 +203,13 @@ docker run -d --name zakura-testnet --restart unless-stopped \
   -e CONFIG_FILE_PATH=/etc/zakura/zakura.toml \
   -v ~/zakura-testnet/zakura.toml:/etc/zakura/zakura.toml:ro \
   -v ~/zakura-testnet/cache:/home/zebra/.cache/zakura \
-  zakuracore/zakura:1.6.0
+  zakuracore/zakura:1.6.0@sha256:bf53c178e9549217fce7cfaa21efc85c478129ba6dc5307d55640514affeb0ac
 ```
 
-Check that `getblockchaininfo` shows `"pruned": true`, a `pruneheight` about 10,000 below
-the snapshot height, and `consensus.chaintip = "77190ad9"`.
+Check that `getblockchaininfo` shows three things:
+- `"pruned": true`;
+- a `pruneheight` about 10,000 below the snapshot height;
+- `consensus.chaintip = "77190ad9"` (NU7).
 
 ### zol-zcashd config
 
@@ -255,52 +219,41 @@ network = "testnet"
 state_dir = "/var/lib/zol-zcashd"
 # start_height unset: tip + 1. Start the daemon BEFORE the app's genesis head tx.
 poll_ms = 2000
-expiry_delta = 40   # revisit for 25 s blocks
+expiry_delta = 40   # see docs/ops/nu7.md for 25 s-block defaults
 apps = ["<app id hex>"]
 
-[zebra]
+[node]
 url = "http://127.0.0.1:18232/"
-# user/password only if Zakura cookie auth is on (user "__cookie__", password from the cookie file)
+# user = "__cookie__"; password = "<cookie file contents>"  only if Zakura cookie auth is on
 
 [keys]
 # operator share, see zol-zcashd --print-dev-keys for the format
 ```
 
 Monitor `/health`: `last_error`, and `scanner_tip` against the node tip. Alert well before
-the daemon has been down for 3 days.
+the daemon has been down for the retention window (about 3 days at the minimum retention).
 
 ### Disk estimate (pruned testnet node)
 
 | Item | Size |
 | --- | --- |
-| `zakuracore/zakura:1.6.0` image | 0.5 GB |
-| Extracted pruned testnet state | **about 8–10 GiB (estimate)**, from a 7.2 GiB zstd archive of RocksDB SSTs; not measured, because the 7.75 GB download was not done |
+| Zakura image | 0.5 GB |
+| Extracted pruned testnet state | **about 8–10 GiB (estimate)** from a 7.2 GiB zstd archive. Not measured: the 7.75 GB download was not done. |
 | Extra retention 10,000 → 30,000 bodies | under 0.5 GiB (estimate) |
 | Growth (consensus state, indexes) | small; about 3,500 blocks/day at 25 s |
 | zol-zcashd state dir | MBs |
 | **Total** | **about 10–11 GiB** |
 
-- **Fits the 14 GiB free only with streaming extraction**, and with little headroom for
-  RocksDB compaction.
-- To make room, remove the Zebra regtest images (`zfnd/zebra:6.4.2`, 0.3 GB) and stopped
-  containers.
-- Run `du -sh ~/zakura-testnet/cache` after extraction and correct this table.
-- Syncing testnet from scratch with pruning avoids the download, but writes and compacts
-  the full history as it goes. Peak usage is higher and the sync takes much longer, so the
-  snapshot is the better route.
+Run `du -sh ~/zakura-testnet/cache` after extraction and correct this table.
 
-## Code changes made for Zakura (crates/zol-zcash)
+Syncing from scratch with pruning avoids the download. But it writes and compacts the full
+history as it goes, so peak usage is higher and the sync is far slower.
 
-- **`ZebraClient::mine_to(n, addr)`.** Calls `generatetoaddress`, and on -32601 falls back to
-  `generate`; `zebra::is_method_not_found` detects the error. Dev funding (`/dev/genesis`,
-  `/dev/send`) and `tests/regtest.rs` use it.
-- **`testing::dev_seed_keys(seed)` and `testing::dev_wallet_ua(params, seed)`.** The dev seed
-  derivation moved here from the daemon unchanged, so tests and operators can compute the UA
-  for `miner_address`. `/health` reports `dev_wallet_ua`, and `--print-dev-keys` prints it.
-- **`BlockchainInfo::prune_height()`**, plus the daemon startup check against it (above).
-- **`Scanner::from_zebra` refuses a missing Ironwood `finalState`** at heights where NU6.3 is
-  active. Both nodes encode an empty tree as `"000000"`, so a missing field means the node
-  lacks that tree, for example in Zakura's fast-synced band. Treating it as empty would
-  silently corrupt every anchor.
-- **Test settings.** `tests/zcashd.rs` and `tests/phase4_regtest.rs` read `ZOL_ZEBRA_URL` and
-  `ZOL_DEV_SEED`. `tests/regtest.rs` reads `ZOL_DEV_SEED`, falling back to a random wallet.
+## Mainnet
+
+The setup is the same with `network = "Mainnet"` and the mainnet pruned snapshot (11.6 GB
+compressed, retention 10,000; listed at zakura.com/snapshots).
+
+Before mainnet NU7 two things are needed:
+- the mainnet NU7 height in the vendored crate patch (`docs/ops/nu7.md`);
+- a Zakura release past 1.6.0's end-of-support height.

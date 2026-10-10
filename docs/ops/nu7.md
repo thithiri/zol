@@ -2,11 +2,13 @@
 
 Status: 2026-10-10.
 
-- **Verdict: the patch works on Zebra 7 regtest.** Every zol-zcash regtest test and both gateway
-  cross-process suites pass with NU7 active from height 1. Mined transactions are v6 with
-  branch ID `0x77190AD9`.
-- **Pre-NU7 chains still work.** The same build still passes on the Zebra 6.4.2 regtest,
-  where NU7 is not active.
+- **Verdict: the patch works.** Every zol-zcash regtest test and both gateway cross-process
+  suites pass on the Zakura 1.6.0 regtest with NU7 active from height 1
+  (`infra/zakura/regtest-nu7.toml`). Mined transactions are v6 with branch ID `0x77190AD9`.
+  The patch was first validated on Zebra 7.0.0-rc.0 regtest. ZOL has since moved to Zakura
+  and Zebra was removed.
+- **Pre-NU7 chains still work.** The same build passes on a regtest where NU7 is not active
+  (`ZOL_NODE_CONFIG=pre-nu7`).
 - **Testnet:** this makes zol-zcash able to parse and build transactions on testnet after
   NU7. It has not been run against testnet itself, because there was no disk for a sync.
 
@@ -59,13 +61,13 @@ upstream is 21 added and 6 removed lines:
 - **Regtest heights** (`params.rs`):
   - `RegtestHeights` has `nu7: Option<u32>`.
   - `REGTEST` / `ALL_AT_ONE` now activates NU7 at 1, and `RegtestHeights::PRE_NU7` is the
-    Zebra 6.4.2 layout.
+    NU6.3-only layout (`regtest-pre-nu7.toml`).
   - `RegtestHeights::from_upgrades` and `ChainParams::regtest_from_upgrades` read the
     heights from `getblockchaininfo.upgrades`.
   - `ChainParams::nu7_active` was added.
   - `TESTNET` gets NU7 from the patched crate; mainnet is unchanged.
 - **zol-zcashd on regtest takes its activation heights from the node** and logs them. One
-  binary therefore builds NU6.3 transactions on a 6.4.2 regtest and NU7 ones on a Zebra 7
+  binary therefore builds NU6.3 transactions on a pre-NU7 regtest and NU7 ones on an NU7
   regtest. Testnet and mainnet use the built-in heights.
 - **Expiry never crosses a network upgrade** (`tx::capped_expiry`):
   - It caps `target + expiry_delta` at the block before the next upgrade, as zcashd does.
@@ -81,35 +83,28 @@ upstream is 21 added and 6 removed lines:
   - Only regtest and dev state directories exist today.
 - **Tests:**
   - `tests/regtest.rs` takes the chain parameters from the node.
-  - The fixture tests pin the pre-NU7 heights, because the fixtures are 6.4.2 blocks.
+  - The block fixture is a Zakura NU7 block; it records the heights it was mined under.
   - The Orchard-pool test disables NU7.
   - New unit and adversarial tests cover the branch ID, the testnet height, the expiry cap
     and the `branch` failure.
 
 ### Regtest nodes
 
-Both pairs can run at the same time.
+The dev/test node is the Zakura regtest pair in `infra/zakura/` ([zcash-node.md](zcash-node.md)).
 
-| Pair | Compose file | Config | Containers / RPC |
-| --- | --- | --- | --- |
-| Zebra 6.4.2, pre-NU7 (unchanged) | `spikes/zebra/docker-compose.yml` | `regtest.toml` | `zol-zebra-a/b`, 18232 / 18242 |
-| Zebra 7, NU7 at 1 | `spikes/zebra/docker-compose.zebra7.yml` | `regtest-nu7.toml` | `zol-zebra7-a/b`, 18272 / 18282 |
-
-- **Zebra 7 image:** `zfnd/zebra:7.0.0-rc.0`, pinned by digest
-  `sha256:d534756d899bc44ce0c7ad6d1672a540d0eb588f8c2face4674298ebb091abca` (zebrad git
-  `6d1e414`). Docker image ID `a479db057331`.
-- **Zebra 7 regtest config:** it needs only `NU7 = 1` on top of the 6.4.2 config.
-  - No NSM or lockbox parameters are required. Zebra 7, unlike Zakura, does not enforce the
-    NU6.1 lockbox output on regtest.
-  - Its `getblocksubsidy` reports 2.083 ZEC per block, the 25 s-rescaled subsidy.
-- **Scripts:** `spikes/zebra/scripts/*` take `ZOL_ZEBRA=zebra7` to drive the Zebra 7 pair.
-  `ZOL_ZEBRA_COMPOSE_FILE` selects any other pair.
+- **Image:** `zakuracore/zakura:1.6.0`, pinned by digest
+  `sha256:bf53c178e9549217fce7cfaa21efc85c478129ba6dc5307d55640514affeb0ac`. Zakura 1.6.0
+  supports `NU7 = 1` on regtest.
+- **Configs:** `regtest-nu7.toml` (default) and `regtest-pre-nu7.toml`, selected with
+  `ZOL_NODE_CONFIG=nu7|pre-nu7`. Both carry the zero-value NU6.1 lockbox entry and
+  `miner_address` = the `zol-dev` dev wallet.
+- **Subsidy:** `getblocksubsidy` reports 2.083 ZEC per block under NU7, the 25 s-rescaled
+  subsidy.
 
 Running the suites:
 
 ```sh
-ZOL_ZEBRA=zebra7 spikes/zebra/scripts/up.sh pair
-export ZOL_ZEBRA=zebra7 ZOL_ZEBRA_URL=http://127.0.0.1:18272/ ZOL_ZEBRA_B_URL=http://127.0.0.1:18282/
+infra/zakura/scripts/up.sh pair          # ZOL_NODE_CONFIG=pre-nu7 for the NU6.3 chain
 (cd crates/zol-zcash && cargo build --release --bin zol-zcashd &&
  cargo test --test regtest --test zcashd --test phase4_regtest -- --ignored --test-threads=1)
 cargo test -p zol-gateway --test regtest_e2e -- --ignored --test-threads=1
@@ -118,48 +113,42 @@ cargo test -p zol-gateway --test multihost -- --ignored --test-threads=1
 
 ## Test results
 
-All runs use the same build: the patch, the expiry cap and the `branch` check.
+### On Zakura 1.6.0 (current)
 
-| Suite | Zebra 7.0.0-rc.0, NU7 at 1 | Zebra 6.4.2, pre-NU7 |
+| Suite | `nu7` (NU7 at 1) | `pre-nu7` (NU6.3 tip) |
 | --- | --- | --- |
-| zol-zcash offline (`cargo test`): unit, offline, payout adversarial incl. `branch`, fixtures | pass | n/a |
+| zol-zcash offline (`cargo test`): unit, offline, payout adversarial incl. `branch`, NU7 block fixture | pass | n/a |
 | `regtest`: deposit/genesis/refund, reorg drops deposit, (fixture regen skipped) | 3/3 | 3/3 |
 | `zcashd`: dev flow | 1/1 | 1/1 |
-| `phase4_regtest`: distributed payouts, consolidation, double spend; reorged payout | 2/2 | 2/2 (isolated pair, see note) |
+| `phase4_regtest`: distributed payouts, consolidation, double spend; reorged payout | 2/2 | 2/2 |
 | gateway `regtest_e2e`: phase 3 and phase 4 end to end | 2/2 | 2/2 |
 | gateway `multihost`: 3 hosts over HTTP, real solana-test-validator | 1/1 | 1/1 |
+| `spikes/magicblock/zcash-leg/run.sh`: the whole app with the Zcash leg | pass | not run |
 
-- **Confirmed on chain.** On the NU7 node, the mined refund transaction parses as header
-  `0x80000006`, version group `0xD884B698`, branch `0x77190AD9`. On 6.4.2 every daemon
-  logged `nu7: None` and the tip branch was `37a5165b`.
-- **Crossing the activation** (Zebra 7 node with `NU7 = 6`). `regtest_deposit_genesis_refund`
-  passes on a chain that crosses NU7 mid-test:
-  - the funding coinbase is at height 5 (NU6.3);
-  - the deposit is at 6 (the first NU7 block);
-  - genesis and refund follow under NU7.
-  - The scanner parses both branches. Each transaction is built for the branch of its
-    target height.
-- **Note on the shared 6.4.2 pair.** `phase4_reorged_payout_restores_head_and_pays_once`
-  failed three times on the shared pair with "the walk went back to the genesis head" (chain
-  length 2).
-  - Cause: another process keeps mining on node a. The MagicBlock zcash-leg gateways
-    (`spikes/magicblock/zcash-leg`) are running against it. `reorg.sh 4 1` showed a gaining
-    5 blocks during a 5 s partition, so a's fork outgrows b's and the payout is never
-    reorged out.
-  - On an isolated 6.4.2 pair (same image and config, separate containers and ports) both
-    phase 4 tests and all `regtest` tests pass.
-  - This is test interference, not the patch.
+On `nu7` every daemon logged `nu7: Some(1)` and the tip branch was `77190ad9`. On `pre-nu7`
+they logged `nu7: None` and the tip branch was `37a5165b`.
+
+### Earlier validation on Zebra (historical)
+
+- **Before the move to Zakura,** the same suites passed on Zebra 7.0.0-rc.0 (NU7 at 1) and
+  on Zebra 6.4.2 (pre-NU7).
+- **The mined refund transaction** parsed as header `0x80000006`, version group
+  `0xD884B698`, branch `0x77190AD9`.
+- **A chain crossing NU7 mid-test** (`NU7 = 6`): the funding coinbase was at height 5 under
+  NU6.3, and the deposit, genesis and refund followed under NU7. That chain passed
+  `regtest_deposit_genesis_refund`, with every transaction built for the branch of its
+  target height.
 
 ## Risks
 
 1. **Hand-carried consensus constants.**
    - The branch ID and testnet height are copied from ZIP 259 and the 0.11 pre-release, and
-     cross-checked against Zebra 7 and Zakura.
+     cross-checked against the Zebra 7 and Zakura sources.
    - The mainnet NU7 height is not in the patch: it is to be set on Oct 20. Until it is
      added (one line in `vendor/zcash_protocol-0.10.6/src/consensus.rs` `MainNetwork`),
      mainnet builds **NU6.3 transactions forever**.
-   - Those would be rejected after mainnet activation (Zebra 7: "transaction has wrong
-     consensus branch id for block network upgrade"). The scanner would also fail to parse
+   - Those would be rejected after mainnet activation ("transaction has wrong
+     consensus branch id for block network upgrade" in the Zebra-derived verifier). The scanner would also fail to parse
      post-NU7 blocks.
    - **The mainnet height must be patched and shipped before activation.**
 2. **Upstream's unstable NU7 code is enabled.**
@@ -180,11 +169,6 @@ All runs use the same build: the patch, the expiry cap and the `branch` check.
      for a block. A retry clears it.
 6. **The vendored copies freeze those crates at 0.30.1 / 0.9.3 / 0.10.6.** Upstream security
    fixes in that line need re-vendoring.
-7. **Other callers still use the regtest default.** `crates/zol-zcash/src/bin/zol-wallet.rs`
-   (the coordinator's tool) uses `ChainParams::REGTEST`, which now has NU7 at 1. Against a
-   pre-NU7 6.4.2 regtest it will build NU7 transactions that the node rejects.
-   - **Fix:** use `ChainParams::regtest_from_upgrades` on the node's `getblockchaininfo`, as
-     the daemon now does, or `RegtestHeights::PRE_NU7`.
 
 ## 25-second blocks: block-denominated parameters
 
@@ -200,7 +184,7 @@ security and timing needs about 3× the block counts.
 | `head_depth` (PayoutPlan) | 1 | — | — | 1 (head ordering only) |
 | `expiry_delta` (gateway `PayoutPolicy`, zol-zcashd config, `DEFAULT_EXPIRY_DELTA`) | 40 | 50 min | 16.7 min | **40 for payouts** (fast release of a stuck head); **120** for refunds and genesis. Raising either above 100 needs `zol_zcash::MAX_EXPIRY_DELTA` raised in the same change, because the verifiers enforce it. |
 | Payout-verifier anchor window (`payout.rs`, `tip - 100`) | 100 | 2.1 h | 42 min | 300 |
-| Scanner `max_reorg_depth` | 1,000 | 20.8 h | 6.9 h | 1,000, matching the Zebra 7 and Zakura reorg window |
+| Scanner `max_reorg_depth` | 1,000 | 20.8 h | 6.9 h | 1,000, matching Zakura's reorg window |
 | Zakura `tx_retention` (docs/ops/zcash-node.md) | ≥ 10,000 | 8.7 d | 69 h | 30,000 (≈ 8.7 days), as recommended there |
 | Gateway time-based settings (`interval_secs`, `large_delay_secs`, …) | seconds | — | — | unchanged |
 

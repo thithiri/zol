@@ -1,4 +1,4 @@
-//! Raw block parsing (Zebra `getblock <hash|height> 0` returns the serialized block).
+//! Raw block parsing (the node's `getblock <hash|height> 0` returns the serialized block).
 
 use zcash_primitives::{block::Block, transaction::Transaction};
 

@@ -1,0 +1,32 @@
+# ZOL dev/test Zcash node: a Zakura regtest pair. See docs/ops/zcash-node.md.
+#   scripts/up.sh [a|pair]   scripts/mine.sh N [node]   scripts/height.sh [node]   scripts/down.sh
+#   ZOL_NODE_CONFIG=nu7 (default) | pre-nu7 picks regtest-<config>.toml.
+name: zol-zakura
+
+x-zakura: &zakura
+  # zakurad 1.6.0 (2026-10-01), multi-arch index pinned by digest.
+  image: zakuracore/zakura:1.6.0@sha256:bf53c178e9549217fce7cfaa21efc85c478129ba6dc5307d55640514affeb0ac
+  environment:
+    CONFIG_FILE_PATH: /etc/zakura/regtest.toml
+  volumes:
+    - ./regtest-${ZOL_NODE_CONFIG:-nu7}.toml:/etc/zakura/regtest.toml:ro
+  networks: [p2p]
+  restart: "no"
+
+services:
+  zakura-a:
+    <<: *zakura
+    container_name: zol-zakura-a
+    ports:
+      - "127.0.0.1:${ZOL_NODE_RPC_PORT:-18232}:18232"
+
+  zakura-b:
+    <<: *zakura
+    container_name: zol-zakura-b
+    profiles: ["pair"]
+    ports:
+      - "127.0.0.1:${ZOL_NODE_B_RPC_PORT:-18242}:18232"
+
+networks:
+  p2p:
+    name: zol-zakura-p2p

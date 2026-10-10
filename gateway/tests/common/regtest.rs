@@ -1,4 +1,4 @@
-//! Regtest helpers shared by the cross-process tests: Zebra RPC, zol-zcashd
+//! Regtest helpers shared by the cross-process tests: Zcash node (Zakura) RPC, zol-zcashd
 //! processes in dev mode, test receivers and memos.
 #![allow(dead_code)]
 
@@ -13,7 +13,11 @@ use zol_wire::{DepositMemo, Network};
 
 use super::app_id;
 
-pub const DEV_SEED: &str = "zol-phase3-e2e";
+/// The dev seed of every zol-zcashd here. Its dev wallet must be the node's
+/// `[mining] miner_address` (infra/zakura uses "zol-dev"), because `generate` pays that.
+pub fn dev_seed() -> String {
+    std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zol-dev".into())
+}
 
 pub struct Proc(pub Child, std::path::PathBuf);
 impl Drop for Proc {
@@ -24,13 +28,13 @@ impl Drop for Proc {
     }
 }
 
-pub fn zebra_url() -> String {
-    std::env::var("ZOL_ZEBRA_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into())
+pub fn node_url() -> String {
+    std::env::var("ZOL_NODE_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into())
 }
 
-pub fn zebra(method: &str, params: serde_json::Value) -> serde_json::Value {
+pub fn node_rpc(method: &str, params: serde_json::Value) -> serde_json::Value {
     let v: serde_json::Value = reqwest::blocking::Client::new()
-        .post(zebra_url())
+        .post(node_url())
         .json(&json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
         .send()
         .unwrap()
@@ -40,12 +44,12 @@ pub fn zebra(method: &str, params: serde_json::Value) -> serde_json::Value {
     v["result"].clone()
 }
 
-pub fn zebra_height() -> u32 {
-    zebra("getblockcount", json!([])).as_u64().unwrap() as u32
+pub fn node_height() -> u32 {
+    node_rpc("getblockcount", json!([])).as_u64().unwrap() as u32
 }
 
 pub fn mine(n: u32) {
-    zebra("generate", json!([n]));
+    node_rpc("generate", json!([n]));
 }
 
 pub fn zcashd_bin() -> std::path::PathBuf {
@@ -66,17 +70,17 @@ pub fn spawn_zcashd(i: usize, port: u16, start_height: u32) -> (Proc, ZcashdClie
     let dir = std::env::temp_dir().join(format!("zol-e2e-{}-{port}-{i}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let cfg = format!(
-        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\nstart_height = {start_height}\npoll_ms = 300\napps = [\"{}\"]\n[zebra]\nurl = \"{}\"\n",
+        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\nstart_height = {start_height}\npoll_ms = 300\napps = [\"{}\"]\n[node]\nurl = \"{}\"\n",
         dir.join("state").display(),
         hex::encode(app_id()),
-        zebra_url()
+        node_url()
     );
     let path = dir.join("zcashd.toml");
     std::fs::write(&path, cfg).unwrap();
     let child = Command::new(zcashd_bin())
         .args(["--config"])
         .arg(&path)
-        .args(["--dev", "--dev-seed", DEV_SEED, "--dev-share", &i.to_string()])
+        .args(["--dev", "--dev-seed", &dev_seed(), "--dev-share", &i.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
@@ -90,9 +94,9 @@ pub fn spawn_zcashd(i: usize, port: u16, start_height: u32) -> (Proc, ZcashdClie
     (Proc(child, dir), client)
 }
 
-/// Waits until every zcashd has scanned up to Zebra's tip.
+/// Waits until every zcashd has scanned up to the node's tip.
 pub fn wait_synced(clients: &[&ZcashdClient]) {
-    let target = zebra_height();
+    let target = node_height();
     let start = Instant::now();
     for c in clients {
         while c.events(u64::MAX - 1, 1).map(|e| e.tip).unwrap_or(0) < target {

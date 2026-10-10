@@ -239,7 +239,7 @@ Depth is therefore a policy with a stated exposure:
 - **Rolled-back early credit.** The loss falls on the float and the app keeps running. The cap falls by the same amount until operators top the float up. A pending payout that was spending the lost note is replaced by one that is not. The signer keeps its record of the note it accepted, so reconciliation still matches; a signer that has lost that record freezes the app, which is safe.
 - **Global halt.** If a deposit past full depth or a paid transaction rolls back, if a rolled-back early credit exceeds an app's remaining float, or if signers' nodes disagree on the chain, all credits and payouts stop until operators intervene. The gateway detects these itself: the block hash it stored for a height at or past full depth changes; a paid transaction's block leaves the best chain; operators' signed height and hash pairs disagree; or a node's tip stops advancing.
 
-Depths are stated in blocks here and must be restated if the block interval changes. Signers run Zebra, pinned to 6.4.2 and revisited at 7.0; the operator recovery procedure after a halt is open.
+Depths are stated in blocks here and must be restated if the block interval changes (NU7 moves it to 25 seconds; `docs/ops/nu7.md`). Signers run Zakura, a fork of Zebra that keeps the same 1,000-block rollback window, pinned to 1.6.0 by image digest (`infra/zakura`, `docs/ops/zcash-node.md`); the operator recovery procedure after a halt is open.
 
 ### Attestation and credit
 
@@ -541,6 +541,7 @@ Design choices still open:
 - Numeric parameters: final depth thresholds (10/100/100 to start), the per-deposit cap, each app's float, the fee constants, the network fee allowance, the minimum exit, the seat maximum, the open and session deadline limits, the refund grace period (floor 3,900 s), the activation delay (floor 1 hour), the payout expiry bound, the interval between transitions that pay nothing.
 - Sizing the network fee allowance against note fragmentation, and the consolidation policy.
 - The recovery procedure after a freeze: a real deposit misbound by a forged credit, and pot results decided with forged funds.
+- Node-client diversity for production. Every operator runs the same node implementation (Zakura), so one consensus bug in it could show every attestor and signer the same wrong chain, and the cross-operator height and hash check would not catch it. Production should mix at least two independent implementations across operators, and each operator set should keep at least one unpruned (archive) node, because a pruned node cannot rebuild a vault's scan state past its retention window.
 - Custody of the admin and guardian keys, the guardian threshold, and whether the admin sits behind a timelock.
 - Custody of the gateway keys behind deposit IDs and payout commitments, which cannot be rotated in place.
 - The payout schedule and the fixed action counts used for padding.

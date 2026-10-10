@@ -1,0 +1,50 @@
+# Zakura 1.6.0 regtest for ZOL dev and tests: every upgrade through NU6.3 (Ironwood) active at height 1, no NU7.
+# Mounted read-only at /etc/zakura/regtest.toml by docker-compose.yml (ZOL_NODE_CONFIG picks
+# this file). State is ephemeral: nothing is written to disk beyond a temp dir in the container.
+
+[network]
+network = "Regtest"
+# Fixed P2P port so the pair can be joined with the regtest `addnode` RPC (scripts/peer.sh).
+# Regtest only dials localhost initial peers, so cross-container peering uses addnode.
+listen_addr = "0.0.0.0:18233"
+initial_testnet_peers = []
+cache_dir = false
+# Dial addnode'd peers soon instead of on the default 61 s crawl, so the pair (re)joins
+# quickly after scripts/peer.sh.
+crawl_new_peer_interval = "5s"
+
+# Zakura enforces the one-time NU6.1 lockbox disbursement in the NU6.1 activation block's
+# coinbase on every network (zakura-consensus block/check.rs) and regtest configures none,
+# so without this the first `generate` fails with "missing lockbox disbursements for NU6.1
+# activation block". A zero-value P2SH output satisfies the rule, as Zakura's own
+# local_genesis.rs does.
+[network.testnet_parameters]
+lockbox_disbursements = [{ address = "t27eWDgjFYJGVXmzrXeVjnb5J3uXDM9xH9v", amount = 0 }]
+
+[network.testnet_parameters.activation_heights]
+NU5 = 1
+NU6 = 1
+"NU6.1" = 1
+"NU6.2" = 1
+"NU6.3" = 1
+
+[mining]
+# Zakura has no `generatetoaddress`: `generate` pays this address. It is the dev wallet of
+# dev seed "zol-dev" (zol-zcashd's default; `zol-zcashd --print-dev-keys` prints it), so
+# `--dev` funding, the zol-zcash regtest tests and the gateway tests get the coinbase.
+miner_address = "uregtest15n3y3sazgk9e053j4ckhyxndm0tympeqnp9zd978lfyykp4dnrxn06ku07gnc7vfl9ah9kslv7l7lr0mrlf84zaehrv6kq8stqfahj43"
+internal_miner = false
+
+[rpc]
+listen_addr = "0.0.0.0:18232"
+enable_cookie_auth = false
+
+[state]
+ephemeral = true
+
+[mempool]
+# Accept transactions from height 0 on regtest (no sync gate).
+debug_enable_at_height = 0
+
+[tracing]
+use_color = false

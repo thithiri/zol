@@ -30,10 +30,10 @@ use zcash_primitives::transaction::Transaction;
 use crate::{
     block::{parse_block, ParsedBlock},
     keys::AppKeys,
+    node::NodeClient,
     params::ChainParams,
     serde_arr,
     tree::{NoteTree, TreeSnapshot},
-    zebra::ZebraClient,
     Error,
 };
 
@@ -181,7 +181,7 @@ pub struct Spendable {
 pub struct ScannerConfig {
     pub params: ChainParams,
     pub scan_orchard_pool: bool,
-    /// Blocks kept for rewinds (hashes and tree checkpoints). Zebra keeps 1,000.
+    /// Blocks kept for rewinds (hashes and tree checkpoints). The node keeps 1,000 (Zakura's reorg window).
     pub max_reorg_depth: u32,
 }
 
@@ -327,11 +327,11 @@ impl Scanner {
         })
     }
 
-    /// Starts at `start_height` from Zebra's `z_gettreestate` for `start_height - 1`.
-    pub async fn from_zebra(
+    /// Starts at `start_height` from the node's `z_gettreestate` for `start_height - 1`.
+    pub async fn from_node(
         config: ScannerConfig,
         accounts: Vec<Account>,
-        client: &ZebraClient,
+        client: &NodeClient,
         start_height: u32,
     ) -> Result<Self, Error> {
         let base = start_height
@@ -348,7 +348,7 @@ impl Scanner {
             {
                 // Before NU6.3 there is no Ironwood tree: start from the empty frontier.
                 None if !config.params.ironwood_active(base) => None,
-                // Zebra and Zakura report an empty tree as "000000". A missing finalState
+                // Zakura (like zcashd) reports an empty tree as "000000". A missing finalState
                 // means the node does not have this height's tree (Zakura omits it in a
                 // fast-synced band; see docs/ops/zcash-node.md). Assuming an empty tree
                 // there would silently corrupt every later anchor and witness.
@@ -702,11 +702,11 @@ impl Scanner {
         Ok(())
     }
 
-    /// Scans from `next_height()` to Zebra's tip (or `until`), detecting and handling
-    /// reorgs by walking back to the last block whose hash Zebra still agrees with.
+    /// Scans from `next_height()` to the node's tip (or `until`), detecting and handling
+    /// reorgs by walking back to the last block whose hash the node still agrees with.
     pub async fn sync(
         &mut self,
-        client: &ZebraClient,
+        client: &NodeClient,
         until: Option<u32>,
     ) -> Result<SyncReport, Error> {
         let mut rep = SyncReport::default();
@@ -749,7 +749,7 @@ impl Scanner {
         Ok(rep)
     }
 
-    async fn find_fork(&self, client: &ZebraClient) -> Result<u32, Error> {
+    async fn find_fork(&self, client: &NodeClient) -> Result<u32, Error> {
         for (h, ours) in self.hashes.iter().rev() {
             let theirs = crate::from_display_hex(&client.get_block_hash(*h).await?)?;
             if theirs == *ours {
@@ -839,14 +839,14 @@ mod send_tests {
     use super::*;
     fn assert_send<T: Send>(_: &T) {}
     #[allow(dead_code)]
-    fn sync_future_is_send(s: &mut Scanner, c: &ZebraClient) {
+    fn sync_future_is_send(s: &mut Scanner, c: &NodeClient) {
         assert_send(&s.sync(c, None));
     }
     #[test]
     fn scanner_is_send_sync() {
         fn ss<T: Send + Sync>() {}
         ss::<Scanner>();
-        ss::<ZebraClient>();
+        ss::<NodeClient>();
         ss::<crate::AppKeys>();
     }
 }

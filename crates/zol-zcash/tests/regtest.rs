@@ -1,24 +1,19 @@
-//! Regtest integration tests against Zebra 6.4.2 or Zebra 7 / NU7 (`spikes/zebra`). Ignored by
+//! Regtest integration tests against the Zakura regtest pair (`infra/zakura`). Ignored by
 //! default:
 //!
 //! ```sh
-//! (cd spikes/zebra && ./scripts/up.sh pair)
+//! infra/zakura/scripts/up.sh pair          # ZOL_NODE_CONFIG=nu7 (default) or pre-nu7
 //! cd crates/zol-zcash && cargo test --test regtest -- --ignored --nocapture --test-threads=1
 //! ```
 //!
-//! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/), `ZOL_ZEBRA_B_URL`
-//! (default http://127.0.0.1:18242/, reorg test only), `ZOL_DEV_SEED` (optional: use the
-//! dev wallet of that seed, `testing::dev_seed_keys`, instead of a random one).
-//! Reorg tests drive the node pair with `docker exec`/`spikes/zebra/scripts`; `ZOL_ZEBRA=zebra7`
-//! selects the Zebra 7 NU7 pair (containers zol-zebra7-a/b, RPC 18272/18282).
+//! Env: `ZOL_NODE_URL` (default http://127.0.0.1:18232/), `ZOL_NODE_B_URL` (default
+//! http://127.0.0.1:18242/, reorg test only), `ZOL_DEV_SEED` (default "zol-dev").
+//! The reorg test drives the pair with `docker exec` (containers zol-zakura-a/b) and
+//! `infra/zakura/scripts`. The chain parameters (NU7 or not) are read from the node.
 //!
-//! Zakura (no `generatetoaddress`; docs/ops/zcash-node.md): run its regtest node with
-//! `[mining] miner_address` = `testing::dev_wallet_ua(REGTEST, seed)` and set
-//! `ZOL_DEV_SEED=seed`; `fund` then falls back to `generate`.
-//!
-//! Funding: `generatetoaddress` with a Unified Address holding the test wallet's Orchard
-//! receiver. Zebra 6.4.2 routes shielded coinbase to the Ironwood pool from NU6.3
-//! (zebra-rpc `TransactionTemplate::new_coinbase`), so the wallet receives an Ironwood note.
+//! Funding: `generate` pays the node's `[mining] miner_address`, which infra/zakura sets to
+//! the dev wallet of seed "zol-dev" (`testing::dev_seed_keys`); that wallet is the test
+//! wallet. With an Orchard receiver the coinbase is an Ironwood note.
 
 use std::{collections::BTreeMap, process::Command, time::Duration};
 
@@ -26,15 +21,15 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use orchard::keys::{FullViewingKey, Scope, SpendingKey};
 use zol_wire::{DepositMemo, HeadMemo, Network};
 use zol_zcash::{
-    display_hex, encode_ua, frost, genesis, refund,
+    display_hex, encode_ua, frost, genesis,
+    node::NodeClient,
+    refund,
     scan::{Account, ScannedNote, ScannerConfig},
-    testing,
-    zebra::ZebraClient,
-    AppKeys, ChainParams, Scanner,
+    testing, AppKeys, ChainParams, Scanner,
 };
 
-/// Regtest parameters as the node reports them (set in `setup`): NU7 at 1 on the Zebra 7
-/// regtest (`spikes/zebra/regtest-nu7.toml`), none on the 6.4.2 one.
+/// Regtest parameters as the node reports them (set in `setup`): NU7 at 1 with
+/// `infra/zakura/regtest-nu7.toml`, none with `regtest-pre-nu7.toml`.
 static PARAMS: std::sync::OnceLock<ChainParams> = std::sync::OnceLock::new();
 #[allow(non_snake_case)]
 fn P() -> ChainParams {
@@ -44,12 +39,16 @@ fn P() -> ChainParams {
 }
 const WALLET: [u8; 32] = [0xEE; 32];
 
+fn dev_seed() -> String {
+    std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zol-dev".into())
+}
+
 fn url(var: &str, default: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| default.to_string())
 }
 
 fn script(name: &str) {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../spikes/zebra/scripts/");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../infra/zakura/scripts/");
     let out = Command::new("bash")
         .arg(format!("{path}{name}"))
         .output()
@@ -62,7 +61,7 @@ fn script(name: &str) {
 }
 
 struct Env {
-    client: ZebraClient,
+    client: NodeClient,
     sk: SpendingKey,
     fvk: FullViewingKey,
     scanner: Scanner,
@@ -71,13 +70,13 @@ struct Env {
     pk: frost::PublicKeyPackage,
 }
 
-async fn setup(client: ZebraClient) -> Env {
+async fn setup(client: NodeClient) -> Env {
     let info = client
         .get_blockchain_info()
         .await
-        .expect("zebra reachable (spikes/zebra/scripts/up.sh)");
+        .expect("node reachable (infra/zakura/scripts/up.sh)");
     println!(
-        "zebra: chain={} blocks={} chaintip branch={:?}",
+        "node: chain={} blocks={} chaintip branch={:?}",
         info.chain,
         info.blocks,
         info.chaintip_branch()
@@ -87,7 +86,7 @@ async fn setup(client: ZebraClient) -> Env {
     let tip = info.blocks + 1;
     let want = format!("{:08x}", u32::from(P().branch_id(info.blocks.max(1))));
     println!("regtest heights {:?}: tip branch {want}", P().regtest);
-    // NU6.3 (37a5165b) on the 6.4.2 regtest, NU7 (77190ad9) on the Zebra 7 one.
+    // NU6.3 (37a5165b) with regtest-pre-nu7.toml, NU7 (77190ad9) with regtest-nu7.toml.
     if info.blocks > 0 {
         assert_eq!(info.chaintip_branch().as_deref(), Some(want.as_str()));
     }
@@ -101,13 +100,10 @@ async fn setup(client: ZebraClient) -> Env {
         Network::Regtest,
     )
     .unwrap();
-    let sk = match std::env::var("ZOL_DEV_SEED") {
-        Ok(seed) => testing::dev_seed_keys(&seed).wallet,
-        Err(_) => testing::random_spending_key(&mut rng),
-    };
+    let sk = testing::dev_seed_keys(&dev_seed()).wallet;
     let fvk = FullViewingKey::from(&sk);
     let start = client.get_block_count().await.unwrap() + 1;
-    let scanner = Scanner::from_zebra(
+    let scanner = Scanner::from_node(
         ScannerConfig::new(P()),
         vec![
             Account::from(&app),
@@ -158,18 +154,9 @@ impl Env {
                 .to_raw_address_bytes(),
         );
         let t = std::time::Instant::now();
-        let (hashes, fallback) = self
-            .client
-            .mine_to(1, &ua)
-            .await
-            .expect("generatetoaddress to a UA");
+        let hashes = self.client.generate(1).await.expect("generate");
         println!(
-            "{} {ua} -> {} ({:?})",
-            if fallback {
-                "generate (no generatetoaddress; miner_address must be)"
-            } else {
-                "generatetoaddress"
-            },
+            "generate (miner_address must be {ua}) -> {} ({:?})",
             hashes[0],
             t.elapsed()
         );
@@ -179,7 +166,7 @@ impl Env {
             .iter()
             .flat_map(|e| e.received.iter())
             .find(|n| n.app_id == WALLET)
-            .expect("coinbase Ironwood note scanned")
+            .expect("coinbase Ironwood note scanned: is the node's miner_address the dev wallet?")
             .clone();
         println!(
             "funded: {} zat Ironwood coinbase note at height {}",
@@ -187,7 +174,7 @@ impl Env {
         );
         assert!(
             n.value >= 1_000_000,
-            "coinbase is only {} zat: the regtest subsidy is nearly exhausted; restart the chain (spikes/zebra/scripts/down.sh && up.sh pair)",
+            "coinbase is only {} zat: the regtest subsidy is nearly exhausted; restart the chain (infra/zakura/scripts/down.sh && up.sh pair)",
             n.value
         );
         n
@@ -231,8 +218,8 @@ fn session_memo(app: &AppKeys, sess: &SigningKey, refund_to: [u8; 43]) -> [u8; 5
 #[tokio::test]
 #[ignore]
 async fn regtest_deposit_genesis_refund() {
-    let mut e = setup(ZebraClient::new(url(
-        "ZOL_ZEBRA_URL",
+    let mut e = setup(NodeClient::new(url(
+        "ZOL_NODE_URL",
         "http://127.0.0.1:18232/",
     )))
     .await;
@@ -402,10 +389,7 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
     let out = Command::new("docker")
         .args([
             "exec",
-            &format!(
-                "zol-{}-{node}",
-                std::env::var("ZOL_ZEBRA").unwrap_or_else(|_| "zebra".into())
-            ),
+            &format!("zol-zakura-{node}"),
             "curl",
             "-s",
             "--max-time",
@@ -436,8 +420,8 @@ async fn wait_same_tip(secs: u64) -> bool {
 #[tokio::test]
 #[ignore]
 async fn regtest_reorg_drops_deposit() {
-    let a = ZebraClient::new(url("ZOL_ZEBRA_URL", "http://127.0.0.1:18232/"));
-    exec_rpc("b", "getblockcount", "[]"); // node b up (spikes/zebra/scripts/up.sh pair)
+    let a = NodeClient::new(url("ZOL_NODE_URL", "http://127.0.0.1:18232/"));
+    exec_rpc("b", "getblockcount", "[]"); // node b up (infra/zakura/scripts/up.sh pair)
     script("peer.sh");
     a.generate(1).await.unwrap();
     assert!(wait_same_tip(180).await, "a and b converge before the test");
@@ -511,8 +495,10 @@ async fn regtest_reorg_drops_deposit() {
     println!("deposit tx back in a's mempool after the reorg: {in_mempool}");
 }
 
-/// Regenerates `tests/fixtures/coinbase_block.json` (only with `ZOL_REGEN_FIXTURE=1`): a regtest block whose coinbase pays an
-/// Ironwood note to the fixed key `SpendingKey([7; 32])`, for the offline block-parsing test.
+/// Regenerates `tests/fixtures/coinbase_block.json` (only with `ZOL_REGEN_FIXTURE=1`): a
+/// regtest block whose coinbase pays an Ironwood note to the node's miner address, the dev
+/// wallet of `ZOL_DEV_SEED` (default "zol-dev"), for the offline block-parsing test. Run it
+/// against `ZOL_NODE_CONFIG=nu7` so the fixture is an NU7 block.
 #[tokio::test]
 #[ignore]
 async fn regtest_make_block_fixture() {
@@ -522,14 +508,14 @@ async fn regtest_make_block_fixture() {
         );
         return;
     }
-    let client = ZebraClient::new(url("ZOL_ZEBRA_URL", "http://127.0.0.1:18232/"));
-    let sk = SpendingKey::from_bytes([7; 32]).unwrap();
-    let fvk = FullViewingKey::from(&sk);
-    let ua = encode_ua(
-        &P(),
-        &fvk.address_at(0u32, Scope::External).to_raw_address_bytes(),
-    );
-    let h = client.generate_to_address(1, &ua).await.unwrap().remove(0);
+    let client = NodeClient::new(url("ZOL_NODE_URL", "http://127.0.0.1:18232/"));
+    let info = client.get_blockchain_info().await.unwrap();
+    let params = ChainParams::regtest_from_upgrades(&info.rest["upgrades"]).unwrap();
+    let sub: serde_json::Value = client
+        .call("getblocksubsidy", serde_json::json!([]))
+        .await
+        .unwrap();
+    let h = client.generate(1).await.unwrap().remove(0);
     let raw = client.get_block_raw_by_hash(&h).await.unwrap();
     let height = client.get_block_count().await.unwrap();
     let prev = client.get_block_hash(height - 1).await.unwrap();
@@ -538,6 +524,8 @@ async fn regtest_make_block_fixture() {
         .await
         .unwrap();
     let fixture = serde_json::json!({
+        "dev_seed": dev_seed(), "regtest_nu7": params.regtest.nu7,
+        "miner_subsidy_zat": (sub["miner"].as_f64().unwrap() * 1e8).round() as u64,
         "height": height, "hash": h, "prev_hash": prev,
         "ironwood_final_state_prev": ts.pointer("/ironwood/commitments/finalState"),
         "raw": hex::encode(&raw),

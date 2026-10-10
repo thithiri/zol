@@ -1,6 +1,6 @@
 #!/bin/bash
 # The coin flip with the Zcash leg, all local:
-#   Zebra regtest (spikes/zebra, :18232)  ->  3 x zol-zcashd (--dev, one share each, :18310-18312)
+#   Zakura regtest (infra/zakura, :18232)  ->  3 x zol-zcashd (--dev, one share each, :18310-18312)
 #   3 x zol-gateway serve (:18710-18712, authenticated HTTP between them)
 #   solana-test-validator + ephemeral-validator (start-local.sh, :28899 / :27799) + VRF oracle
 #   the page's own code (web/scripts/zcash-leg.ts) as the player.
@@ -10,7 +10,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MB="$HERE/.."
 ROOT="$(cd "$MB/../.." && pwd)"
-ZEBRA="${ZEBRA:-http://127.0.0.1:18232}"
+NODE="${ZOL_NODE_URL:-http://127.0.0.1:18232}"
+NODE="${NODE%/}"
+# The node pays coinbase to the dev wallet of this seed (infra/zakura miner_address).
+DEV_SEED="${ZOL_DEV_SEED:-zol-dev}"
 ZCASHD_BIN="${ZCASHD_BIN:-$ROOT/crates/zol-zcash/target/release/zol-zcashd}"
 GATEWAY_BIN="${GATEWAY_BIN:-$ROOT/target/release/zol-gateway}"
 CF="$MB/target/e2e/release/coinflip"
@@ -26,10 +29,10 @@ APP_HEX=$(python3 -c "
 a='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'; n=0
 for c in '$APP': n=n*58+a.index(c)
 print(n.to_bytes(32,'big').hex())")
-zebra() { curl -s "$ZEBRA" -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":${2:-[]}}"; }
+nrpc() { curl -s "$NODE" -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":${2:-[]}}"; }
 jq_py() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-H=$(zebra getblockcount | jq_py 'd["result"]')
-echo "zebra height $H"
+H=$(nrpc getblockcount | jq_py 'd["result"]')
+echo "node height $H"
 
 # --- Zcash: three single-share daemons
 for i in 0 1 2; do
@@ -41,18 +44,18 @@ state_dir = "$W/z$i/state"
 start_height = $H
 poll_ms = 300
 apps = ["$APP_HEX"]
-[zebra]
-url = "$ZEBRA/"
+[node]
+url = "$NODE/"
 TOML
-  "$ZCASHD_BIN" --config "$W/z$i/zcashd.toml" --dev --dev-seed zol-coinflip --dev-share $i > "$W/logs/zcashd$i.log" 2>&1 &
+  "$ZCASHD_BIN" --config "$W/z$i/zcashd.toml" --dev --dev-seed "$DEV_SEED" --dev-share $i > "$W/logs/zcashd$i.log" 2>&1 &
   echo $! >> "$W/pids"
 done
 for i in 0 1 2; do until curl -sf "http://127.0.0.1:1831$i/health" >/dev/null; do sleep 0.5; done; done
 VAULT=$(curl -s "http://127.0.0.1:18310/vault?app=$APP_HEX" | jq_py 'bytes(d["address"]).hex()')
 GEN=$(curl -s -X POST "http://127.0.0.1:18310/dev/genesis" -H 'content-type: application/json' \
   -d "{\"app\": $(python3 -c "print(list(bytes.fromhex('$APP_HEX')))"), \"float\": 30000000}" | jq_py 'bytes(d["head_cmx"]).hex()')
-zebra generate '[101]' >/dev/null
-T=$(zebra getblockcount | jq_py 'd["result"]')
+nrpc generate '[101]' >/dev/null
+T=$(nrpc getblockcount | jq_py 'd["result"]')
 for i in 0 1 2; do until [ "$(curl -s "http://127.0.0.1:1831$i/health" | jq_py 'd.get("log_tip") or 0')" -ge "$T" ]; do sleep 0.5; done; done
 echo "vault $VAULT genesis head $GEN (synced to $T)"
 
@@ -68,7 +71,7 @@ echo "attestor group key $GROUP"
 # --- Solana + rollup with Config and App preloaded
 ACC=$("$CF" preload "$W/accounts" "$GROUP" "$VAULT" "$GEN" $G | awk '{printf "%s=%s ", $1, $2}')
 cd "$MB"
-(ZOL=1 ZOL_DIR=../../target/deploy DLP=devnet VRF_CLEAN=1 EXTRA_ACCOUNTS="$ACC" RUST_LOG=info ./start-local.sh > "$W/logs/mb-stack.log" 2>&1 &)
+(ZOL=1 ZOL_DIR="${ZOL_DIR:-../../target/deploy}" DLP=devnet VRF_CLEAN=1 EXTRA_ACCOUNTS="$ACC" RUST_LOG=info ./start-local.sh > "$W/logs/mb-stack.log" 2>&1 &)
 until grep -q -E "MagicBlock stack is ready|exited before|failed" "$W/logs/mb-stack.log"; do sleep 1; done
 grep -q "MagicBlock stack is ready" "$W/logs/mb-stack.log" || { tail -30 "$W/logs/mb-stack.log"; exit 1; }
 U=http://127.0.0.1:28899

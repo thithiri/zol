@@ -2,7 +2,7 @@
 
 Each operator runs, on its own host:
 
-- a Zcash node (Zebra or Zakura; see [zcash-node.md](zcash-node.md));
+- a Zcash node (Zakura; see [zcash-node.md](zcash-node.md));
 - `zol-zcashd`, holding this operator's one Pallas spend share, on localhost only;
 - `zol-gateway serve`, holding this operator's Ed25519 attestor share, its guardian key and its relayer key, with its own Solana RPC endpoint.
 
@@ -64,7 +64,7 @@ The ledger's per-payout `network_fee_allowance` must be at least 5,000 × the sm
 cargo test -p zol-gateway --test multihost -- --ignored --nocapture
 ```
 
-The test needs the Zebra regtest pair, a built `zol-zcashd` and `solana-test-validator`. It runs three gateways in one process, but they share nothing: each has its own store, zcashd, Solana RPC client and HTTP server, and they reach each other only through signed HTTP. It covers:
+The test needs the Zakura regtest (`infra/zakura/scripts/up.sh`), a built `zol-zcashd` and `solana-test-validator`. It runs three gateways in one process, but they share nothing: each has its own store, zcashd, Solana RPC client and HTTP server, and they reach each other only through signed HTTP. It covers:
 
 - a deposit whose wallet dropped the memo, credited from the registered intent;
 - a voided deposit and its distributed refund;

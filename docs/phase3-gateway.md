@@ -9,7 +9,7 @@ The Zcash half has its own write-up: [phase3-zol-zcash.md](phase3-zol-zcash.md).
 Each gateway operator is two processes:
 
 ```text
-Zebra (own node)
+Zakura (own node; was Zebra 6.4.2 when built)
    │ JSON-RPC
    ▼
 zol-zcashd   (crates/zol-zcash, own workspace)

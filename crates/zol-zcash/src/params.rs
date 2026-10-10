@@ -3,8 +3,8 @@
 //! Mainnet and testnet use `zcash_protocol`'s built-in activation heights (NU6.3 /
 //! Ironwood at 3,428,143 and 4,134,000; testnet NU7 at 4,465,026 from the vendored ZIP 259
 //! patch, see vendor/VENDOR_PATCHES.md; mainnet NU7 is not scheduled). Regtest defaults to
-//! every upgrade through NU7 active from height 1 (`spikes/zebra/regtest-nu7.toml`); a
-//! pre-NU7 regtest node (`spikes/zebra/regtest.toml`) needs [`RegtestHeights::PRE_NU7`], or
+//! every upgrade through NU7 active from height 1 (`infra/zakura/regtest-nu7.toml`); a
+//! pre-NU7 regtest node (`infra/zakura/regtest-pre-nu7.toml`) needs [`RegtestHeights::PRE_NU7`], or
 //! [`RegtestHeights::from_upgrades`] to read the heights from the node.
 
 use serde::{Deserialize, Serialize};
@@ -32,14 +32,14 @@ pub struct RegtestHeights {
 }
 
 impl RegtestHeights {
-    /// Everything through NU7 at height 1, as in `spikes/zebra/regtest-nu7.toml`.
+    /// Everything through NU7 at height 1, as in `infra/zakura/regtest-nu7.toml`.
     pub const ALL_AT_ONE: Self = Self {
         nu7: Some(1),
         ..Self::PRE_NU7
     };
 
-    /// Everything through NU6.3 at height 1 and no NU7, as in `spikes/zebra/regtest.toml`
-    /// (Zebra 6.4.2).
+    /// Everything through NU6.3 at height 1 and no NU7, as in
+    /// `infra/zakura/regtest-pre-nu7.toml`.
     pub const PRE_NU7: Self = Self {
         overwinter: 1,
         sapling: 1,
@@ -55,7 +55,7 @@ impl RegtestHeights {
     };
 
     /// Reads the heights from `getblockchaininfo.upgrades` (`{branch: {name,
-    /// activationheight}}`, as Zebra and Zakura report them). NU5 through NU6.3 are
+    /// activationheight}}`, as Zakura reports them). NU5 through NU6.3 are
     /// required (ZOL needs Ironwood); earlier upgrades default to 1; NU7 is optional.
     pub fn from_upgrades(upgrades: &serde_json::Value) -> Result<Self, String> {
         let obj = upgrades

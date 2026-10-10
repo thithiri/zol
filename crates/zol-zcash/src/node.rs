@@ -1,10 +1,11 @@
-//! Minimal async JSON-RPC client for Zebra 6.4.2 (`zebra-rpc`).
+//! Minimal async JSON-RPC client for the Zcash node: Zakura 1.6.0 (docs/ops/zcash-node.md).
 //!
-//! Hashes and txids are passed and returned in Zebra's display form (big-endian hex).
-//! `generate` / `generatetoaddress` only work on Regtest (PoW disabled). On Regtest,
-//! `generatetoaddress` with a Unified Address containing an Orchard receiver pays the
-//! coinbase into the Ironwood pool from NU6.3 on (zebra-rpc `TransactionTemplate::new_coinbase`,
-//! with an all-zero OVK); that is how the integration test funds its wallet.
+//! Hashes and txids are passed and returned in the node's display form (big-endian hex).
+//! `generate` only works on Regtest (PoW disabled). It pays the node's `[mining]
+//! miner_address`; with a Unified Address holding an Orchard receiver the coinbase lands in
+//! the Ironwood pool from NU6.3 on. infra/zakura sets it to the dev wallet of dev seed
+//! "zol-dev", which is how the dev mode and the integration tests are funded. Zakura has no
+//! `generatetoaddress`.
 
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -12,7 +13,7 @@ use serde_json::{json, Value};
 use crate::Error;
 
 #[derive(Clone)]
-pub struct ZebraClient {
+pub struct NodeClient {
     url: String,
     http: reqwest::Client,
     auth: Option<(String, String)>,
@@ -45,8 +46,8 @@ impl BlockchainInfo {
 
     /// Lowest height whose full block the node still serves, when it prunes (Zakura
     /// `storage_mode = "pruned"` reports `pruned: true` and `pruneheight`). `getblock` and
-    /// `z_gettreestate` fail below it. `None` for an archive node (Zebra reports
-    /// `pruned: false`).
+    /// `z_gettreestate` fail below it. `None` for an archive node
+    /// (`pruned: false`).
     pub fn prune_height(&self) -> Option<u32> {
         if self.rest.get("pruned")?.as_bool()? {
             Some(self.rest.get("pruneheight")?.as_u64()? as u32)
@@ -67,7 +68,7 @@ impl BlockchainInfo {
     }
 }
 
-impl ZebraClient {
+impl NodeClient {
     /// `url` like `http://127.0.0.1:18232/`.
     pub fn new(url: impl Into<String>) -> Self {
         Self {
@@ -77,7 +78,7 @@ impl ZebraClient {
         }
     }
 
-    /// Basic auth (Zebra's cookie auth uses user `__cookie__` and the cookie as password).
+    /// Basic auth (cookie auth uses user `__cookie__` and the cookie file's contents as password).
     pub fn with_basic_auth(mut self, user: impl Into<String>, password: impl Into<String>) -> Self {
         self.auth = Some((user.into(), password.into()));
         self
@@ -156,24 +157,6 @@ impl ZebraClient {
         self.call("generate", json!([n])).await
     }
 
-    /// Regtest only: mine `n` blocks paying the coinbase to `address`.
-    pub async fn generate_to_address(&self, n: u32, address: &str) -> Result<Vec<String>, Error> {
-        self.call("generatetoaddress", json!([n, address])).await
-    }
-
-    /// Regtest only: mine `n` blocks to `address`. Zebra has `generatetoaddress`; Zakura
-    /// (a Zebra fork) does not, so on "method not found" this falls back to `generate`,
-    /// which pays the node's `[mining] miner_address`: the operator must set that to
-    /// `address` for the coinbase to reach it. Returns the block hashes and whether the
-    /// fallback was used.
-    pub async fn mine_to(&self, n: u32, address: &str) -> Result<(Vec<String>, bool), Error> {
-        match self.generate_to_address(n, address).await {
-            Ok(h) => Ok((h, false)),
-            Err(e) if is_method_not_found(&e) => Ok((self.generate(n).await?, true)),
-            Err(e) => Err(e),
-        }
-    }
-
     /// `z_gettreestate`: raw JSON (contains `ironwood.commitments.finalState` from NU6.3).
     pub async fn z_get_treestate(&self, hash_or_height: &str) -> Result<Value, Error> {
         self.call("z_gettreestate", json!([hash_or_height])).await
@@ -182,15 +165,5 @@ impl ZebraClient {
     /// Mempool txids.
     pub async fn get_raw_mempool(&self) -> Result<Vec<String>, Error> {
         self.call("getrawmempool", json!([])).await
-    }
-}
-
-/// True when the node rejected the call as an unknown method (JSON-RPC -32601).
-pub fn is_method_not_found(e: &Error) -> bool {
-    match e {
-        Error::Rpc(m) => {
-            m.contains("-32601") || m.to_ascii_lowercase().contains("method not found")
-        }
-        _ => false,
     }
 }

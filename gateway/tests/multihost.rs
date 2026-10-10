@@ -2,7 +2,8 @@
 //! (ignored by default). Each has its own single-share zol-zcashd, its own
 //! store and its own Solana RPC connection to a real solana-test-validator.
 //!
-//! Needs the regtest pair, a built zol-zcashd, and solana-test-validator:
+//! Needs the Zakura regtest (`infra/zakura/scripts/up.sh`), a built zol-zcashd, and
+//! solana-test-validator (env as in regtest_e2e.rs):
 //!
 //!     cargo test -p zol-gateway --test multihost -- --ignored --nocapture
 
@@ -77,7 +78,7 @@ fn three_hosts_over_authenticated_http() {
     std::fs::create_dir_all(&dir).unwrap();
 
     // Zcash side: three single-share daemons and a genesis head.
-    let start_height = zebra_height();
+    let start_height = node_height();
     let base = 20_000 + (pid % 500) as u16 * 3;
     let (p0, z0) = spawn_zcashd(0, base, start_height);
     let (p1, z1) = spawn_zcashd(1, base + 1, start_height);
@@ -213,7 +214,7 @@ fn three_hosts_over_authenticated_http() {
     let info: zol_types::page::AppInfo = http.get(format!("{}/v1/apps/{}", gw(1), TEST_APP)).send().unwrap().json().unwrap();
     assert_eq!((info.state.as_str(), info.network.as_str()), ("active", "regtest"));
     assert_eq!(info.vault_address, hex::encode(vault_addr));
-    let h = zebra_height();
+    let h = node_height();
     let alice = SigningKey::from_bytes(&[0xA1; 32]);
     let bob = SigningKey::from_bytes(&[0xB0; 32]);
     let ma = session_memo(&alice, &vault_addr, h + 1_000, external_receiver());

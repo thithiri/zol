@@ -84,7 +84,7 @@ Everything is local and real; only the player's wallet and the Zcash miner are s
 
 **Zcash side.**
 
-- Zebra 6.4.2 regtest (`spikes/zebra`, :18232).
+- Zakura 1.6.0 regtest (`infra/zakura`, :18232; NU7 active). It was Zebra 6.4.2 when first run; the run passes the same on Zakura.
 - Three `zol-zcashd --dev --dev-share i` (one Pallas share each).
 - Vault and genesis head (30,000,000 zatoshi float) from `/vault` and `/dev/genesis`, mined to full depth.
 
@@ -181,7 +181,7 @@ To skip the hour-long activation wait in run B, use the dev ledger build: `ZOL_D
 ./scripts/build-sbf.sh
 cargo build --release -p zol-gateway --bin zol-gateway
 cargo build --release --manifest-path crates/zol-zcash/Cargo.toml --bin zol-zcashd
-spikes/zebra/scripts/up.sh pair                          # Zebra 6.4.2 regtest on :18232
+infra/zakura/scripts/up.sh pair                          # Zakura regtest on :18232 (miner: the zol-dev dev wallet)
 cd spikes/magicblock && npm install && (cd ledger-e2e && cargo build --release --bins) && cd ../..
 cd web && npm install && cd ..
 spikes/magicblock/zcash-leg/run.sh                       # brings everything up, then plays as the page
@@ -192,7 +192,7 @@ The script leaves the stack running: base :28899, rollup :27799, gateways :18710
 To play by hand in a browser:
 
 1. `cd web && VITE_GATEWAY=http://127.0.0.1:18710,http://127.0.0.1:18711,http://127.0.0.1:18712 npm run dev`.
-2. Pay the shown link with `POST :18310/dev/send` (`to` = the session receiver bytes, `memo` = the link's memo bytes), then mine with `generate` on Zebra.
+2. Pay the shown link with `POST :18310/dev/send` (`to` = the session receiver bytes, `memo` = the link's memo bytes), then mine with `generate` on the node (:18232).
 
 Run `run.sh` again to reset; it kills the previous run first.
 

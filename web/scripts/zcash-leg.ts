@@ -19,7 +19,7 @@ const APP = "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo";
 const GW = process.env.GATEWAY ?? "http://127.0.0.1:18710";
 const GWS = (process.env.GATEWAYS ?? "http://127.0.0.1:18710,http://127.0.0.1:18711,http://127.0.0.1:18712").split(",");
 const ZCASHD = process.env.ZCASHD ?? "http://127.0.0.1:18310";
-const ZEBRA = process.env.ZEBRA ?? "http://127.0.0.1:18232";
+const NODE = process.env.ZOL_NODE_URL ?? "http://127.0.0.1:18232";
 const BIN = `${root}spikes/magicblock/target/e2e/release/coinflip`;
 const base = new Connection("http://127.0.0.1:28899", "confirmed");
 const er = new Connection("http://127.0.0.1:27799", "confirmed");
@@ -28,8 +28,8 @@ const cf = new Coinflip({ ledger: new PublicKey("3qh6GRqjmVSeVctB6R7oYYsdG68oFyR
 const relayer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(`${root}spikes/magicblock/keys/payer.json`, "utf8"))));
 const out = (o: object) => console.log(JSON.stringify({ t: new Date().toISOString().slice(11, 19), ...o }));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const zebra = async (method: string, params: unknown[] = []) =>
-  (await (await fetch(ZEBRA, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json()).result;
+const node = async (method: string, params: unknown[] = []) =>
+  (await (await fetch(NODE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json()).result;
 async function post(url: string, body: unknown) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const t = await r.text();
@@ -72,7 +72,7 @@ for (const [i, d] of deps.entries()) {
   const r = await post(`${ZCASHD}/dev/send`, { to, value: 1_000_000, memo });
   out({ step: `wallet pays p${i}`, memo: i === 0 ? "ZOL1 text" : "dropped", txid: Buffer.from(r.txid).toString("hex").slice(0, 16) });
 }
-await zebra("generate", [10]);
+await node("generate", [10]);
 
 // 3. Page polls: seen -> credited, and the ledger balance appears.
 for (const [i, p] of players.entries()) {
@@ -80,7 +80,7 @@ for (const [i, p] of players.entries()) {
   const st = await until(`p${i} credited`, 240, async () => {
     const ds = await gw.deposits(APP, hex(p.publicKey));
     return ds.find((d) => d.state === "credited") ?? null;
-  }, () => zebra("generate", [1]));
+  }, () => node("generate", [1]));
   const b = decodeBalance((await base.getAccountInfo(cf.pdas.balance(p.keypair.publicKey)))!.data);
   out({ step: `p${i} credited`, ms: Date.now() - t0, deposit: st, ledger_balance: String(b.amount) });
 }
@@ -115,6 +115,6 @@ const t0 = Date.now();
 const paid = await until("settlement Paid", 600, async () => {
   const st = JSON.parse(execFileSync(BIN, ["settlement", "0"]).toString());
   return st.state === "Paid" ? st : null;
-}, () => zebra("generate", [5]));
+}, () => node("generate", [5]));
 out({ step: "settlement paid on Zcash and marked on Solana", ms: Date.now() - t0, ...paid });
 for (const [i, p] of players.entries()) out({ step: `p${i} deposits view`, deposits: await gw.deposits(APP, hex(p.publicKey)) });

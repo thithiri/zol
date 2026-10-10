@@ -2,7 +2,7 @@
 //!
 //! - [`keys`]: per-app vault keys (spike 0.8 spec v1 + ZIP 2005 `use_qsk`), session receivers.
 //! - [`frost`]: rerandomized FROST over Pallas with per-app share tweaks.
-//! - [`zebra`]: async JSON-RPC client for Zebra 6.4.2.
+//! - [`node`]: async JSON-RPC client for the Zcash node (Zakura).
 //! - [`block`]: raw block parsing.
 //! - [`scan`]: Ironwood (and Orchard) scanner with nullifier tracking, witnesses and reorgs.
 //! - [`tx`]: the `pczt` role pipeline and plain Ironwood sends (wallet/test helper).
@@ -16,6 +16,7 @@ pub mod frost;
 pub mod genesis;
 pub mod head;
 pub mod keys;
+pub mod node;
 pub mod params;
 pub mod payout;
 pub mod refund;
@@ -25,7 +26,6 @@ pub mod testing;
 mod tree;
 pub mod tx;
 pub mod verify;
-pub mod zebra;
 
 pub use keys::{encode_ua, AppKeys, Receiver, ReceiverIndex};
 pub use orchard::keys::Scope;
@@ -64,7 +64,7 @@ pub enum Error {
     Tree(String),
 }
 
-/// Big-endian hex of a 32-byte hash stored in internal (little-endian) order, as Zebra's RPC
+/// Big-endian hex of a 32-byte hash stored in internal (little-endian) order, as the node's RPC
 /// and block explorers display txids and block hashes.
 pub fn display_hex(h: &[u8; 32]) -> String {
     let mut r = *h;

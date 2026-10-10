@@ -1,4 +1,4 @@
-# ZOL Zcash side: per-app vault keys, Zebra RPC, Ironwood scanner, refund and genesis
+# ZOL Zcash side: per-app vault keys, node RPC, Ironwood scanner, refund and genesis
 # builders, FROST spend authorization. The Zcash crate stack is pinned exactly.
 # Its own workspace: pczt 0.9.3 needs a sha2 0.11 pre-release that cannot share a
 # build with anchor-lang 1.2, so the gateway talks to it as a separate process.
