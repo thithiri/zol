@@ -11,4 +11,4 @@ else
   "${COMPOSE[@]}" up -d zebra-a
   wait_rpc a
 fi
-echo "zebra-a RPC: http://127.0.0.1:${ZOL_ZEBRA_RPC_PORT:-18232}  height=$(rpc a getblockcount | result)"
+echo "$CPREFIX-a RPC: http://127.0.0.1:$RPC_PORT  height=$(rpc a getblockcount | result)"

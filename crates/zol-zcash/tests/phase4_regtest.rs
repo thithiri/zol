@@ -2,6 +2,11 @@
 //! processes holding ONE Pallas FROST share each (2-of-3), over /payout/* and /sign/*.
 //! Ignored by default:
 //! `cargo test --test phase4_regtest -- --ignored --nocapture --test-threads=1`
+//! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/; the reorg test needs the
+//! spikes/zebra pair), `ZOL_DEV_SEED` (default "phase4-test"; for Zakura, the seed whose
+//! dev wallet UA is the node's miner_address).
+//! Reorg tests drive the node pair with `docker exec`/`spikes/zebra/scripts`; `ZOL_ZEBRA=zebra7`
+//! selects the Zebra 7 NU7 pair (containers zol-zebra7-a/b, RPC 18272/18282).
 
 use std::{process::Child, time::Duration};
 
@@ -20,7 +25,12 @@ impl Drop for Daemon {
     }
 }
 
-const SEED: &str = "phase4-test";
+fn seed() -> String {
+    std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "phase4-test".into())
+}
+fn zebra_url() -> String {
+    std::env::var("ZOL_ZEBRA_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into())
+}
 const BIN: &str = env!("CARGO_BIN_EXE_zol-zcashd");
 
 fn free_port() -> u16 {
@@ -37,8 +47,9 @@ fn spawn(dir: &std::path::Path, app_hex: &str, i: usize) -> Daemon {
     let port = free_port();
     let state = dir.join(format!("state{i}"));
     let mut cfg = format!(
-        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\npoll_ms = 200\napps = [\"{app_hex}\"]\n[zebra]\nurl = \"http://127.0.0.1:18232/\"\n",
-        state.display()
+        "listen = \"127.0.0.1:{port}\"\nnetwork = \"regtest\"\nstate_dir = \"{}\"\npoll_ms = 200\napps = [\"{app_hex}\"]\n[zebra]\nurl = \"{}\"\n",
+        state.display(),
+        zebra_url()
     );
     let mut args = vec![
         "--config".to_string(),
@@ -48,14 +59,14 @@ fn spawn(dir: &std::path::Path, app_hex: &str, i: usize) -> Daemon {
         args.extend([
             "--dev".into(),
             "--dev-seed".into(),
-            SEED.into(),
+            seed(),
             "--dev-share".into(),
             i.to_string(),
         ]);
     } else {
         // Operator mode: take the [keys] section, keep only share 2.
         let out = std::process::Command::new(BIN)
-            .args(["--print-dev-keys", "--dev-seed", SEED])
+            .args(["--print-dev-keys", "--dev-seed", &seed()])
             .output()
             .unwrap();
         let keys = String::from_utf8(out.stdout).unwrap();
@@ -294,7 +305,7 @@ impl Env {
 }
 
 async fn setup(tag: &str) -> Env {
-    let z = ZebraClient::new("http://127.0.0.1:18232/");
+    let z = ZebraClient::new(zebra_url());
     z.get_block_count()
         .await
         .expect("regtest up (spikes/zebra/scripts/up.sh pair)");
@@ -673,7 +684,10 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
     let out = std::process::Command::new("docker")
         .args([
             "exec",
-            &format!("zol-zebra-{node}"),
+            &format!(
+                "zol-{}-{node}",
+                std::env::var("ZOL_ZEBRA").unwrap_or_else(|_| "zebra".into())
+            ),
             "curl",
             "-s",
             "-H",

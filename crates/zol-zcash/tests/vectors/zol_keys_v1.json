@@ -1,0 +1,358 @@
+{
+  "ak_group": "7e919e81ca5e9e57f37d7c8514c416b8c1229f603bb56250ea0cf272d256ac2f",
+  "ak_group_scalar": "0x5a5a5a5a (negated if needed so that ỹ(ak_group) = 0)",
+  "cases": [
+    {
+      "ak_app": "12a65d8963c270d4242a26952439ff8621a7f545515b851bf69e82c73803ab11",
+      "app_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "counter": 0,
+      "fvk": "12a65d8963c270d4242a26952439ff8621a7f545515b851bf69e82c73803ab1191318d7db164b3b71877f987468af4c8d3e9305e9c8bf9902c48cdb80ca5f5068fd08f362d96cd151293430382529e3148b9c330ae11359c6281f9c1aaad882e",
+      "network": "mainnet",
+      "network_byte": 0,
+      "nk": "91318d7db164b3b71877f987468af4c8d3e9305e9c8bf9902c48cdb80ca5f506",
+      "ovk_external": "e7163309ffef5ef7485791534218aac4c41e3cdd4e36e3ce1d36b0daa9acf1ca",
+      "ovk_internal": "95f9c07c40dfd0cb34f787dc9b4cbf4a7efc13cb620a2f549fb2ef8b78a7c418",
+      "padding_ovk": "651ee4513188b2b374a1dc1d0a39f936083ea1039f94645776b0b9c15616a538",
+      "qk": "76aedc6a87f3be0e9dd4215760dc2585f6b725294ce3d93b2e0c49fc8ab2f6c8",
+      "qsk": "040b495a8ee1cdab741a44f42a4479fa11e932715a0e717b1c2a86d19477e501",
+      "rejected": [],
+      "rivk_ext": "8fd08f362d96cd151293430382529e3148b9c330ae11359c6281f9c1aaad882e",
+      "sessions": [
+        {
+          "index": "81d6750492893ae06750d9",
+          "receiver": "d3382893eb2ef13a49e97b01d00dddb0a6bb289d73b5e756dfd038def1f876b7815e7131c9f3bf372081bf",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "eed7991f05954aaca7b768",
+          "receiver": "a904e30fd5d9bbf1803ddfa01e102c82129116aa9d5b4d70b3ae0f978f4beb0ae1daa2c3c3469650923423",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "5eb2d7f72b48d8662884e299a5169b52d158f31f6acf542ad2de8c8f0e356727",
+      "vault_address": "ae41b70729a88447bfb9a49d31ef0d5aaa5faab6cb3e8bea2cfe9cf5525861254311aded270bd57e383eb2",
+      "vault_internal_address": "e00d9eb9d1cdd734d24a5c32d8cc763a8426f7d24b970f85de844a7f5bc90df58ec0e8565250868e9eb93b",
+      "view_secret": "1588e6eadecc0f463291a71d71e2a737bea76122aba32ba97d21744fe656ba50"
+    },
+    {
+      "ak_app": "fb802676115d820d96b5a1876f0fc36ff269280d3dd17a663e2d6a6ec95b5f26",
+      "app_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "counter": 0,
+      "fvk": "fb802676115d820d96b5a1876f0fc36ff269280d3dd17a663e2d6a6ec95b5f268139a8f14cfe60dfcf509c2ed8a6017cdc16221c4e37ab62cf876fcb0f59bc1fd143e52d1178272c2dbfa308f98e084eb2d9032a123129f39f775b4e7daf4f1d",
+      "network": "mainnet",
+      "network_byte": 0,
+      "nk": "8139a8f14cfe60dfcf509c2ed8a6017cdc16221c4e37ab62cf876fcb0f59bc1f",
+      "ovk_external": "c3f480ffe30b1e3fa81116670983ed2d852bd12f7792e31c57a62d6cb4f3048d",
+      "ovk_internal": "5c9fd5c6dd4089a9bb79b6894fe17352fa7cb74e0faeade77c9f6e69494ecadf",
+      "padding_ovk": "c27ce13125d992b3f3e405f657dadaf4ee0d6327c20e1acf3d497119615707e9",
+      "qk": "492d215ec1b3a9d77827b2759143f6b57dfc8f934b4f6900d11e71b0d5bddde1",
+      "qsk": "4b27e2f8e5bdc2259ce88f56c0470c268fff010eadcc2905b1d49d50da73b50e",
+      "rejected": [],
+      "rivk_ext": "d143e52d1178272c2dbfa308f98e084eb2d9032a123129f39f775b4e7daf4f1d",
+      "sessions": [
+        {
+          "index": "7218e802b76025e5bce194",
+          "receiver": "ca396bf8ddc63c8d97ee95963b62cf4e531c271821f4bbfde93ca87a73db10e0922735be5cb977e4ec051f",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "8626c46629249092175d77",
+          "receiver": "d527c00965f03c548dd6dcebf8d8e7d3927c65e07fe0484fc89621f48474d54b8a832e0d86165cc925501b",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "26fca43b10543599ed6bb10f5e84c0967d8210a39c41f80449af9bfdfd509720",
+      "vault_address": "7254f3a2ba4918fa6e598c6c664e68ecc2a2a9695726a08be6a6f69b17e0c056ce7a5f4ded19d55131a99a",
+      "vault_internal_address": "67574105232f289b2f0400b6377e28ec0b959cd46c0a88b2d7c7b8d1f77689bc2e78feb89d1cab250f8e04",
+      "view_secret": "8719f0b4dea0d99dff3d18903d8a86678ca1827a9194bb057acd69a71e6cb319"
+    },
+    {
+      "ak_app": "73785801d912ba87e26fb2eb6363e7aebe207cb16e84902fd1a33f0803e6a405",
+      "app_id": "0101010101010101010101010101010101010101010101010101010101010101",
+      "counter": 1,
+      "fvk": "73785801d912ba87e26fb2eb6363e7aebe207cb16e84902fd1a33f0803e6a405fcdc2c2f1380f8c646ba7b3e0505c29df4edddbc9392d7b5f32a9fad1452a03791ff13e0fa430d689fd7ff66321c5dde408f1b4a7069db9e65850389a6b97c2e",
+      "network": "mainnet",
+      "network_byte": 0,
+      "nk": "fcdc2c2f1380f8c646ba7b3e0505c29df4edddbc9392d7b5f32a9fad1452a037",
+      "ovk_external": "a16bb108b24680c6079056b1bcdd90f28c754f1f44d6d43dd5fdf85ca5fc3a40",
+      "ovk_internal": "319c8bff2fe5b92ae3ebf79001c80ee76682f349665b4ce8467fd771774afcb8",
+      "padding_ovk": "90b5a7b52ce0e3e57a2a2bdac43b17ed1b5cd42c3cbf2c685a3da5d0973ecd1f",
+      "qk": "639417f30040023bd4185c77db5a703ccd5b4b1c8ff3adb373aec817fd7ccbcb",
+      "qsk": "1506f546a0f9004c06c6ef97df85b0a4059a4d4424449962844a0998753b8e30",
+      "rejected": [
+        {
+          "ak_candidate": "24f4d7ea656a12bd5a8e5503b4754932755fd3e96141affcedb7ddd3fe385fa0",
+          "c": 0,
+          "tweak": "91cadfe7bcb2aa0065c5dc176e235d9b83a5f7f37076e8d5070feca6f964e436"
+        }
+      ],
+      "rivk_ext": "91ff13e0fa430d689fd7ff66321c5dde408f1b4a7069db9e65850389a6b97c2e",
+      "sessions": [
+        {
+          "index": "ecb9195c1a3473fd195350",
+          "receiver": "5660b15a722d79fdb46993ad10f0eb4263ad0dbed9939ccf4d24a3dd68232159e2acb9379b8722042f9ba5",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "815c067f6e0a9b38f77cb7",
+          "receiver": "9cd61c6e2db2ebbab977b446a6dcd1e0759da5ea970ce983d73d408642b4204e2d31caffb0f7bb510a78a5",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "f2fd9cc29ac3ff0ff5fbad05069a80fd8fac1493a599e9eeac09eb939f1c6e3e",
+      "vault_address": "2dcb23d6b25bc42fb9c6d12ab84d8ce419a70024a84cab722971f2308b27d7f33f980767f7456d8e1c639f",
+      "vault_internal_address": "55f3d0dfab2bf3ec1ecc3e33af40a755a97b03d015172cea8674ad11b83a2504db3920929dd5a927a04227",
+      "view_secret": "32a522fe5ea11366118bf90e3e466a4f40e2d10668d979c9c3dd03d9a953cffd"
+    },
+    {
+      "ak_app": "0f5438863a0ad40e03b9bf1177cb6320dc01834b0539d15906db9321aa626f1e",
+      "app_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "counter": 0,
+      "fvk": "0f5438863a0ad40e03b9bf1177cb6320dc01834b0539d15906db9321aa626f1e731bbe90425e500489609e949bf66ccdffa0c4751c1fd0373e512ae541dc7e0521ca77843c7ac6f41f45ac1870c999a0c616cb935126a350fc27818412a2811f",
+      "network": "testnet",
+      "network_byte": 1,
+      "nk": "731bbe90425e500489609e949bf66ccdffa0c4751c1fd0373e512ae541dc7e05",
+      "ovk_external": "af11f4f4a15d9fad4c0a82213aa8f9329c099ab0ffa3ef0cb332469dcece8da9",
+      "ovk_internal": "22942816301f4728ac7db63d06266888cec8124fbf0c35c408ccdfb5576f23d4",
+      "padding_ovk": "146df9a6a34027d427282b47cdbffca3b64a536ba4978a2e8314a1887076c041",
+      "qk": "eb10eccc27f41e0c74095427fa3d90393fc1ad931d3f383d5a5b415660f711de",
+      "qsk": "a331586a483ec0ed973dc2dd999449ef823af5d60fafd007ce1b639fc7a5226e",
+      "rejected": [],
+      "rivk_ext": "21ca77843c7ac6f41f45ac1870c999a0c616cb935126a350fc27818412a2811f",
+      "sessions": [
+        {
+          "index": "81d6750492893ae06750d9",
+          "receiver": "15cf790331243dd7e818d8336cf68052ed835ebf0dbb5badc395aded2776704c057edfe84827e597566309",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "eed7991f05954aaca7b768",
+          "receiver": "5d05dee99b6eac70f839496b712fdab27d2098fc9bf239ef1a3d5c67971032f6a191b2769b64b344de1b8d",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "47d14e35032e98bc369422c61eb5abfde037f4d097ea6028ffb3a7ae36e5ec34",
+      "vault_address": "880c0138604eee8cb52bad7a8ed8b218d08d277e137396f17656cec7061afc063c3fa89318236e24adbab1",
+      "vault_internal_address": "d156c2bcff4344c90f13d53edc3f35bfdae9c56df1b0a6d9e944d699537635ac42105bda7d48476769aaa1",
+      "view_secret": "ac57f57ca4aff5b19629845a390a9c94dd719ed69ecb06857dc239cb2c6d25a5"
+    },
+    {
+      "ak_app": "ce73d0ec3b221db579a4d150dd7f4d9524649bed618cd75433dd900819d42f20",
+      "app_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "counter": 1,
+      "fvk": "ce73d0ec3b221db579a4d150dd7f4d9524649bed618cd75433dd900819d42f20e5a83a82c62310a6f26ac44c49cd51d2c8a3bf6e8bd628cd45306515fd01271e36fae035348fb1100ae170478717664c1b6bc7c93a604ede289bc09d7ea84c16",
+      "network": "testnet",
+      "network_byte": 1,
+      "nk": "e5a83a82c62310a6f26ac44c49cd51d2c8a3bf6e8bd628cd45306515fd01271e",
+      "ovk_external": "f80f6d1b082a541f38f0154f62ecfb53145a61ad993913e462182241b861fdf2",
+      "ovk_internal": "071bdc4645813faaebbbee17546db36e53bc3047685340326312c1193b9de144",
+      "padding_ovk": "967b0054b3408f73e041065e3e4bbdc687b7134c32945af1043839984d7a0e08",
+      "qk": "3e4684e6639018876bec956f8ccd034bbdccd5ff3c9afd556290472718617309",
+      "qsk": "ca397acfe752a575ec652b5747b72258009498719aae76f61adc87fcab2f1d82",
+      "rejected": [
+        {
+          "ak_candidate": "092f7b50112ea3e6dad08e6e3f38749cf90fc2e325d711a41c26c0b359a1e9ac",
+          "c": 0,
+          "tweak": "92bca052cc575bbdced56e321c0a10a48eb2a53884c2c66a4116c8a865230d24"
+        }
+      ],
+      "rivk_ext": "36fae035348fb1100ae170478717664c1b6bc7c93a604ede289bc09d7ea84c16",
+      "sessions": [
+        {
+          "index": "7218e802b76025e5bce194",
+          "receiver": "754913f3aa9ac633fc98ea4d740acea1bfffbfe8f80cd2ba86e04459f7a39c89defdacddc9e48b841b191f",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "8626c46629249092175d77",
+          "receiver": "e30ee938654eab37e58cf33966f1e5654bdec9563fb9b4906ec0a7ca8d7131e66bbc9291ea74656b359ca4",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "8a1944f2adc9c4e795de7d491805590507a97b8ae8c2a91edbdf5be270d7ce1f",
+      "vault_address": "5cf7d49c5790a3c7cc2e0ecf17f4025469ec6a48355e29a5829ecb9063bb96850be17d175ad8fccd91c5a4",
+      "vault_internal_address": "a8126711c67f3dbebb2d56b4780a868ee34200eb4be6840137cc90bc048a7d5822a7566752eb74a9a03439",
+      "view_secret": "36dbea7942b3de48f58e2361841743e5db770204ea0025d2a41a67034c28dc88"
+    },
+    {
+      "ak_app": "d3ad7e73f0f9836fbc00ff843965cacc659cc486cee2ec7783da41b26ff9630f",
+      "app_id": "0101010101010101010101010101010101010101010101010101010101010101",
+      "counter": 1,
+      "fvk": "d3ad7e73f0f9836fbc00ff843965cacc659cc486cee2ec7783da41b26ff9630f8d845690995980c9760713f81677ec8d1f19c684a19a2ad1a0ab5b1bfd2a5c25ea223e56d152df7e7741e215993686c75e1a3f5d9a553101bb8707926b55dc25",
+      "network": "testnet",
+      "network_byte": 1,
+      "nk": "8d845690995980c9760713f81677ec8d1f19c684a19a2ad1a0ab5b1bfd2a5c25",
+      "ovk_external": "77c1dad54273a71141c182b7b9b53bdfacc7f9aae23ba7511ca38b00fb866865",
+      "ovk_internal": "0817a552bb8d70692d583e262f4a932da5b961c7cb9b11b3d4769050590afe7b",
+      "padding_ovk": "e678f4fdb120d12ff31643782e2525535a8dca124089d8b7d65b26015f7710af",
+      "qk": "03ff65b3d2269687b6cc4e4347a4fd9371decc591a9386cfe4d92ec626a5ca2a",
+      "qsk": "f2fa888aa47586ebd72a0544818627398c37761c0decd76dc9cc9834cd0255a7",
+      "rejected": [
+        {
+          "ak_candidate": "4bfc1abbed918859cbe8258134c419237286009f6a0c281bc6dd92e2b75b19b8",
+          "c": 0,
+          "tweak": "bf433e57bfca24d42adfc9059b32a67d8b167e9e39801c0bfd79802f2a956502"
+        }
+      ],
+      "rivk_ext": "ea223e56d152df7e7741e215993686c75e1a3f5d9a553101bb8707926b55dc25",
+      "sessions": [
+        {
+          "index": "ecb9195c1a3473fd195350",
+          "receiver": "f009aa18c6a44fb30f7f5dfe76f99a57bce0341d4b236f0efa6794a70cc6612d57f9d4c1dcfd3bca7a7cb5",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "815c067f6e0a9b38f77cb7",
+          "receiver": "70bfb69ffcf58a1eb40e6870f7d604db3e46dc278393b787dc9e5c58de4bc3124348776a248fe75bfa5abc",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "8e4c65cee2772e169c943d58452a99c1bc2a556ecb91ef816a1ed91031734631",
+      "vault_address": "5560b37e6fff0a37f7021aba99922e1da6ad866d5bd2a970800369c5d6d2c7ca2300b46d8d5a9912ed11a1",
+      "vault_internal_address": "ba200d463170a6aa9b69035f344a102e084a95ec3d15a8370d2880036bc1c9db66a87f9881f93591e3540e",
+      "view_secret": "26f9ea2190b42a03a3256878b70ee940db8c9506cae814b90ab83762446d6626"
+    },
+    {
+      "ak_app": "b1aa31ca28c3f0575cf7a94563cbad6c8803d0d156a43e45412b992fa77caa1b",
+      "app_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "counter": 7,
+      "fvk": "b1aa31ca28c3f0575cf7a94563cbad6c8803d0d156a43e45412b992fa77caa1b81fa5c169f536411ef562abaf80403867f5b264b71c3c7c35a95d42ce27c8501f562fdd3c9800edcf1a43f2a5597c5a9fac52d4b6f83caa18dfa5d1ff2b0390a",
+      "network": "regtest",
+      "network_byte": 2,
+      "nk": "81fa5c169f536411ef562abaf80403867f5b264b71c3c7c35a95d42ce27c8501",
+      "ovk_external": "0fce2d54c73b7002a7b92e3a369169b8cb7e8dd983cd279b88ab120afedf52c0",
+      "ovk_internal": "979838fa4704c7899dee2e8d9b454b597860d865827cb0b47d0c790cd3743746",
+      "padding_ovk": "53c52f175aec229d2b8c88407efa90f2273eddbad679b5174e3ac04b060b4e1a",
+      "qk": "7594133faab56899ee02f7a47bc27c5a96477a048b5bc687573246aee3930a6d",
+      "qsk": "843970b248fdfa4bbd67d2a6c3b44624402ad0d8fa9a616e1fc71fbb705e10a0",
+      "rejected": [
+        {
+          "ak_candidate": "802557473de1a6d264c7fb99e4124caf1d7be8be3eb6ee9840a278499ba5578f",
+          "c": 0,
+          "tweak": "c28f82fd4d3c8459e41e370931319ceec4bf34891cb67cad6037bbb9932f5006"
+        },
+        {
+          "ak_candidate": "db7d4cacbbd0334e4832e1df94fb1fc91a8a2887b572c0608b40d8e2bb9aabbc",
+          "c": 1,
+          "tweak": "5c63af98eed12ea03be7403ff7196a67a8eb4aac7ea3304d5c958530b44e0b1a"
+        },
+        {
+          "ak_candidate": "099952c35a50f9d1d895e3dd6ff6dd6c9ef9f4197d64813c9d078011c9e6c6b5",
+          "c": 2,
+          "tweak": "819c93a84f03a97fb281282d6fbb946804799aa3b3dc86412fc0e1e7ab35e329"
+        },
+        {
+          "ak_candidate": "53892f39f8a6ab2b8b2e6181272fab5e6b4144395762f857fe238b94ee4fc297",
+          "c": 3,
+          "tweak": "9302d7608464aa2c5f7bd56b2a2cc4d88961520f2d108e33d1e35337cded8b11"
+        },
+        {
+          "ak_candidate": "ad5aed149cfeadbad1937a014a9ce7a8b3da60b9febc807f8efb19e76094d795",
+          "c": 4,
+          "tweak": "87f95f24f04e887456c70ad67b5b484faecfd5c080b23af21fb5b1a725d44734"
+        },
+        {
+          "ak_candidate": "be007757be95d7f51bcb8f0d388fc8e63fcd1305e7f039cc6eac11bedc0221bd",
+          "c": 5,
+          "tweak": "f96f35b2b6c001c3a67f821d2c4c2cb87d591666d1583a92727d0815128ab13a"
+        },
+        {
+          "ak_candidate": "ebe9ae033da000732a1841a764748a2e8739f8d6ab5513eb5466d0627d7b089d",
+          "c": 6,
+          "tweak": "0d31777a8ea384aeb17e3bcd32363ecfa49a8f912ebff34e092c00328e629101"
+        }
+      ],
+      "rivk_ext": "f562fdd3c9800edcf1a43f2a5597c5a9fac52d4b6f83caa18dfa5d1ff2b0390a",
+      "sessions": [
+        {
+          "index": "81d6750492893ae06750d9",
+          "receiver": "374606c73223613af10720a061e3e7a1d493b375bab168fe73821a992f1da5b8746922cd210e8750b6bd8b",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "eed7991f05954aaca7b768",
+          "receiver": "ae9097e1da1088193e76499ec8e1df7d97e218d6a15909b5970e332f66ce84a0922459fd0346ab0ea9e089",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "bcd0162948f33924ffe7fb335c5d6236fb7ed1981a68e2401bf7359bccc23008",
+      "vault_address": "4d85938609b70ac9c3f10a6d40460a6e87d26e86e2342cb5ddf4970ed0967ccafe8e3e4380873f131cb689",
+      "vault_internal_address": "453f1d20b045af971095306be22a3210629deb77207aa1f99c47eabbfa33b959db471ed8779aaf12c70923",
+      "view_secret": "529945e0bbe09d35087636dbe958e694d359d2f8f24c619e9c21a5cb02d9b374"
+    },
+    {
+      "ak_app": "0b35c8b8e963c95caf96719a9fedf6277f2425cb7f52940947676f630950ee38",
+      "app_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "counter": 1,
+      "fvk": "0b35c8b8e963c95caf96719a9fedf6277f2425cb7f52940947676f630950ee388426a58d1c2c4488c4506653667684ef46c9dd3ecb77451c74682410ac8b8b019b34b43a9b2854bd34ce10af71cbb16dacc005c0ffc1f2a3402a6579d65c942f",
+      "network": "regtest",
+      "network_byte": 2,
+      "nk": "8426a58d1c2c4488c4506653667684ef46c9dd3ecb77451c74682410ac8b8b01",
+      "ovk_external": "6aa98dc88c5162439e4f6262ad04a89aeb6b53496250d07ccedaa4e99cd2ab2f",
+      "ovk_internal": "22e45705b34cc6a66401365e7a8864ecd2ec65d9baef5d9c251f9c9deb399045",
+      "padding_ovk": "c2e054fc2939bd226fb0799dcc370bcb4beaf00eec8a4fcad299e4201cbece8a",
+      "qk": "c4de6e070639293aeea4a81de016fbae97a956b4f21595c93834b8989afc74dd",
+      "qsk": "adfeb6acb6ec0f431857cf261b1844557bebc74fd0e74af1fb5bcee805bec4f1",
+      "rejected": [
+        {
+          "ak_candidate": "a7ebf086aa57aa47debac1139eabd95fa2de243bf37067c0fd2eb6633af581a3",
+          "c": 0,
+          "tweak": "112497fad515d7408c8a78f5968f38a3c7bd0f5a85919f4a7bc58690ac3eaf02"
+        }
+      ],
+      "rivk_ext": "9b34b43a9b2854bd34ce10af71cbb16dacc005c0ffc1f2a3402a6579d65c942f",
+      "sessions": [
+        {
+          "index": "7218e802b76025e5bce194",
+          "receiver": "bdeb6fc3d459d8d28c0267b37489cb42547016b7e748de7387acb99ee53c964cfc51d925e76e6a0f27c0af",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "8626c46629249092175d77",
+          "receiver": "54065cd8bd974719dc2873c3df681708045c1c355fbe4dd83006088b27be701ea531fa34f56887fd598da7",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "7cd869bc812317bed9853083a021c65913ceec4eff24158aa93021a3fc78a901",
+      "vault_address": "3e18df4cdcc89655c65756a81f8b9c96f3f5179613e39af27324dc0f36578951a80582d18233f95e2b258a",
+      "vault_internal_address": "f9ba10b53dbfbe45704ce0add52161e78e614548b19d3a6810bd7034046de9c7fe95aa8bea1dd6e47b9fb8",
+      "view_secret": "81c87a5d81d10f770a9e5e1973c99aaa13e807496eee5a61777585395aada1a5"
+    },
+    {
+      "ak_app": "d5b12a3cb40ec9f270ec5fe9b617cb5184e283f9fb10690e200bc41ffeb0da38",
+      "app_id": "0101010101010101010101010101010101010101010101010101010101010101",
+      "counter": 0,
+      "fvk": "d5b12a3cb40ec9f270ec5fe9b617cb5184e283f9fb10690e200bc41ffeb0da38a21c88f3deb85a451cb76be5911d9d6a98e7e398104a12ab75704c837eeeeb35dd30d500588a9d003173a15dba1f4967046f60549c14e14bfa44834981cbeb1e",
+      "network": "regtest",
+      "network_byte": 2,
+      "nk": "a21c88f3deb85a451cb76be5911d9d6a98e7e398104a12ab75704c837eeeeb35",
+      "ovk_external": "998a6f7e08d4c0bfba157f44081f2da57260a61295f4cbe8320e59e40165c5ba",
+      "ovk_internal": "031dabb5026b42e425615bf866dea224f8b0b1f5d3e16ecdb3f18ecaabc825b5",
+      "padding_ovk": "dfd66b7895bd432b92f6db8173027d38013da8f54a63b55ae8d08964ca4d3f80",
+      "qk": "7e6e3c1dc6005e7af3b45589cd1ccfa4634ae0805d8b9eaa3fd7052c1f6481ef",
+      "qsk": "cb9236240051bb6f597fbab23ac6f29823cf1b8a106331a9fd5732f6d2bb6b8d",
+      "rejected": [],
+      "rivk_ext": "dd30d500588a9d003173a15dba1f4967046f60549c14e14bfa44834981cbeb1e",
+      "sessions": [
+        {
+          "index": "ecb9195c1a3473fd195350",
+          "receiver": "efbb787361351e5e9d495165bb6266038c504ff7551b286976dbd0aa079139498ac1c0bfdce134fc42863f",
+          "session_key": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "index": "815c067f6e0a9b38f77cb7",
+          "receiver": "5fdcf46f262b1eed7891bdba56861a786e030268ea3ec50ef811cc0d52db413ced254e530c7ca5c27506b0",
+          "session_key": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+        }
+      ],
+      "tweak": "3b5b9d6af07815bc12cdafa7c6d36ac7d92d7f27d71c5cc58a660118b5f66e1c",
+      "vault_address": "6cc1e73707a4c68bd3a3d7c661c2314d1e99011b034e60135ce5c6f19fb02c2fdf86d006ab351ac6ae7435",
+      "vault_internal_address": "6d375e4c331397e34ff7a164304efa9c320a6e3b46781e9d2921d425fb067320c52238a4f70de33c98ad96",
+      "view_secret": "db5943d597e781e57fefaf693a51ab9165248b19e4e6e81e8b15eb8a23d0187d"
+    }
+  ],
+  "description": "ZOL per-app vault key derivation, KEY_DERIVATION_VERSION 1 (docs/review/key-derivation.md). All values hex; scalars and base-field elements are little-endian repr; points are repr_P.",
+  "key_derivation_version": 1,
+  "master_view": "1111111111111111111111111111111111111111111111111111111111111111",
+  "spend_auth_generator": "63c975b884721a8d0ca1707be30c7f0c5f445f3e7c188d3b06d6f128b32355b7"
+}

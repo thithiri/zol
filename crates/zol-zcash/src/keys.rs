@@ -99,6 +99,28 @@ fn app_enc(app_id: &[u8; 32]) -> [u8; 34] {
     v
 }
 
+/// ZIP 2005 § 4.2.3 (`use_qsk = true`) components, as bytes: `nk` (I2LEOSP_256 of the
+/// base-field element), `qsk`, `qk` and `rivk_ext` (I2LEOSP_256 of the scalar).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Zip2005Keys {
+    pub nk: [u8; 32],
+    pub qsk: [u8; 32],
+    pub qk: [u8; 32],
+    pub rivk_ext: [u8; 32],
+}
+
+/// ZIP 2005 § 4.2.3 with `use_qsk = true`, from the agreed secret `sk` and the FROST `ak`
+/// (32-byte `repr_P` with ỹ = 0, which equals `I2LEOSP_256(Extract_P(ak^P))`).
+pub fn zip2005_use_qsk(sk: &[u8; 32], ak: &[u8; 32]) -> Zip2005Keys {
+    let (nk, qsk, qk, rivk) = zip2005_qsk_components(sk, ak);
+    Zip2005Keys {
+        nk: nk.to_repr(),
+        qsk,
+        qk,
+        rivk_ext: rivk.to_repr(),
+    }
+}
+
 /// The ZIP 2005 `use_qsk = true` viewing components for a given `ak` and per-app `sk`.
 pub(crate) fn zip2005_qsk_components(
     sk: &[u8; 32],
@@ -109,6 +131,22 @@ pub(crate) fn zip2005_qsk_components(
     let qk = blake3::derive_key(ZIP2005_QK_CONTEXT, &qsk);
     let rivk = to_scalar(&prf_expand(&qk, &[&[0x0D], ak, &nk.to_repr()]));
     (nk, qsk, qk, rivk)
+}
+
+/// The public tweak candidate `t_c` for counter `c` (see the module docs).
+pub fn app_tweak(
+    ak_group: &[u8; 32],
+    app_id: &[u8; 32],
+    network: Network,
+    c: u32,
+) -> pallas::Scalar {
+    let d = [KEY_DERIVATION_VERSION, network as u8];
+    let enc = app_enc(app_id);
+    to_scalar(
+        &blake(TWEAK_PERSONAL, 64, &[&d, ak_group, &enc, &c.to_le_bytes()])
+            .try_into()
+            .unwrap(),
+    )
 }
 
 /// The keys of one app's vault.

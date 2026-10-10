@@ -43,6 +43,18 @@ impl BlockchainInfo {
             .map(str::to_owned)
     }
 
+    /// Lowest height whose full block the node still serves, when it prunes (Zakura
+    /// `storage_mode = "pruned"` reports `pruned: true` and `pruneheight`). `getblock` and
+    /// `z_gettreestate` fail below it. `None` for an archive node (Zebra reports
+    /// `pruned: false`).
+    pub fn prune_height(&self) -> Option<u32> {
+        if self.rest.get("pruned")?.as_bool()? {
+            Some(self.rest.get("pruneheight")?.as_u64()? as u32)
+        } else {
+            None
+        }
+    }
+
     /// Value of a named pool in zatoshis (`transparent`, `orchard`, `ironwood`, ...).
     pub fn pool_zat(&self, id: &str) -> Option<i64> {
         self.value_pools
@@ -149,6 +161,19 @@ impl ZebraClient {
         self.call("generatetoaddress", json!([n, address])).await
     }
 
+    /// Regtest only: mine `n` blocks to `address`. Zebra has `generatetoaddress`; Zakura
+    /// (a Zebra fork) does not, so on "method not found" this falls back to `generate`,
+    /// which pays the node's `[mining] miner_address`: the operator must set that to
+    /// `address` for the coinbase to reach it. Returns the block hashes and whether the
+    /// fallback was used.
+    pub async fn mine_to(&self, n: u32, address: &str) -> Result<(Vec<String>, bool), Error> {
+        match self.generate_to_address(n, address).await {
+            Ok(h) => Ok((h, false)),
+            Err(e) if is_method_not_found(&e) => Ok((self.generate(n).await?, true)),
+            Err(e) => Err(e),
+        }
+    }
+
     /// `z_gettreestate`: raw JSON (contains `ironwood.commitments.finalState` from NU6.3).
     pub async fn z_get_treestate(&self, hash_or_height: &str) -> Result<Value, Error> {
         self.call("z_gettreestate", json!([hash_or_height])).await
@@ -157,5 +182,15 @@ impl ZebraClient {
     /// Mempool txids.
     pub async fn get_raw_mempool(&self) -> Result<Vec<String>, Error> {
         self.call("getrawmempool", json!([])).await
+    }
+}
+
+/// True when the node rejected the call as an unknown method (JSON-RPC -32601).
+pub fn is_method_not_found(e: &Error) -> bool {
+    match e {
+        Error::Rpc(m) => {
+            m.contains("-32601") || m.to_ascii_lowercase().contains("method not found")
+        }
+        _ => false,
     }
 }

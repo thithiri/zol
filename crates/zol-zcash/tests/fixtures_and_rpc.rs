@@ -11,6 +11,13 @@ use zol_zcash::{
     ChainParams, Error, Scanner,
 };
 
+/// The fixtures are Zebra 6.4.2 regtest blocks (NU6.3 at 1, no NU7): parsing checks the
+/// coinbase height against the branch ID, so they need the pre-NU7 heights.
+const PRE_NU7_REGTEST: ChainParams = ChainParams {
+    network: zol_zcash::Network::Regtest,
+    regtest: zol_zcash::params::RegtestHeights::PRE_NU7,
+};
+
 fn fixture() -> serde_json::Value {
     serde_json::from_str(include_str!("fixtures/coinbase_block.json")).unwrap()
 }
@@ -19,7 +26,7 @@ fn fixture() -> serde_json::Value {
 fn parses_and_scans_real_regtest_block() {
     let f = fixture();
     let raw = hex::decode(f["raw"].as_str().unwrap()).unwrap();
-    let b = parse_block(&raw, &ChainParams::REGTEST).unwrap();
+    let b = parse_block(&raw, &PRE_NU7_REGTEST).unwrap();
     let height = f["height"].as_u64().unwrap() as u32;
     assert_eq!(b.height, height);
     assert_eq!(display_hex(&b.hash), f["hash"].as_str().unwrap());
@@ -32,7 +39,7 @@ fn parses_and_scans_real_regtest_block() {
         parse_legacy_tree(&hex::decode(f["ironwood_final_state_prev"].as_str().unwrap()).unwrap())
             .unwrap();
     let mut sc = Scanner::new(
-        ScannerConfig::new(ChainParams::REGTEST),
+        ScannerConfig::new(PRE_NU7_REGTEST),
         vec![Account { id: [7; 32], fvk }],
         height,
         Some(b.prev_hash),
@@ -63,7 +70,7 @@ fn wrong_prev_hash_is_a_reorg() {
         parse_legacy_tree(&hex::decode(f["ironwood_final_state_prev"].as_str().unwrap()).unwrap())
             .unwrap();
     let mut sc = Scanner::new(
-        ScannerConfig::new(ChainParams::REGTEST),
+        ScannerConfig::new(PRE_NU7_REGTEST),
         vec![Account { id: [7; 32], fvk }],
         height,
         Some([1; 32]),

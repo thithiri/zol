@@ -24,7 +24,6 @@ use axum::{
     Json, Router,
 };
 use orchard::keys::{FullViewingKey, Scope as OScope, SpendingKey};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 use zol_types::{api, ChainEvent};
@@ -433,6 +432,12 @@ async fn health(State(n): S) -> Json<serde_json::Value> {
         "signers_held": n.shares.len(),
         "min_signers": n.min_signers,
         "last_error": err,
+        // Dev mode: the address dev funding mines to. A node without `generatetoaddress`
+        // (Zakura) must have this as its `[mining] miner_address`.
+        "dev_wallet_ua": n.dev.as_ref().map(|d| encode_ua(
+            &n.params,
+            &d.fvk.address_at(0u32, OScope::External).to_raw_address_bytes(),
+        )),
     }))
 }
 
@@ -1007,6 +1012,7 @@ async fn dev_inputs(
 ) -> Result<(Vec<zol_zcash::scan::Spendable>, u32), ApiErr> {
     let dev = n.dev.as_ref().ok_or_else(|| not_found("dev mode only"))?;
     let mut mined = 0u32;
+    let mut used_generate = false;
     loop {
         let (deficit, free_sum, free_n) = {
             let inner = n.inner.lock().await;
@@ -1059,7 +1065,12 @@ async fn dev_inputs(
         }
         if mined >= MAX_DEV_BLOCKS {
             return Err(bad(format!(
-                "dev wallet cannot fund {amount} zat within {MAX_DEV_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {free_sum} zat in {free_n} notes; block subsidy {per_block} zat"
+                "dev wallet cannot fund {amount} zat within {MAX_DEV_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {free_sum} zat in {free_n} notes; block subsidy {per_block} zat{}",
+                if used_generate {
+                    "; the node has no generatetoaddress (Zakura?), so blocks paid its [mining] miner_address: set that to the dev wallet UA (GET /health dev_wallet_ua, or --print-dev-keys)"
+                } else {
+                    ""
+                }
             )));
         }
         let blocks = (deficit.div_ceil(per_block) + 1)
@@ -1071,10 +1082,10 @@ async fn dev_inputs(
                 .address_at(0u32, OScope::External)
                 .to_raw_address_bytes(),
         );
-        n.client
-            .generate_to_address(blocks, &ua)
-            .await
-            .map_err(upstream)?;
+        let (_, fallback) = n.client.mine_to(blocks, &ua).await.map_err(upstream)?;
+        if fallback {
+            used_generate = true;
+        }
         mined += blocks;
         n.sync_once().await.map_err(internal)?;
     }
@@ -1175,22 +1186,14 @@ struct Keys {
 }
 
 fn dev_keys(seed: &str) -> (Keys, SpendingKey) {
-    let h = blake2b_simd::Params::new()
-        .hash_length(32)
-        .personal(b"ZOL_dev_seed_v1_")
-        .hash(seed.as_bytes());
-    let mut rng = rand_chacha::ChaCha20Rng::from_seed(h.as_bytes().try_into().unwrap());
-    let (shares, pubkeys) = frost::dealer(3, 2, &mut rng).expect("dealer");
-    let mut master_view = [0u8; 32];
-    rng.fill_bytes(&mut master_view);
-    let wallet = testing::random_spending_key(&mut rng);
+    let k = testing::dev_seed_keys(seed);
     (
         Keys {
-            master_view,
-            shares,
-            pubkeys,
+            master_view: k.master_view,
+            shares: k.shares,
+            pubkeys: k.pubkeys,
         },
-        wallet,
+        k.wallet,
     )
 }
 
@@ -1273,8 +1276,13 @@ async fn run() -> Result<(), String> {
     if args.iter().any(|a| a == "--print-dev-keys") {
         // Prints a `[keys]` section (cluster mode: all 3 shares) derived from the dev seed,
         // e.g. to see the format or to pin a dev key set in a config file.
-        let (k, _) = dev_keys(&arg("--dev-seed").unwrap_or_else(|| "zol-dev".into()));
+        let seed = arg("--dev-seed").unwrap_or_else(|| "zol-dev".into());
+        let (k, _) = dev_keys(&seed);
         println!("# ak_group = {}", hex::encode(frost::group_key(&k.pubkeys)));
+        println!(
+            "# dev_wallet_ua (regtest; Zakura [mining] miner_address) = {}",
+            testing::dev_wallet_ua(&ChainParams::new(Network::Regtest), &seed)
+        );
         println!("[keys]");
         println!("master_view = \"{}\"", hex::encode(k.master_view));
         println!(
@@ -1302,7 +1310,7 @@ async fn run() -> Result<(), String> {
         "regtest" => Network::Regtest,
         other => return Err(format!("unknown network {other}")),
     };
-    let params = ChainParams::new(network);
+    let mut params = ChainParams::new(network);
     if dev_mode && network != Network::Regtest {
         return Err("--dev is only allowed on regtest".into());
     }
@@ -1390,6 +1398,38 @@ async fn run() -> Result<(), String> {
         }
     };
 
+    // A pruning node (Zakura) only serves blocks and tree states from `pruneheight` on;
+    // the scanner cannot skip blocks, so refuse to start rather than fail every sync.
+    let info = client
+        .get_blockchain_info()
+        .await
+        .map_err(|e| e.to_string())?;
+    let prune_height = info.prune_height().unwrap_or(0);
+    // Regtest activation heights are node configuration: take them from the node, so the
+    // same binary builds NU6.3 transactions on a pre-NU7 regtest and NU7 ones on a NU7 one.
+    if network == Network::Regtest {
+        params = ChainParams::regtest_from_upgrades(
+            info.rest
+                .get("upgrades")
+                .unwrap_or(&serde_json::Value::Null),
+        )?;
+        eprintln!(
+            "regtest activation heights from the node: {:?}",
+            params.regtest
+        );
+    }
+    let check_prune = |need: u32, what: &str| {
+        if need < prune_height {
+            Err(format!(
+                "the node is pruned below height {prune_height} but {what} needs block {need}: \
+                 point [zebra] at an archive node or one whose retention covers it \
+                 (docs/ops/zcash-node.md)"
+            ))
+        } else {
+            Ok(())
+        }
+    };
+
     let state_path = cfg.state_dir.join("state.bin");
     let log_path = cfg.state_dir.join("events.jsonl");
     let (scanner, refunds, pending, log) = if state_path.exists() {
@@ -1404,6 +1444,7 @@ async fn run() -> Result<(), String> {
             accounts.into_iter().partition(|a| ids.contains(&a.id));
         let mut sc = Scanner::restore(&p.scanner, old)
             .map_err(|e| format!("restore (removed apps are not supported): {e}"))?;
+        check_prune(sc.next_height(), "resuming the scanner")?;
         for a in new {
             eprintln!(
                 "new app {}: scanned from height {} on",
@@ -1427,6 +1468,7 @@ async fn run() -> Result<(), String> {
         )
     } else {
         let start = cfg.start_height.unwrap_or(zebra_tip + 1).max(1);
+        check_prune(start - 1, "start_height (tree state at start_height - 1)")?;
         let sc = Scanner::from_zebra(ScannerConfig::new(params), accounts, &client, start)
             .await
             .map_err(|e| e.to_string())?;

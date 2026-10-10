@@ -1,6 +1,8 @@
 //! Spawns `zol-zcashd --dev` against the regtest pair (spikes/zebra) and drives the API.
 //! Ignored by default:
 //! `cargo test --test zcashd -- --ignored --nocapture`
+//! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/), `ZOL_DEV_SEED` (default
+//! "zcashd-test"; for Zakura, the seed whose dev wallet UA is the node's miner_address).
 
 use std::{process::Child, time::Duration};
 
@@ -29,7 +31,7 @@ fn spawn(cfg: &std::path::Path, port: u16) -> Daemon {
             cfg.to_str().unwrap(),
             "--dev",
             "--dev-seed",
-            "zcashd-test",
+            &std::env::var("ZOL_DEV_SEED").unwrap_or_else(|_| "zcashd-test".into()),
         ])
         .spawn()
         .expect("spawn zol-zcashd");
@@ -107,7 +109,9 @@ async fn all_events(d: &Daemon) -> Vec<(u64, ChainEvent)> {
 #[tokio::test]
 #[ignore]
 async fn zcashd_dev_flow() {
-    let z = ZebraClient::new("http://127.0.0.1:18232/");
+    let zebra_url =
+        std::env::var("ZOL_ZEBRA_URL").unwrap_or_else(|_| "http://127.0.0.1:18232/".into());
+    let z = ZebraClient::new(&zebra_url);
     z.get_block_count()
         .await
         .expect("regtest up (spikes/zebra/scripts/up.sh)");
@@ -130,7 +134,7 @@ state_dir = "{}"
 poll_ms = 200
 apps = ["{app_hex}"]
 [zebra]
-url = "http://127.0.0.1:18232/"
+url = "{zebra_url}"
 "#,
             dir.join("state").display()
         ),

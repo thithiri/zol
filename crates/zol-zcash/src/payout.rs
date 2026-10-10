@@ -69,6 +69,7 @@ pub const FAILURES: &[&str] = &[
     "fee_pool",
     "value_balance",
     "expiry",
+    "branch",
     "proof",
     "reserve",
 ];
@@ -451,6 +452,14 @@ pub fn verify(
     let exp = *pczt.global().expiry_height();
     if plan.expiry_delta > MAX_EXPIRY_DELTA || exp <= tip || exp > tip + 1 + plan.expiry_delta {
         fail(&mut f, "expiry");
+    }
+    // The branch the next block will use, and no expiry past the next upgrade (NU7): the
+    // signatures commit to the branch ID, so anything else can never be mined.
+    let params = scanner.config().params;
+    if *pczt.global().consensus_branch_id() != u32::from(params.branch_id(tip + 1))
+        || exp > tx::capped_expiry(&params, tip + 1, MAX_EXPIRY_DELTA)
+    {
+        fail(&mut f, "branch");
     }
     let elig = eligible(scanner, keys, plan, &head.note.cmx);
     let fvk = keys.fvk();

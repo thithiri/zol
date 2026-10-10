@@ -258,7 +258,24 @@ struct Snapshot {
     tree: TreeSnapshot,
 }
 
-const SNAPSHOT_VERSION: u32 = 2;
+/// 3: `ChainParams` gained the regtest NU7 height (vendored NU7 patch).
+const SNAPSHOT_VERSION: u32 = 3;
+
+/// The version field leads the bincode encoding; read it before decoding the rest, so an
+/// older layout reports its version instead of a decode error.
+fn snapshot_version(bytes: &[u8]) -> Result<u32, Error> {
+    let v = bytes
+        .get(..4)
+        .ok_or_else(|| Error::Scan("snapshot too short".into()))?;
+    let v = u32::from_le_bytes(v.try_into().unwrap());
+    if v != SNAPSHOT_VERSION {
+        return Err(Error::Scan(format!(
+            "scanner snapshot version {v}, expected {SNAPSHOT_VERSION}: recreate the state directory \
+             (version 2 predates the NU7 parameters)"
+        )));
+    }
+    Ok(v)
+}
 
 fn watched(a: Account) -> Watched {
     let ext = a.fvk.to_ivk(Scope::External);
@@ -329,7 +346,18 @@ impl Scanner {
                 .pointer("/ironwood/commitments/finalState")
                 .and_then(|v| v.as_str())
             {
-                None => None,
+                // Before NU6.3 there is no Ironwood tree: start from the empty frontier.
+                None if !config.params.ironwood_active(base) => None,
+                // Zebra and Zakura report an empty tree as "000000". A missing finalState
+                // means the node does not have this height's tree (Zakura omits it in a
+                // fast-synced band; see docs/ops/zcash-node.md). Assuming an empty tree
+                // there would silently corrupt every later anchor and witness.
+                None => {
+                    return Err(Error::Scan(format!(
+                        "z_gettreestate {base}: no ironwood finalState (the node lacks this \
+                         height's tree); refusing to assume an empty tree"
+                    )))
+                }
                 Some(hexs) => Some(parse_legacy_tree(
                     &hex::decode(hexs).map_err(|e| Error::Parse(e.to_string()))?,
                 )?),
@@ -753,12 +781,14 @@ impl Scanner {
 
     /// The account ids recorded in a snapshot (to rebuild the matching `Account`s).
     pub fn snapshot_account_ids(bytes: &[u8]) -> Result<Vec<[u8; 32]>, Error> {
+        snapshot_version(bytes)?;
         let s: Snapshot = bincode::deserialize(bytes).map_err(|e| Error::Scan(e.to_string()))?;
         Ok(s.account_ids)
     }
 
     /// Restores a snapshot. `accounts` must contain exactly the snapshot's account ids.
     pub fn restore(bytes: &[u8], accounts: Vec<Account>) -> Result<Self, Error> {
+        snapshot_version(bytes)?;
         let s: Snapshot = bincode::deserialize(bytes).map_err(|e| Error::Scan(e.to_string()))?;
         if s.version != SNAPSHOT_VERSION {
             return Err(Error::Scan(format!("snapshot version {}", s.version)));

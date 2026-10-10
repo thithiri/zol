@@ -102,6 +102,22 @@ fn config(anchor: Anchor) -> BuildConfig {
     }
 }
 
+/// `target_height + expiry_delta`, capped (as zcashd does) at the block before the next
+/// network upgrade after `target_height`: v5/v6 signatures commit to the consensus branch ID,
+/// so a transaction left unmined at the upgrade can never be mined, and a lower expiry
+/// releases its inputs sooner. Matters for a mainnet NU7 activation.
+pub fn capped_expiry(params: &ChainParams, target_height: u32, expiry_delta: u32) -> u32 {
+    let e = target_height + expiry_delta;
+    match params
+        .branch_id(target_height)
+        .height_bounds(params)
+        .and_then(|(_, next)| next)
+    {
+        Some(next) => e.min(u32::from(next) - 1).max(target_height),
+        None => e,
+    }
+}
+
 /// Builds an Ironwood v6 PCZT (Creator output). Outputs keep their order: output `i` of
 /// `outputs` is `meta.output_action_index(i)`, the change (if any) comes last.
 pub fn build_ironwood(
@@ -121,7 +137,7 @@ pub fn build_ironwood(
             "expiry delta must be in 1..={MAX_EXPIRY_DELTA}"
         )));
     }
-    let expiry_height = target_height + expiry_delta;
+    let expiry_height = capped_expiry(params, target_height, expiry_delta);
     let fee_rule = zip317::FeeRule::standard();
     let make = |change_value: u64| -> Result<Builder<ChainParams, ()>, Error> {
         let mut b = Builder::new(
@@ -336,4 +352,33 @@ pub fn verify_raw(raw: &[u8], _params: &ChainParams) -> Result<[u8; 32], Error> 
         .verify_proof(verifying_key())
         .map_err(|e| Error::Verify(format!("proof: {e:?}")))?;
     Ok(*tx.txid().as_ref())
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+    use crate::params::{Network, RegtestHeights};
+
+    #[test]
+    fn expiry_stops_before_the_next_upgrade() {
+        let p = ChainParams {
+            network: Network::Regtest,
+            regtest: RegtestHeights {
+                nu7: Some(50),
+                ..RegtestHeights::PRE_NU7
+            },
+        };
+        assert_eq!(capped_expiry(&p, 5, 40), 45);
+        assert_eq!(capped_expiry(&p, 45, 40), 49);
+        assert_eq!(capped_expiry(&p, 49, 40), 49);
+        assert_eq!(capped_expiry(&p, 50, 40), 90);
+        assert_eq!(
+            capped_expiry(&ChainParams::TESTNET, 4_465_000, 40),
+            4_465_025
+        );
+        assert_eq!(
+            capped_expiry(&ChainParams::MAINNET, 3_600_000, 40),
+            3_600_040
+        );
+    }
 }

@@ -1,4 +1,5 @@
-//! Regtest integration tests against Zebra 6.4.2 (`spikes/zebra`). Ignored by default:
+//! Regtest integration tests against Zebra 6.4.2 or Zebra 7 / NU7 (`spikes/zebra`). Ignored by
+//! default:
 //!
 //! ```sh
 //! (cd spikes/zebra && ./scripts/up.sh pair)
@@ -6,7 +7,14 @@
 //! ```
 //!
 //! Env: `ZOL_ZEBRA_URL` (default http://127.0.0.1:18232/), `ZOL_ZEBRA_B_URL`
-//! (default http://127.0.0.1:18242/, reorg test only).
+//! (default http://127.0.0.1:18242/, reorg test only), `ZOL_DEV_SEED` (optional: use the
+//! dev wallet of that seed, `testing::dev_seed_keys`, instead of a random one).
+//! Reorg tests drive the node pair with `docker exec`/`spikes/zebra/scripts`; `ZOL_ZEBRA=zebra7`
+//! selects the Zebra 7 NU7 pair (containers zol-zebra7-a/b, RPC 18272/18282).
+//!
+//! Zakura (no `generatetoaddress`; docs/ops/zcash-node.md): run its regtest node with
+//! `[mining] miner_address` = `testing::dev_wallet_ua(REGTEST, seed)` and set
+//! `ZOL_DEV_SEED=seed`; `fund` then falls back to `generate`.
 //!
 //! Funding: `generatetoaddress` with a Unified Address holding the test wallet's Orchard
 //! receiver. Zebra 6.4.2 routes shielded coinbase to the Ironwood pool from NU6.3
@@ -25,7 +33,15 @@ use zol_zcash::{
     AppKeys, ChainParams, Scanner,
 };
 
-const P: ChainParams = ChainParams::REGTEST;
+/// Regtest parameters as the node reports them (set in `setup`): NU7 at 1 on the Zebra 7
+/// regtest (`spikes/zebra/regtest-nu7.toml`), none on the 6.4.2 one.
+static PARAMS: std::sync::OnceLock<ChainParams> = std::sync::OnceLock::new();
+#[allow(non_snake_case)]
+fn P() -> ChainParams {
+    *PARAMS
+        .get()
+        .expect("setup() reads the regtest heights first")
+}
 const WALLET: [u8; 32] = [0xEE; 32];
 
 fn url(var: &str, default: &str) -> String {
@@ -66,11 +82,16 @@ async fn setup(client: ZebraClient) -> Env {
         info.blocks,
         info.chaintip_branch()
     );
-    assert_eq!(
-        info.chaintip_branch().as_deref(),
-        Some("37a5165b"),
-        "NU6.3 active"
-    );
+    let params = ChainParams::regtest_from_upgrades(&info.rest["upgrades"]).unwrap();
+    let _ = PARAMS.set(params);
+    let tip = info.blocks + 1;
+    let want = format!("{:08x}", u32::from(P().branch_id(info.blocks.max(1))));
+    println!("regtest heights {:?}: tip branch {want}", P().regtest);
+    // NU6.3 (37a5165b) on the 6.4.2 regtest, NU7 (77190ad9) on the Zebra 7 one.
+    if info.blocks > 0 {
+        assert_eq!(info.chaintip_branch().as_deref(), Some(want.as_str()));
+    }
+    assert!(P().ironwood_active(tip), "NU6.3 active");
     let mut rng = rand::rngs::OsRng;
     let (kps, pk) = frost::dkg_local(3, 2, &mut rng).unwrap();
     let app = AppKeys::derive(
@@ -80,11 +101,14 @@ async fn setup(client: ZebraClient) -> Env {
         Network::Regtest,
     )
     .unwrap();
-    let sk = testing::random_spending_key(&mut rng);
+    let sk = match std::env::var("ZOL_DEV_SEED") {
+        Ok(seed) => testing::dev_seed_keys(&seed).wallet,
+        Err(_) => testing::random_spending_key(&mut rng),
+    };
     let fvk = FullViewingKey::from(&sk);
     let start = client.get_block_count().await.unwrap() + 1;
     let scanner = Scanner::from_zebra(
-        ScannerConfig::new(P),
+        ScannerConfig::new(P()),
         vec![
             Account::from(&app),
             Account {
@@ -127,20 +151,25 @@ impl Env {
     /// Mines a shielded coinbase to the wallet and returns the scanned note.
     async fn fund(&mut self) -> ScannedNote {
         let ua = encode_ua(
-            &P,
+            &P(),
             &self
                 .fvk
                 .address_at(0u32, Scope::External)
                 .to_raw_address_bytes(),
         );
         let t = std::time::Instant::now();
-        let hashes = self
+        let (hashes, fallback) = self
             .client
-            .generate_to_address(1, &ua)
+            .mine_to(1, &ua)
             .await
             .expect("generatetoaddress to a UA");
         println!(
-            "generatetoaddress {ua} -> {} ({:?})",
+            "{} {ua} -> {} ({:?})",
+            if fallback {
+                "generate (no generatetoaddress; miner_address must be)"
+            } else {
+                "generatetoaddress"
+            },
             hashes[0],
             t.elapsed()
         );
@@ -223,7 +252,7 @@ async fn regtest_deposit_genesis_refund() {
     let mut attempt = 0;
     let dep_txid = loop {
         let (raw, _) = testing::wallet_send(
-            &P,
+            &P(),
             &e.sk,
             &from.note,
             &from.path,
@@ -284,7 +313,7 @@ async fn regtest_deposit_genesis_refund() {
 
     // Genesis head from the wallet's change.
     let fsp = e.scanner.spendable(&change.cmx, None).unwrap();
-    let g = genesis::build(&P, &e.sk, &fsp, &e.app, deposit / 2, e.next(), 40).unwrap();
+    let g = genesis::build(&P(), &e.sk, &fsp, &e.app, deposit / 2, e.next(), 40).unwrap();
     let gtxid = e.send(&g.raw_tx).await.expect("genesis accepted");
     let rep = e.mine(1).await;
     let head = rep
@@ -304,7 +333,7 @@ async fn regtest_deposit_genesis_refund() {
 
     // Refund the deposit with 2-of-3 FROST (signers 1 and 3).
     let sp = e.scanner.spendable(&dep.cmx, None).unwrap();
-    let r = refund::build(&P, &e.app, &sp, &dm.payout_address, e.next(), 20).unwrap();
+    let r = refund::build(&P(), &e.app, &sp, &dm.payout_address, e.next(), 20).unwrap();
     let signers: BTreeMap<_, _> = e
         .kps
         .iter()
@@ -321,7 +350,7 @@ async fn regtest_deposit_genesis_refund() {
         &mut rand::rngs::OsRng,
     )
     .unwrap();
-    let (raw, txid) = refund::extract(r, &P).unwrap();
+    let (raw, txid) = refund::extract(r, &P()).unwrap();
     let rtxid = e.send(&raw).await.expect("refund accepted");
     assert_eq!(rtxid, display_hex(&txid));
     let rep = e.mine(1).await;
@@ -373,7 +402,10 @@ fn exec_rpc(node: &str, method: &str, params: &str) -> serde_json::Value {
     let out = Command::new("docker")
         .args([
             "exec",
-            &format!("zol-zebra-{node}"),
+            &format!(
+                "zol-{}-{node}",
+                std::env::var("ZOL_ZEBRA").unwrap_or_else(|_| "zebra".into())
+            ),
             "curl",
             "-s",
             "--max-time",
@@ -426,7 +458,7 @@ async fn regtest_reorg_drops_deposit() {
     );
     let from = e.scanner.spendable(&coin.cmx, None).unwrap();
     let (raw, _) = testing::wallet_send(
-        &P,
+        &P(),
         &e.sk,
         &from.note,
         &from.path,
@@ -494,7 +526,7 @@ async fn regtest_make_block_fixture() {
     let sk = SpendingKey::from_bytes([7; 32]).unwrap();
     let fvk = FullViewingKey::from(&sk);
     let ua = encode_ua(
-        &P,
+        &P(),
         &fvk.address_at(0u32, Scope::External).to_raw_address_bytes(),
     );
     let h = client.generate_to_address(1, &ua).await.unwrap().remove(0);

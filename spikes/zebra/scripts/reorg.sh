@@ -44,6 +44,6 @@ since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$(dirname "$0")/peer.sh" >/dev/null
 wait_equal
 echo "-- b log during heal:"
-docker logs --since "$since" zol-zebra-b 2>&1 | grep -E "switched best chain|chain fork|reorg|rollback|error|ERROR|WARN" | cut -c1-220 | head -12
+docker logs --since "$since" "$CPREFIX-b" 2>&1 | grep -E "switched best chain|chain fork|reorg|rollback|error|ERROR|WARN" | cut -c1-220 | head -12
 echo "b block $b_first now: $(rpc b getblock "[\"$b_first\",1]" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("error") or {"height":r["result"].get("height"),"confirmations":r["result"].get("confirmations")})')"
 echo "b height at base+1 now: $(rpc b getblockhash "[$((base_h+1))]" | result) (a: $(rpc a getblockhash "[$((base_h+1))]" | result))"

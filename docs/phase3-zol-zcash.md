@@ -230,7 +230,7 @@ ZIP 2005 § 4.2.3, use_qsk = true, with ak^P = A_c:
 - **Scanning.** `use_qsk` is fixed per vault, so the scanner uses exactly one `ivk` per scope. ZIP 326's four-way first-funds search is never needed.
 - **Orchard pool.** Following ZIP 326, it is not scanned by default (`scan_orchard_pool = false`).
 - **Retention.** Operators must retain `K`, from which every `sk_c`, `qsk` and `qk` is rederived, and `ak_group`, for the future Recovery Protocol.
-- **Caveat:** I found no reference implementation or test vectors for the ZIP 2005 derivation offline. It was implemented from the ZIP text (`scratchpad/.../zips/zip-2005.md` L679-713). Cross-check it when librustzcash ships `use_qsk`.
+- **Cross-check (update):** no official implementation or vectors exist yet. The derivation reproduces the third-party vectors proposed to ZcashFoundation/frost-tools#610 byte for byte, and two independent re-derivations agree; see `docs/review/key-derivation.md` § 4.
 
 ### Session receivers
 
@@ -308,7 +308,7 @@ I left the regtest pair running after the runs. Its state is ephemeral; stop it 
 
 ## Gaps and what the gateway should know
 
-1. **ZIP 2005 derivation is unvalidated against a reference.** See above. It changes every vault address if wrong, so check it before any real funds.
+1. **ZIP 2005 derivation: no official reference yet.** It matches third-party vectors and two independent re-derivations. Frozen vectors are in `crates/zol-zcash/tests/vectors/`, and the review package is `docs/review/key-derivation.md`.
 2. **The spike 0.8 spec and vectors are superseded** by the v1 / ZIP 2005 derivation above. Use v1 for external review.
 3. **FROST uses the deprecated `frost_rerandomized::sign`.** The pczt fixes `alpha` before round 1. This is a review item, unchanged from 0.7.
 4. **Scanner performance.**

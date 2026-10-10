@@ -174,3 +174,41 @@ pub fn wallet_send_multi(
 pub fn zip317_fee(inputs: usize, outputs: usize) -> u64 {
     crate::ZIP317_MARGINAL_FEE * (inputs.max(outputs) as u64).max(crate::ZIP317_GRACE_ACTIONS)
 }
+
+/// Keys a `zol-zcashd --dev --dev-seed <seed>` process derives: a 2-of-3 dealer key set,
+/// the master viewing secret and the dev wallet's spending key. Deterministic in `seed`.
+pub struct DevSeedKeys {
+    pub shares: crate::frost::KeyPackages,
+    pub pubkeys: crate::frost::PublicKeyPackage,
+    pub master_view: [u8; 32],
+    pub wallet: SpendingKey,
+}
+
+pub fn dev_seed_keys(seed: &str) -> DevSeedKeys {
+    use rand::SeedableRng;
+    let h = blake2b_simd::Params::new()
+        .hash_length(32)
+        .personal(b"ZOL_dev_seed_v1_")
+        .hash(seed.as_bytes());
+    let mut rng = rand_chacha::ChaCha20Rng::from_seed(h.as_bytes().try_into().unwrap());
+    let (shares, pubkeys) = crate::frost::dealer(3, 2, &mut rng).expect("dealer");
+    let mut master_view = [0u8; 32];
+    rng.fill_bytes(&mut master_view);
+    let wallet = random_spending_key(&mut rng);
+    DevSeedKeys {
+        shares,
+        pubkeys,
+        master_view,
+        wallet,
+    }
+}
+
+/// The dev wallet's Orchard-only unified address (external, index 0): what a node without
+/// `generatetoaddress` (Zakura) must use as `mining.miner_address` for dev funding.
+pub fn dev_wallet_ua(params: &ChainParams, seed: &str) -> String {
+    let fvk = FullViewingKey::from(&dev_seed_keys(seed).wallet);
+    crate::encode_ua(
+        params,
+        &fvk.address_at(0u32, Scope::External).to_raw_address_bytes(),
+    )
+}

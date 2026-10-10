@@ -330,6 +330,7 @@ fn orchard_pool_scanning_is_opt_in() {
     let mut rng = rand::rngs::OsRng;
     let mut params = ChainParams::REGTEST;
     params.regtest.nu6_3 = 1_000_000; // NU6.2 rules: Orchard pool, v5
+    params.regtest.nu7 = None;
     let (_, ak_group) = testing::single_key_group(&mut rng);
     let app = AppKeys::derive(ak_group, &[1; 32], &[0xA1; 32], Network::Regtest).unwrap();
     let sk = testing::random_spending_key(&mut rng);

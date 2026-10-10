@@ -438,6 +438,15 @@ fn malicious_coordinator_is_rejected_by_name() {
         },
         "head_memo_advance",
     );
+    // Built for the pre-NU7 branch (NU6.3) while the chain is on NU7: never mineable.
+    let pre_nu7 = ChainParams {
+        regtest: zol_zcash::params::RegtestHeights::PRE_NU7,
+        ..P
+    };
+    let (p_stale, _) = payout::propose(&pre_nu7, &w.a, &w.sc, &plan, &Tamper::default()).unwrap();
+    let v = payout::verify(&w.a, &w.sc, &plan, &p_stale.pczt, None);
+    println!("{:28} -> {}", "pre-NU7 branch", names(&v));
+    assert!(v.failures.iter().any(|f| f == "branch"));
 
     // Same honest proposal, judged against an operator's own stricter plan.
     let (prop, pczt) = payout::propose(&P, &w.a, &w.sc, &plan, &Tamper::default()).unwrap();
