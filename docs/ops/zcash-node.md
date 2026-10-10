@@ -132,6 +132,10 @@ serve old tree states.
   - Leave `start_height` unset. The default is tip + 1, so the tree state is read at the tip.
   - Start zol-zcashd **before** the app's genesis head transaction is broadcast. The scanner
     needs nothing older than the app's genesis.
+  - **With `[funding]`**, the birthday is `min(start_height, [funding] start_height)`, so the
+    funding wallet's earlier notes are found. That height minus one must be at or above
+    `pruneheight`: fund the wallet within the retention window before the daemon's first start
+    (the daemon checks). See [testnet-deploy.md](testnet-deploy.md).
 - **Steady state.** The scanner reads only new blocks. Reorgs are rewound from its own
   checkpoints, and neither the daemon nor the gateway fetches old transactions.
 - **Restart.** It resumes at `next_height`, which must be at or above `pruneheight`.
@@ -236,14 +240,19 @@ state_dir = "/var/lib/zol-zcashd"
 poll_ms = 2000
 expiry_delta = 40   # see docs/ops/nu7.md for 25 s-block defaults
 apps = ["<app id hex>"]
+keys_file = "/home/zol/keys/operator-1.keys.toml"   # from `zol-zcashd keygen` (or an inline [keys])
 
 [node]
 url = "http://127.0.0.1:18232/"
 # user = "__cookie__"; password = "<cookie file contents>"  only if Zakura cookie auth is on
 
-[keys]
-# operator share, see zol-zcashd --print-dev-keys for the format
+# One operator only: the wallet that funds genesis heads (/admin/genesis). Loopback listen required.
+[funding]
+key_file = "/home/zol/keys/testnet-wallet.json"     # zol-wallet format
+start_height = 4474000                              # at or below the funding tx; >= pruneheight + 1
 ```
+
+Keys and funding are described in [testnet-deploy.md](testnet-deploy.md).
 
 Monitor `/health`: `last_error`, and `scanner_tip` against the node tip. Alert well before
 the daemon has been down for the retention window (about 3 days at the minimum retention).

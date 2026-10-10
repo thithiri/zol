@@ -294,7 +294,9 @@ After the reorg, Zebra did **not** return the orphaned deposit transaction to it
 | `offline` (3) | Real proven v6 transactions in in-memory blocks: `ZOL1:` deposit to a session receiver (memo signature verified, app B sees nothing); FROST 2-of-3 refund (`check` rejects wrong destination and wrong app); spend detected; genesis head (cmx, internal scope, genesis memo); snapshot/restore; reorg error; rewind drops spend and head and keeps the deposit witness at the old anchor. Single-key refund; refund to a vault receiver refused. Orchard pool scanned only when opted in | pass, about 11 s |
 | `fixtures_and_rpc` (3) | A real regtest block (now a Zakura NU7 block with an Ironwood shielded coinbase to the `zol-dev` dev wallet; originally Zebra 6.4.2 and `SpendingKey([7;32])`): parse, hash and prev hash, scan from the `z_gettreestate` frontier, witness at tip; unlinked block is a reorg; JSON-RPC envelope, params and error mapping against a local responder | pass |
 | `regtest` (`--ignored`) | Amounts are relative to the funded coinbase: deposit = coinbase/4, float = deposit/2. The test fails with a "restart the chain" message if a coinbase is under 0.01 ZEC. `regtest_deposit_genesis_refund`: fund via `generatetoaddress`, then a `ZOL1:` deposit to a session receiver is broadcast and mined at height 217; scanned; genesis head broadcast and scanned; refund signed 2-of-3 FROST, broadcast, mined at 219; the deposit spend is detected and the player receives 99,990,000 at the memo address. `regtest_reorg_drops_deposit`: b partitioned; deposit mined on a at 323; b mines 3; heal; a reorgs; `sync` → `rewound_to = Some(322)`, deposit dropped, funding note spendable again | pass (about 14 s with the pair up) |
+| `keygen` | Runs `zol-zcashd keygen` (regtest, 3 of 2): files and `--out` mode 0600/0700; `group.toml` has no shares or `K`; each operator file loads through `keyfile::load` (the daemon's loader) with one share (operator mode), same public package and `K`, distinct identifiers; ỹ(`ak_group`) = 0; printed `ak_group` and vault UA match. A second run into the same directory fails and leaves the files unchanged; another run gives a different group and `K`. A real vault refund (proven) is signed by each pair of operator files, and one share alone fails. `[funding]` refuses a non-loopback `listen` before touching the node (unless `--allow-remote-admin`) and a wallet file of another network | pass, about 6 s |
 | `zcashd` (`--ignored`) | Amounts scale with the current block subsidy: float = subsidy/2, deposit = 2.5 × subsidy, so the deposit must combine about 3 dev notes, and the test asserts at least 2 inputs. Spawns `zol-zcashd --dev`. `/health`, `/vault`, `/session_receiver`, `/valid_receiver`. `/dev/genesis` (the dev wallet mines its own coinbase); then `/dev/send` of a signed `ZOL1:` deposit to a session receiver. `/events`: seqs contiguous from 1, the head and deposit `Note` events, each `Note` before its `Block`. `/refund`: a head is rejected (400); the deposit refund is broadcast; a repeat returns the same txid with `existing: true`; a different `to` while pending gets 409. After mining, a `Spent` event with the refund txid. Restart on the same state dir: identical events and seqs, refund still `existing`, new events continue after the old cursor | pass (about 9 s) |
+| `zcashd::zcashd_funding_genesis_without_dev` (`--ignored`) | A funding wallet (zol-wallet key file) distinct from the dev wallet gets two notes of `float` from a `--dev` daemon, which then stops; 3 more blocks are mined. Daemon B runs **without `--dev`**, in `operator` mode on `keygen` keys (`keys_file`), with `[funding] start_height` = the block after the pre-funding tip, below its own start (tip + 1). Its first `Block` event is at the funding birthday; `/admin/funding` shows both notes and the balance. `/admin/genesis` with a too-large float gets 422 naming the free balance, and the node's height is unchanged (never mines). The real genesis combines both notes; a second call while pending gets 409, and `spendable` is 0. After mining, `/head` shows the genesis link (cmx, float, position 0, txid) with no fault, and a third call gets 409 "already has a genesis". `/admin/send` pays a text-memo test deposit to the vault UA from the change; the vault `Note` event appears and the wallet balance drops by value plus fee. After a restart, the funding wallet restores from the snapshot | pass (about 15 s) |
 
 How to run:
 
@@ -327,8 +329,10 @@ Env: `ZOL_NODE_URL`, `ZOL_NODE_B_URL` and `ZOL_DEV_SEED` (default `zol-dev`, the
 
    `verify::vault_outputs`, `verify::nullifiers`, `checks` and `tx::build_ironwood` are the pieces for them.
 7. **The refund memo is the receipt memo** `zol_wire::receipt::refund_memo(app, deposit cmx)`, plain text "ZOL refund v1 app=… note=…". `refund::build` sets it and `check` requires it. It replaced the ZIP 302 empty memo on 2026-10-10.
-8. **Testnet and mainnet are not exercised.** There are no funds and no synced node. `Scanner::from_node` (birthday from `z_gettreestate`) was exercised only on regtest.
-9. **Funding blocks include the mempool.** The regtest test funds by mining (then `generatetoaddress`, now `generate`), and the coinbase includes mempool fees (one run got 625,010,000). Tests take values from the scan, not constants.
+8. **Testnet and mainnet are not exercised yet.** There are no funds and no synced node. `Scanner::from_node` (birthday from `z_gettreestate`) was exercised only on regtest.
+9. **Vault keys come from a trusted dealer.** `zol-zcashd keygen` (and the dev seed) generate every Pallas spend share on one machine. That is acceptable for the one-host testnet trial. Independent operators need a Pallas FROST DKG across hosts: `redpallas::keys::dkg` exists and `frost::dkg_local` runs it in one process, but there is no networked ceremony for it yet (the gateway's `zol-gateway dkg` covers only the Ed25519 attestor key). Distributing `K` (the master viewing secret) needs its own protocol too.
+10. **Wallet pending is in memory.** Dev and funding wallet notes used by an unmined transaction are held in memory until mined or expired; a restart forgets them, so a retry right after a restart can pick the same notes (the node rejects the double spend).
+11. **Funding blocks include the mempool.** The regtest test funds by mining (then `generatetoaddress`, now `generate`), and the coinbase includes mempool fees (one run got 625,010,000). Tests take values from the scan, not constants.
 
 ## zol-zcashd
 
@@ -341,7 +345,11 @@ cd crates/zol-zcash
 cargo run --bin zol-zcashd -- --config zcashd.toml               # keys from the config
 cargo run --bin zol-zcashd -- --config zcashd.toml --dev [--dev-seed s]   # regtest only
 cargo run --bin zol-zcashd -- --print-dev-keys [--dev-seed s]   # prints a [keys] section
+cargo run --bin zol-zcashd -- keygen --network testnet --operators 3 --threshold 2 --out keys/ [--app <hex>]...
+cargo run --bin zol-zcashd -- --config zcashd.toml --allow-remote-admin   # [funding] on a non-loopback listen
 ```
+
+`keygen` and `[funding]` are described in [docs/ops/testnet-deploy.md](ops/testnet-deploy.md).
 
 ### Config (TOML)
 
@@ -359,11 +367,19 @@ url = "http://127.0.0.1:18232/"
 # user = "__cookie__"            # optional basic auth (node cookie auth)
 # password = "<cookie>"
 
-[keys]                           # required unless --dev
+# keys_file = "keys/operator-1.keys.toml"   # a file with the [keys] section (zol-zcashd keygen); not with [keys]
+
+[keys]                           # required unless --dev or keys_file
 master_view = "<32-byte hex>"    # K, secret
 public_key_package = "<hex>"     # frost-core PublicKeyPackage serialization; ak_group is its key
 shares = ["<hex>", …]            # frost-core KeyPackage serializations
+
+[funding]                        # optional, any mode: the wallet /admin/genesis spends from
+key_file = "keys/testnet-wallet.json"   # zol-wallet format; network must match
+start_height = 4474000           # optional: scan the wallet from here (birthday = min with start_height)
 ```
+
+Each share must belong to `public_key_package`: same group key, and its verifying share listed there.
 
 **Modes:**
 
@@ -388,7 +404,8 @@ Use `--print-dev-keys` to see the `[keys]` format. With the default seed, `ak_gr
 - **Each step becomes events:**
   - a reorg becomes `Rewind { to_height }`, emitted before the replacement blocks;
   - each connected block becomes its `Note` and `Spent` events in chain order, then `Block { height, hash }`, which acts as the block's commit marker.
-- **What is included.** Only app vault notes appear. The dev wallet is scanned but never logged.
+- **What is included.** Only app vault notes appear. The dev and funding wallets are scanned but never logged.
+- **Birthday.** On a fresh state dir the scanner starts at `start_height` (default node tip + 1), or at `[funding] start_height` if that is lower. Apps scanned from before their genesis only see extra `Block` events.
 - **Field mapping.**
   - `receiver_index`: the 11 bytes, little-endian, read as a `u128`.
   - `memo` and `receiver`: full 512- and 43-byte vectors.
@@ -404,6 +421,7 @@ Use `--print-dev-keys` to see the `[keys]` format. With the default seed, `ak_gr
 
   On restart, log lines past `last_seq` are dropped. They were never served, so a cursor held by the gateway stays valid across restarts. The test checks this.
 - **Changing the app list.** New apps added to the config are scanned from the current tip on. Removing an app is refused.
+- **The funding wallet** is a scanner account whose id is derived from its viewing key. Removing `[funding]` or changing its key on an existing state dir is refused, like removing an app. Adding it to an existing state dir is refused when `[funding] start_height` is below the scanner's next block, since those notes would be missed.
 
 ### Endpoints (`zol_types::api`)
 
@@ -444,7 +462,7 @@ Hex query parameters are lowercase hex of internal byte order. Errors are `{"err
 
 **`GET /health`** (free-form JSON)
 - `ok`: false after a failed sync.
-- `mode`, `network`, `scanner_tip`, `log_tip`, `last_seq`, `apps`, `ak_group`, `signers_held`, `min_signers`, `last_error`.
+- `mode`, `network`, `scanner_tip`, `log_tip`, `last_seq`, `apps`, `ak_group`, `master_view_fingerprint`, `signers_held`, `min_signers`, `last_error`, `dev_wallet_ua`, `funding_wallet_ua`.
 
 **Dev only:**
 
@@ -461,6 +479,13 @@ Hex query parameters are lowercase hex of internal byte order. Errors are `{"err
 - **`/dev/send`** uses `testing::wallet_send_multi` and returns `{txid}`. `memo` is up to 512 bytes, zero-padded; empty means the ZIP 302 empty memo.
 
 Dev operations and refunds are serialized. Dev wallet notes spent by unmined dev transactions are not reused until they are mined or their transaction expires.
+
+**With `[funding]`** (any mode; loopback peers only unless `--allow-remote-admin`):
+
+`GET /admin/funding`, `POST /admin/genesis {app, float}` and `POST /admin/send {to: UA, value, memo?: text}`
+- The same input selection and builders as `/dev/genesis` and `/dev/send` (`genesis::select_inputs`, `genesis::build_multi`, `testing::wallet_send_multi`), from the funding wallet, but they **never mine**: short funds are a 422 naming what is needed, free and pending.
+- `/admin/genesis` refuses (409) an app whose genesis head the scanner already holds, or whose genesis this daemon broadcast and has not seen mined before its expiry.
+- Details and an operator walkthrough: [docs/ops/testnet-deploy.md](ops/testnet-deploy.md).
 
 ### Known limits
 

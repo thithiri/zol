@@ -2,6 +2,7 @@
 //!
 //! - [`keys`]: per-app vault keys (spike 0.8 spec v1 + ZIP 2005 `use_qsk`), session receivers.
 //! - [`frost`]: rerandomized FROST over Pallas with per-app share tweaks.
+//! - [`keyfile`]: `[keys]` sections, trusted-dealer key generation, wallet key files.
 //! - [`node`]: async JSON-RPC client for the Zcash node (Zakura).
 //! - [`block`]: raw block parsing.
 //! - [`scan`]: Ironwood (and Orchard) scanner with nullifier tracking, witnesses and reorgs.
@@ -15,6 +16,7 @@ pub mod checks;
 pub mod frost;
 pub mod genesis;
 pub mod head;
+pub mod keyfile;
 pub mod keys;
 pub mod node;
 /// The OS-seeded CSPRNG for orchard, pczt and zcash_primitives (rand_core 0.10).

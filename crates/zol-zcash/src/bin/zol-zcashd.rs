@@ -2,10 +2,15 @@
 //!
 //! Scans the Zcash node (Zakura) for every configured app vault, serves an append-only, sequence-numbered
 //! event log, builds/signs/broadcasts deposit refunds with Pallas FROST, and (with `--dev`)
-//! simulates a player wallet and the genesis funding. API: `zol_types::api`.
-//! See docs/phase3-zol-zcash.md, "zol-zcashd".
+//! simulates a player wallet and the genesis funding. With a `[funding]` section it also
+//! tracks an operator funding wallet and serves localhost-only `/admin/*` endpoints that
+//! fund an app's genesis head from it (testnet, mainnet). API: `zol_types::api`.
+//! See docs/phase3-zol-zcash.md, "zol-zcashd", and docs/ops/testnet-deploy.md.
 //!
-//! Usage: `zol-zcashd --config <file.toml> [--dev] [--dev-seed <string>]`
+//! Usage:
+//! - `zol-zcashd --config <file.toml> [--dev [--dev-seed <s>] [--dev-share <i>]] [--allow-remote-admin]`
+//! - `zol-zcashd keygen --network <net> --operators <n> --threshold <t> --out <dir> [--app <hex>]...`
+//! - `zol-zcashd --print-dev-keys [--dev-seed <s>]`
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -17,8 +22,9 @@ use std::{
 };
 
 use axum::{
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, Request, State},
     http::StatusCode,
+    middleware::Next,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -32,6 +38,7 @@ use zol_zcash::{
     encode_ua,
     frost::{self, Identifier, KeyPackage, PublicKeyPackage},
     genesis,
+    keyfile::{self, Keys, KeysCfg},
     node::NodeClient,
     payout, refund,
     scan::{Account, BlockItem, Pool, ScannerConfig, SyncStep},
@@ -59,8 +66,21 @@ struct Config {
     /// App program IDs, hex (32 bytes).
     apps: Vec<String>,
     node: NodeCfg,
-    /// Required unless `--dev`.
+    /// Required unless `--dev` or `keys_file`.
     keys: Option<KeysCfg>,
+    /// A file holding the `[keys]` section (`zol-zcashd keygen` output), instead of `keys`.
+    keys_file: Option<PathBuf>,
+    /// Operator funding wallet: tracked by the scanner; funds `/admin/genesis`.
+    funding: Option<FundingCfg>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FundingCfg {
+    /// A `zol-wallet` key file (`{"network", "orchard_spending_key"}`).
+    key_file: PathBuf,
+    /// First block to scan for the wallet's notes on a fresh state dir. The scanner starts at
+    /// min(this, the apps' start). Default: the apps' start (notes received earlier are missed).
+    start_height: Option<u32>,
 }
 
 fn default_poll() -> u64 {
@@ -75,17 +95,6 @@ struct NodeCfg {
     url: String,
     user: Option<String>,
     password: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct KeysCfg {
-    /// Master viewing secret K, hex (32 bytes). Secret.
-    master_view: String,
-    /// FROST `PublicKeyPackage` (frost-core serialization), hex. `ak_group` is its key.
-    public_key_package: String,
-    /// FROST `KeyPackage`s (frost-core serialization), hex. One in operator mode; at least
-    /// the threshold in cluster/dev mode (all shares in one process).
-    shares: Vec<String>,
 }
 
 fn hex32(s: &str) -> Result<[u8; 32], String> {
@@ -141,8 +150,11 @@ struct Session {
 struct Inner {
     scanner: Scanner,
     refunds: BTreeMap<[u8; 32], RefundRecord>,
-    /// Dev wallet notes used by unmined dev transactions: nullifier -> expiry height.
-    dev_pending: BTreeMap<[u8; 32], u32>,
+    /// Dev / funding wallet notes used by unmined wallet transactions: nullifier -> expiry
+    /// height. In memory only.
+    wallet_pending: BTreeMap<[u8; 32], u32>,
+    /// app -> (txid, expiry height) of a broadcast genesis this daemon built, until mined.
+    genesis_pending: BTreeMap<[u8; 32], ([u8; 32], u32)>,
     last_error: Option<String>,
     /// app -> broadcast head transition.
     pending: BTreeMap<[u8; 32], PendingTx>,
@@ -155,9 +167,49 @@ struct Log {
     tip: u32,
 }
 
-struct Dev {
+/// A single-key wallet the scanner tracks: the dev wallet or the operator funding wallet.
+struct Wallet {
+    /// Scanner account id.
+    id: [u8; 32],
     sk: SpendingKey,
     fvk: FullViewingKey,
+    /// `[funding] start_height` (funding wallet only).
+    start_height: Option<u32>,
+}
+
+impl Wallet {
+    fn new(id: [u8; 32], sk: SpendingKey, start_height: Option<u32>) -> Self {
+        Self {
+            id,
+            fvk: FullViewingKey::from(&sk),
+            sk,
+            start_height,
+        }
+    }
+    fn ua(&self, params: &ChainParams) -> String {
+        encode_ua(
+            params,
+            &self.fvk.address_at(0u32, OScope::External).to_raw_address_bytes(),
+        )
+    }
+    fn account(&self) -> Account {
+        Account {
+            id: self.id,
+            fvk: self.fvk.clone(),
+        }
+    }
+}
+
+/// The funding wallet's scanner account id: derived from its viewing key, so a state dir
+/// built for one funding key refuses to restore with another.
+fn funding_wallet_id(fvk: &FullViewingKey) -> [u8; 32] {
+    blake2b_simd::Params::new()
+        .hash_length(32)
+        .personal(b"ZOL_funding_id__")
+        .hash(&fvk.to_bytes())
+        .as_bytes()
+        .try_into()
+        .unwrap()
 }
 
 struct Node {
@@ -173,8 +225,12 @@ struct Node {
     pubkeys: PublicKeyPackage,
     min_signers: u16,
     ak_group: [u8; 32],
+    master_view_fingerprint: [u8; 32],
     mode: &'static str,
-    dev: Option<Dev>,
+    dev: Option<Wallet>,
+    funding: Option<Wallet>,
+    /// `--allow-remote-admin`: `/admin/*` answers non-loopback peers.
+    allow_remote_admin: bool,
     inner: Mutex<Inner>,
     log: RwLock<Log>,
     /// Serializes refund and dev operations.
@@ -226,9 +282,16 @@ impl Node {
             return Ok(0);
         }
         let new: Vec<ChainEvent> = rep.steps.iter().flat_map(|s| self.convert(s)).collect();
-        // Drop dev pending entries whose notes are now spent.
+        // Drop wallet pending entries whose notes are now spent, and pending geneses whose
+        // head is now on chain.
         let spent: BTreeSet<_> = inner.scanner.spent_notes().map(|s| s.nullifier).collect();
-        inner.dev_pending.retain(|nf, _| !spent.contains(nf));
+        inner.wallet_pending.retain(|nf, _| !spent.contains(nf));
+        let mined: BTreeSet<_> = rep
+            .events
+            .iter()
+            .flat_map(|e| e.received.iter().map(|n| n.txid))
+            .collect();
+        inner.genesis_pending.retain(|_, (txid, _)| !mined.contains(txid));
         let tip = inner.scanner.tip().0;
         let mut log = self.log.write().await;
         let mut seq = log.last_seq;
@@ -454,15 +517,14 @@ async fn health(State(n): S) -> Json<serde_json::Value> {
         "last_seq": log.last_seq,
         "apps": n.apps.keys().map(hex::encode).collect::<Vec<_>>(),
         "ak_group": hex::encode(n.ak_group),
+        "master_view_fingerprint": hex::encode(n.master_view_fingerprint),
         "signers_held": n.shares.len(),
         "min_signers": n.min_signers,
         "last_error": err,
         // Dev mode: the address dev funding mines to. A node without `generatetoaddress`
         // (Zakura) must have this as its `[mining] miner_address`.
-        "dev_wallet_ua": n.dev.as_ref().map(|d| encode_ua(
-            &n.params,
-            &d.fvk.address_at(0u32, OScope::External).to_raw_address_bytes(),
-        )),
+        "dev_wallet_ua": n.dev.as_ref().map(|d| d.ua(&n.params)),
+        "funding_wallet_ua": n.funding.as_ref().map(|w| w.ua(&n.params)),
     }))
 }
 
@@ -1020,63 +1082,65 @@ async fn sign_aggregate(State(n): S, Json(req): Json<api::AggregateRequest>) -> 
     }))
 }
 
-/// Most dev wallet notes one dev transaction spends (bounds proof size and time).
-const MAX_DEV_INPUTS: usize = 40;
+// ---------------------------------------------------------------- wallets: dev and funding
+
+/// Most wallet notes one wallet transaction spends (bounds proof size and time).
+const MAX_WALLET_INPUTS: usize = 40;
 /// Most coinbase blocks one dev request mines to fund itself.
 const MAX_DEV_BLOCKS: u32 = 200;
 
-/// Selects free (unspent, not used by an unmined dev transaction) dev wallet notes, largest
-/// first, covering `amount` plus the ZIP 317 fee for the resulting action count (inputs vs.
-/// 2 outputs). If the free notes do not cover it, mines coinbase blocks with `generate`
-/// (sized from `getblocksubsidy`; this also mines whatever is in the mempool) and retries, up to `MAX_DEV_BLOCKS` blocks and `MAX_DEV_INPUTS` inputs.
-/// The coinbase goes to the node's `[mining] miner_address`, which must be the dev wallet's
-/// UA (infra/zakura sets the one for dev seed "zol-dev"). All inputs are witnessed at the same
+/// Selects free (unspent, not used by an unmined wallet transaction) Ironwood notes of `w`,
+/// largest first, covering `amount` plus the ZIP 317 fee for the resulting action count
+/// (inputs vs. 2 outputs), at most `MAX_WALLET_INPUTS`. All inputs are witnessed at the same
 /// anchor (the scanner tip).
-async fn dev_inputs(
+///
+/// If the free notes do not cover it: with `mine` (the dev wallet on regtest) mines coinbase
+/// blocks with `generate` (sized from `getblocksubsidy`; this also mines whatever is in the
+/// mempool) and retries, up to `MAX_DEV_BLOCKS` blocks. The coinbase goes to the node's
+/// `[mining] miner_address`, which must be the dev wallet's UA (infra/zakura sets the one for
+/// dev seed "zol-dev"). Without `mine` (the funding wallet) it fails with what is there.
+async fn wallet_inputs(
     n: &Node,
+    w: &Wallet,
     amount: u64,
+    mine: bool,
 ) -> Result<(Vec<zol_zcash::scan::Spendable>, u32), ApiErr> {
-    let dev = n.dev.as_ref().ok_or_else(|| not_found("dev mode only"))?;
     let mut mined = 0u32;
     loop {
-        let (deficit, free_sum, free_n) = {
+        let (short, pending) = {
             let inner = n.inner.lock().await;
             let tip = inner.scanner.tip().0;
-            let mut free: Vec<_> = inner
-                .scanner
-                .unspent(&DEV_WALLET_ID)
-                .filter(|x| x.pool == Pool::Ironwood && x.value > 0)
-                .filter(|x| {
-                    inner
-                        .dev_pending
-                        .get(&x.nullifier)
-                        .is_none_or(|exp| tip >= *exp)
-                })
-                .map(|x| (x.value, x.cmx))
-                .collect();
-            free.sort_by(|a, b| b.cmp(a));
-            free.truncate(MAX_DEV_INPUTS);
-            let mut sum = 0u64;
-            let mut take = vec![];
-            for (v, cmx) in &free {
-                if sum >= amount + testing::zip317_fee(take.len(), 2) {
-                    break;
+            let (mut free, mut pending) = (vec![], 0u64);
+            for x in inner.scanner.unspent(&w.id) {
+                if x.pool != Pool::Ironwood || x.value == 0 {
+                    continue;
                 }
-                sum += v;
-                take.push(*cmx);
+                match inner.wallet_pending.get(&x.nullifier) {
+                    Some(exp) if tip < *exp => pending += x.value,
+                    _ => free.push((x.value, x.cmx)),
+                }
             }
-            if !take.is_empty() && sum >= amount + testing::zip317_fee(take.len(), 2) {
-                let sps = take
-                    .iter()
-                    .map(|c| inner.scanner.spendable(c, Some(tip)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(internal)?;
-                return Ok((sps, tip));
+            match genesis::select_inputs(free, amount, 2, MAX_WALLET_INPUTS) {
+                Ok(take) => {
+                    let sps = take
+                        .iter()
+                        .map(|c| inner.scanner.spendable(c, Some(tip)))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(internal)?;
+                    return Ok((sps, tip));
+                }
+                Err(s) => (s, pending),
             }
-            let total: u64 = free.iter().map(|x| x.0).sum();
-            let need = amount + testing::zip317_fee(MAX_DEV_INPUTS, 2);
-            (need.saturating_sub(total), total, free.len())
         };
+        if !mine {
+            return Err(unprocessable(format!(
+                "insufficient funds: {amount} zat plus fee needs {} zat; the wallet has {} zat free in {} notes (largest {MAX_WALLET_INPUTS} counted), {pending} zat in notes used by unmined transactions. Scanner tip {}: GET /admin/funding",
+                short.need,
+                short.have,
+                short.notes,
+                n.inner.lock().await.scanner.tip().0
+            )));
+        }
         let subsidy: serde_json::Value = n
             .client
             .call("getblocksubsidy", serde_json::json!([]))
@@ -1085,17 +1149,22 @@ async fn dev_inputs(
         let per_block = (subsidy["miner"].as_f64().unwrap_or(0.0) * 1e8).round() as u64;
         if per_block == 0 {
             return Err(bad(format!(
-                "regtest block subsidy is 0: dev wallet cannot fund {amount} zat (free: {free_sum} zat in {free_n} notes); restart the regtest chain"
+                "regtest block subsidy is 0: dev wallet cannot fund {amount} zat (free: {} zat in {} notes); restart the regtest chain",
+                short.have, short.notes
             )));
         }
         if mined >= MAX_DEV_BLOCKS {
             return Err(bad(format!(
-                "dev wallet cannot fund {amount} zat within {MAX_DEV_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {free_sum} zat in {free_n} notes; block subsidy {per_block} zat. The node's [mining] miner_address must be the dev wallet UA {}: GET /health dev_wallet_ua, or --print-dev-keys",
-                encode_ua(&n.params, &dev.fvk.address_at(0u32, OScope::External).to_raw_address_bytes())
+                "dev wallet cannot fund {amount} zat within {MAX_WALLET_INPUTS} inputs after mining {mined} blocks (cap {MAX_DEV_BLOCKS}); free: {} zat in {} notes; block subsidy {per_block} zat. The node's [mining] miner_address must be the dev wallet UA {}: GET /health dev_wallet_ua, or --print-dev-keys",
+                short.have,
+                short.notes,
+                w.ua(&n.params)
             )));
         }
+        let need = amount + testing::zip317_fee(MAX_WALLET_INPUTS, 2);
+        let deficit = need.saturating_sub(short.have);
         let blocks = (deficit.div_ceil(per_block) + 1)
-            .min(MAX_DEV_INPUTS as u64)
+            .min(MAX_WALLET_INPUTS as u64)
             .min((MAX_DEV_BLOCKS - mined) as u64) as u32;
         n.client.generate(blocks).await.map_err(upstream)?;
         mined += blocks;
@@ -1103,31 +1172,39 @@ async fn dev_inputs(
     }
 }
 
-async fn dev_genesis(State(n): S, Json(req): Json<api::GenesisRequest>) -> R<api::GenesisResponse> {
+/// Builds the genesis head of `req.app` from `w`'s notes, broadcasts it and marks its inputs
+/// pending. Caller holds `n.ops`.
+async fn genesis_from(
+    n: &Node,
+    w: &Wallet,
+    req: &api::GenesisRequest,
+    mine: bool,
+) -> R<api::GenesisResponse> {
     let keys = n
         .apps
         .get(&req.app)
         .ok_or_else(|| not_found("unknown app"))?
         .clone();
-    let _op = n.ops.lock().await;
-    let (sps, tip) = dev_inputs(&n, req.float).await?;
-    let sk = n.dev.as_ref().unwrap().sk.clone();
-    let (params, delta) = (n.params, n.expiry_delta);
+    let (sps, tip) = wallet_inputs(n, w, req.float, mine).await?;
+    let sk = w.sk.clone();
+    let (params, delta, float) = (n.params, n.expiry_delta, req.float);
     let nfs: Vec<_> = sps.iter().map(|sp| sp.scanned.nullifier).collect();
     let g = tokio::task::spawn_blocking(move || {
-        genesis::build_multi(&params, &sk, &sps, &keys, req.float, tip + 1, delta)
+        genesis::build_multi(&params, &sk, &sps, &keys, float, tip + 1, delta)
     })
     .await
     .map_err(internal)?
-    .map_err(|e| ApiErr(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    .map_err(unprocessable)?;
     n.client
         .send_raw_transaction(&g.raw_tx)
         .await
         .map_err(upstream)?;
+    let expiry = tip + 1 + delta;
     let mut inner = n.inner.lock().await;
     for nf in nfs {
-        inner.dev_pending.insert(nf, tip + 1 + delta);
+        inner.wallet_pending.insert(nf, expiry);
     }
+    inner.genesis_pending.insert(req.app, (g.txid, expiry));
     drop(inner);
     Ok(Json(api::GenesisResponse {
         head_cmx: g.head_cmx,
@@ -1136,29 +1213,34 @@ async fn dev_genesis(State(n): S, Json(req): Json<api::GenesisRequest>) -> R<api
     }))
 }
 
-async fn dev_send(State(n): S, Json(req): Json<api::SendRequest>) -> R<api::SendResponse> {
-    if n.dev.is_none() {
-        return Err(not_found("dev mode only"));
+/// Pays `to` `value` with `memo` (up to 512 bytes; empty = "no memo") from `w`'s notes,
+/// broadcasts it and marks its inputs pending. Caller holds `n.ops`.
+async fn send_from(
+    n: &Node,
+    w: &Wallet,
+    to: [u8; 43],
+    value: u64,
+    memo_bytes: &[u8],
+    mine: bool,
+) -> R<api::SendResponse> {
+    if bool::from(orchard::Address::from_raw_address_bytes(&to).is_none()) {
+        return Err(bad("`to` is not a valid Orchard-protocol receiver"));
     }
-    let to: [u8; 43] = req
-        .to
-        .clone()
-        .try_into()
-        .map_err(|_| bad("`to` must be 43 bytes"))?;
-    if req.memo.len() > 512 {
+    if memo_bytes.len() > 512 {
         return Err(bad("memo longer than 512 bytes"));
     }
+    if value == 0 {
+        return Err(bad("value must be positive"));
+    }
     let mut memo = [0u8; 512];
-    memo[..req.memo.len()].copy_from_slice(&req.memo);
-    if req.memo.is_empty() {
+    memo[..memo_bytes.len()].copy_from_slice(memo_bytes);
+    if memo_bytes.is_empty() {
         memo[0] = 0xF6;
     }
-    let _op = n.ops.lock().await;
-    let (sps, tip) = dev_inputs(&n, req.value).await?;
-    let sk = n.dev.as_ref().unwrap().sk.clone();
+    let (sps, tip) = wallet_inputs(n, w, value, mine).await?;
+    let sk = w.sk.clone();
     let params = n.params;
     let nfs: Vec<_> = sps.iter().map(|sp| sp.scanned.nullifier).collect();
-    let value = req.value;
     let (raw, txid) = tokio::task::spawn_blocking(move || {
         let inputs: Vec<_> = sps.iter().map(|sp| (sp.note, sp.path.clone())).collect();
         testing::wallet_send_multi(
@@ -1174,7 +1256,7 @@ async fn dev_send(State(n): S, Json(req): Json<api::SendRequest>) -> R<api::Send
     })
     .await
     .map_err(internal)?
-    .map_err(|e| ApiErr(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    .map_err(unprocessable)?;
     n.client
         .send_raw_transaction(&raw)
         .await
@@ -1182,20 +1264,271 @@ async fn dev_send(State(n): S, Json(req): Json<api::SendRequest>) -> R<api::Send
     let mut inner = n.inner.lock().await;
     for nf in nfs {
         inner
-            .dev_pending
+            .wallet_pending
             .insert(nf, tip + 1 + zol_zcash::DEFAULT_EXPIRY_DELTA);
     }
     drop(inner);
     Ok(Json(api::SendResponse { txid }))
 }
 
-// ---------------------------------------------------------------- startup
-
-struct Keys {
-    master_view: [u8; 32],
-    shares: BTreeMap<Identifier, KeyPackage>,
-    pubkeys: PublicKeyPackage,
+async fn dev_genesis(State(n): S, Json(req): Json<api::GenesisRequest>) -> R<api::GenesisResponse> {
+    let w = n.dev.as_ref().ok_or_else(|| not_found("dev mode only"))?;
+    let _op = n.ops.lock().await;
+    genesis_from(&n, w, &req, true).await
 }
+
+async fn dev_send(State(n): S, Json(req): Json<api::SendRequest>) -> R<api::SendResponse> {
+    let w = n.dev.as_ref().ok_or_else(|| not_found("dev mode only"))?;
+    let to: [u8; 43] = req
+        .to
+        .clone()
+        .try_into()
+        .map_err(|_| bad("`to` must be 43 bytes"))?;
+    let _op = n.ops.lock().await;
+    send_from(&n, w, to, req.value, &req.memo, true).await
+}
+
+// ---------------------------------------------------------------- /admin: the funding wallet
+
+/// `/admin/*` serves loopback peers only, unless `--allow-remote-admin`.
+async fn admin_guard(
+    State(n): S,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if !n.allow_remote_admin && !peer.ip().is_loopback() {
+        return ApiErr(
+            StatusCode::FORBIDDEN,
+            "/admin is served to loopback peers only".into(),
+        )
+        .into_response();
+    }
+    next.run(req).await
+}
+
+fn funding_of(n: &Node) -> Result<&Wallet, ApiErr> {
+    n.funding
+        .as_ref()
+        .ok_or_else(|| not_found("no [funding] configured"))
+}
+
+/// `POST /admin/genesis`: the genesis head of `app` from the funding wallet. Never mines;
+/// refuses if this daemon already sees (or has broadcast and not yet seen mined) a genesis
+/// head for `app`.
+async fn admin_genesis(
+    State(n): S,
+    Json(req): Json<api::GenesisRequest>,
+) -> R<api::GenesisResponse> {
+    let w = funding_of(&n)?;
+    if !n.apps.contains_key(&req.app) {
+        return Err(not_found("unknown app"));
+    }
+    let _op = n.ops.lock().await;
+    {
+        let inner = n.inner.lock().await;
+        let memo = HeadMemo::genesis(n.params.network, req.app).encode();
+        if let Some(h) = inner
+            .scanner
+            .all_notes()
+            .find(|x| x.app_id == req.app && x.scope == OScope::Internal && x.memo == memo)
+        {
+            return Err(conflict(format!(
+                "app already has a genesis head on chain: head_cmx {} txid {} height {}",
+                hex::encode(h.cmx),
+                zol_zcash::display_hex(&h.txid),
+                h.height
+            )));
+        }
+        if let Some((txid, exp)) = inner.genesis_pending.get(&req.app) {
+            if inner.scanner.tip().0 < *exp {
+                return Err(conflict(format!(
+                    "a genesis for this app is broadcast and not yet mined: txid {} (expires at height {exp})",
+                    zol_zcash::display_hex(txid)
+                )));
+            }
+        }
+    }
+    genesis_from(&n, w, &req, false).await
+}
+
+#[derive(Deserialize)]
+struct AdminSendReq {
+    /// Unified address with an Orchard receiver, on this network.
+    to: String,
+    value: u64,
+    /// UTF-8 text memo (e.g. a `ZOL1:` deposit memo), at most 512 bytes.
+    #[serde(default)]
+    memo: Option<String>,
+}
+
+/// `POST /admin/send`: pays a UA from the funding wallet (test deposits). Never mines.
+async fn admin_send(State(n): S, Json(req): Json<AdminSendReq>) -> R<api::SendResponse> {
+    let w = funding_of(&n)?;
+    let to = zol_zcash::keys::decode_ua_orchard(&n.params, req.to.trim())
+        .ok_or_else(|| bad("`to` is not a unified address with an Orchard receiver on this network"))?;
+    let memo = req.memo.unwrap_or_default();
+    let _op = n.ops.lock().await;
+    send_from(&n, w, to, req.value, memo.as_bytes(), false).await
+}
+
+#[derive(Serialize)]
+struct FundingNote {
+    cmx: String,
+    value: u64,
+    height: u32,
+    /// Display (RPC) order.
+    txid: String,
+    scope: &'static str,
+    /// Used by a broadcast, unmined transaction of this daemon.
+    pending: bool,
+}
+
+#[derive(Serialize)]
+struct FundingStatus {
+    ua: String,
+    /// Unspent Ironwood notes, including pending ones.
+    balance: u64,
+    /// `balance` minus notes used by unmined transactions.
+    spendable: u64,
+    notes: Vec<FundingNote>,
+    /// Where the wallet is scanned from (`[funding] start_height`, if set).
+    start_height: Option<u32>,
+    scanner_tip: u32,
+    node_tip: Option<u32>,
+}
+
+/// `GET /admin/funding`: the funding wallet's address, balance and unspent notes.
+async fn admin_funding(State(n): S) -> R<FundingStatus> {
+    let w = funding_of(&n)?;
+    let node_tip = n.client.get_block_count().await.ok();
+    let inner = n.inner.lock().await;
+    let tip = inner.scanner.tip().0;
+    let mut notes: Vec<FundingNote> = inner
+        .scanner
+        .unspent(&w.id)
+        .filter(|x| x.pool == Pool::Ironwood && x.value > 0)
+        .map(|x| FundingNote {
+            cmx: hex::encode(x.cmx),
+            value: x.value,
+            height: x.height,
+            txid: zol_zcash::display_hex(&x.txid),
+            scope: match x.scope {
+                OScope::External => "external",
+                OScope::Internal => "internal",
+            },
+            pending: inner
+                .wallet_pending
+                .get(&x.nullifier)
+                .is_some_and(|exp| tip < *exp),
+        })
+        .collect();
+    notes.sort_by_key(|x| (x.height, x.cmx.clone()));
+    let balance = notes.iter().map(|x| x.value).sum();
+    let spendable = notes.iter().filter(|x| !x.pending).map(|x| x.value).sum();
+    Ok(Json(FundingStatus {
+        ua: w.ua(&n.params),
+        balance,
+        spendable,
+        notes,
+        start_height: w.start_height,
+        scanner_tip: tip,
+        node_tip,
+    }))
+}
+
+// ---------------------------------------------------------------- keygen
+
+/// `zol-zcashd keygen`: a fresh trusted-dealer key set, one `[keys]` file per operator plus
+/// a public `group.toml`. See docs/ops/testnet-deploy.md.
+fn keygen(arg: &dyn Fn(&str) -> Option<String>, apps: &[String]) -> Result<(), String> {
+    const USAGE: &str = "usage: zol-zcashd keygen --network testnet|mainnet|regtest --operators <n> --threshold <t> --out <dir> [--app <hex>]...";
+    let network = keyfile::parse_network(&arg("--network").ok_or(USAGE)?)?;
+    let n: u16 = arg("--operators")
+        .ok_or(USAGE)?
+        .parse()
+        .map_err(|_| "--operators <n>")?;
+    let t: u16 = arg("--threshold")
+        .ok_or(USAGE)?
+        .parse()
+        .map_err(|_| "--threshold <t>")?;
+    let out = PathBuf::from(arg("--out").ok_or(USAGE)?);
+    if !(2..=n).contains(&t) || n > 255 {
+        return Err(format!(
+            "need 2 <= threshold <= operators <= 255 (got {t} of {n})"
+        ));
+    }
+    let app_ids = apps.iter().map(|a| hex32(a)).collect::<Result<Vec<_>, _>>()?;
+    let files: Vec<PathBuf> = (1..=n)
+        .map(|i| out.join(format!("operator-{i}.keys.toml")))
+        .chain([out.join("group.toml")])
+        .collect();
+    if let Some(f) = files.iter().find(|f| f.exists()) {
+        return Err(format!(
+            "{} exists; refusing to overwrite key material (use a new --out directory)",
+            f.display()
+        ));
+    }
+    if !out.exists() {
+        std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let keys = keyfile::generate(n, t, &mut rand::rngs::OsRng).map_err(|e| e.to_string())?;
+    let ak_group = frost::group_key(&keys.pubkeys);
+    let fp = keyfile::master_view_fingerprint(&keys.master_view);
+    for (i, (id, kp)) in keys.shares.iter().enumerate() {
+        let one = BTreeMap::from([(*id, kp.clone())]);
+        let body = format!(
+            "# zol-zcashd operator key file: operator {} of {n} (threshold {t}), network {}.\n\
+             # SECRET: this operator's FROST spend share and the group's master viewing secret.\n\
+             # Generated by a trusted dealer (zol-zcashd keygen): the generating machine saw every share.\n\
+             # FROST identifier {}\n\
+             # ak_group = {}\n\
+             # master_view_fingerprint = {}\n\
+             # Use: `keys_file = \"<this file>\"` in the zol-zcashd config (or paste the [keys] section).\n{}",
+            i + 1,
+            keyfile::network_name(network),
+            hex::encode(id.serialize()),
+            hex::encode(ak_group),
+            hex::encode(fp),
+            keyfile::keys_section(&keys, &one).map_err(|e| e.to_string())?
+        );
+        keyfile::write_new_secret(&files[i], &body)?;
+    }
+    keyfile::write_new_secret(
+        &files[n as usize],
+        &keyfile::group_toml(&keys, network).map_err(|e| e.to_string())?,
+    )?;
+    // The public facts every operator compares (GET /health shows the same two).
+    println!("network                  {}", keyfile::network_name(network));
+    println!("operators / threshold    {n} / {t} (trusted dealer: this machine saw every share)");
+    println!("ak_group                 {}", hex::encode(ak_group));
+    println!("master_view_fingerprint  {}", hex::encode(fp));
+    for (id, vs) in keys.pubkeys.verifying_shares() {
+        println!(
+            "verifying share {}  {}",
+            hex::encode(id.serialize()),
+            hex::encode(vs.serialize().map_err(|e| format!("{e:?}"))?)
+        );
+    }
+    let params = ChainParams::new(network);
+    for id in app_ids {
+        let k = AppKeys::derive(ak_group, &keys.master_view, &id, network)
+            .map_err(|e| format!("app {}: {e}", hex::encode(id)))?;
+        println!("vault {}  {}", hex::encode(id), encode_ua(&params, &k.vault_address()));
+    }
+    for f in &files {
+        println!("wrote {} (0600)", f.display());
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------- startup
 
 fn dev_keys(seed: &str) -> (Keys, SpendingKey) {
     let k = testing::dev_seed_keys(seed);
@@ -1209,25 +1542,18 @@ fn dev_keys(seed: &str) -> (Keys, SpendingKey) {
     )
 }
 
-fn config_keys(k: &KeysCfg) -> Result<Keys, String> {
-    let pubkeys = PublicKeyPackage::deserialize(
-        &hex::decode(&k.public_key_package).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("public_key_package: {e:?}"))?;
-    let mut shares = BTreeMap::new();
-    for s in &k.shares {
-        let kp = KeyPackage::deserialize(&hex::decode(s).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("share: {e:?}"))?;
-        if kp.verifying_key() != pubkeys.verifying_key() {
-            return Err("share does not belong to public_key_package".into());
-        }
-        shares.insert(*kp.identifier(), kp);
-    }
-    Ok(Keys {
-        master_view: hex32(&k.master_view)?,
-        shares,
-        pubkeys,
-    })
+/// True if `listen` is a loopback socket address (`127.0.0.0/8`, `::1`).
+fn listen_is_loopback(listen: &str) -> Result<bool, String> {
+    let addr: SocketAddr = listen.parse().map_err(|e| format!("listen: {e}"))?;
+    Ok(addr.ip().is_loopback())
+}
+
+/// The scanner's first block on a fresh state dir: the apps' start (`start_height`, default
+/// node tip + 1), or the funding wallet's earlier `[funding] start_height`. One scanner, one
+/// birthday: apps then scan blocks before their genesis, which only adds `Block` events.
+fn scan_start(app_start: Option<u32>, funding_start: Option<u32>, node_tip: u32) -> u32 {
+    let apps = app_start.unwrap_or(node_tip + 1);
+    funding_start.map_or(apps, |f| f.min(apps)).max(1)
 }
 
 fn load_log(path: &Path, last_seq: u64) -> Result<Vec<(u64, ChainEvent)>, String> {
@@ -1285,6 +1611,14 @@ async fn run() -> Result<(), String> {
             .cloned()
     };
     let dev_mode = args.iter().any(|a| a == "--dev");
+    if args.get(1).map(String::as_str) == Some("keygen") {
+        let apps: Vec<String> = args
+            .windows(2)
+            .filter(|w| w[0] == "--app")
+            .map(|w| w[1].clone())
+            .collect();
+        return keygen(&arg, &apps);
+    }
     if args.iter().any(|a| a == "--print-dev-keys") {
         // Prints a `[keys]` section (cluster mode: all 3 shares) derived from the dev seed,
         // e.g. to see the format or to pin a dev key set in a config file.
@@ -1295,48 +1629,65 @@ async fn run() -> Result<(), String> {
             "# dev_wallet_ua (regtest [mining] miner_address) = {}",
             testing::dev_wallet_ua(&ChainParams::new(Network::Regtest), &seed)
         );
-        println!("[keys]");
-        println!("master_view = \"{}\"", hex::encode(k.master_view));
-        println!(
-            "public_key_package = \"{}\"",
-            hex::encode(k.pubkeys.serialize().map_err(|e| format!("{e:?}"))?)
+        print!(
+            "{}",
+            keyfile::keys_section(&k, &k.shares).map_err(|e| e.to_string())?
         );
-        let shares: Vec<String> = k
-            .shares
-            .values()
-            .map(|kp| format!("\"{}\"", hex::encode(kp.serialize().unwrap())))
-            .collect();
-        println!("shares = [\n  {},\n]", shares.join(",\n  "));
         return Ok(());
     }
     let cfg_path = arg("--config").ok_or(
-        "usage: zol-zcashd --config <file.toml> [--dev [--dev-seed <s>] [--dev-share <i>]]",
+        "usage: zol-zcashd --config <file.toml> [--dev [--dev-seed <s>] [--dev-share <i>]] [--allow-remote-admin]\n       zol-zcashd keygen --network <net> --operators <n> --threshold <t> --out <dir> [--app <hex>]...",
     )?;
     let cfg: Config = toml::from_str(
         &std::fs::read_to_string(&cfg_path).map_err(|e| format!("{cfg_path}: {e}"))?,
     )
     .map_err(|e| e.to_string())?;
-    let network = match cfg.network.as_str() {
-        "mainnet" => Network::Mainnet,
-        "testnet" => Network::Testnet,
-        "regtest" => Network::Regtest,
-        other => return Err(format!("unknown network {other}")),
-    };
+    let network = keyfile::parse_network(&cfg.network)?;
     let mut params = ChainParams::new(network);
     if dev_mode && network != Network::Regtest {
         return Err("--dev is only allowed on regtest".into());
     }
-    let (keys, dev) = match (&cfg.keys, dev_mode) {
+    let allow_remote_admin = args.iter().any(|a| a == "--allow-remote-admin");
+    // The funding wallet: checked before anything touches the node.
+    let funding = match &cfg.funding {
+        None => None,
+        Some(f) => {
+            if !allow_remote_admin && !listen_is_loopback(&cfg.listen)? {
+                return Err(format!(
+                    "[funding] enables /admin (spends from the funding wallet) but listen = {:?} is not a loopback address; listen on 127.0.0.1, or pass --allow-remote-admin",
+                    cfg.listen
+                ));
+            }
+            let (net, sk) = keyfile::read_wallet_file(&f.key_file)?;
+            if net != network {
+                return Err(format!(
+                    "[funding] {}: wallet network {} but config network {}",
+                    f.key_file.display(),
+                    keyfile::network_name(net),
+                    cfg.network
+                ));
+            }
+            let fvk = FullViewingKey::from(&sk);
+            Some(Wallet::new(funding_wallet_id(&fvk), sk, f.start_height))
+        }
+    };
+    let cfg_keys = match (&cfg.keys, &cfg.keys_file) {
+        (Some(_), Some(_)) => return Err("set `keys` or `keys_file`, not both".into()),
+        (Some(k), None) => Some(k.clone()),
+        (None, Some(p)) => Some(keyfile::read_keys_file(p)?),
+        (None, None) => None,
+    };
+    let (keys, dev) = match (&cfg_keys, dev_mode) {
         (Some(k), dev) => {
             let wallet =
                 dev.then(|| dev_keys(&arg("--dev-seed").unwrap_or_else(|| "zol-dev".into())).1);
-            (config_keys(k)?, wallet)
+            (keyfile::load(k)?, wallet)
         }
         (None, true) => {
             let (k, w) = dev_keys(&arg("--dev-seed").unwrap_or_else(|| "zol-dev".into()));
             (k, Some(w))
         }
-        (None, false) => return Err("`keys` is required without --dev".into()),
+        (None, false) => return Err("`keys` (or `keys_file`) is required without --dev".into()),
     };
     let mut keys = keys;
     if let Some(i) = arg("--dev-share") {
@@ -1357,8 +1708,8 @@ async fn run() -> Result<(), String> {
     let mut apps = BTreeMap::new();
     for a in &cfg.apps {
         let id = hex32(a)?;
-        if id == DEV_WALLET_ID {
-            return Err("app id collides with the dev wallet id".into());
+        if id == DEV_WALLET_ID || funding.as_ref().is_some_and(|w| w.id == id) {
+            return Err("app id collides with a wallet account id".into());
         }
         apps.insert(
             id,
@@ -1385,15 +1736,9 @@ async fn run() -> Result<(), String> {
     std::fs::create_dir_all(&cfg.state_dir).map_err(|e| e.to_string())?;
 
     let mut accounts: Vec<Account> = apps.values().map(Account::from).collect();
-    let dev = dev.map(|sk| Dev {
-        fvk: FullViewingKey::from(&sk),
-        sk,
-    });
-    if let Some(d) = &dev {
-        accounts.push(Account {
-            id: DEV_WALLET_ID,
-            fvk: d.fvk.clone(),
-        });
+    let dev = dev.map(|sk| Wallet::new(DEV_WALLET_ID, sk, None));
+    for w in dev.iter().chain(&funding) {
+        accounts.push(w.account());
     }
 
     // Wait for the node.
@@ -1452,11 +1797,37 @@ async fn run() -> Result<(), String> {
             return Err(format!("state version {}", p.version));
         }
         let ids = Scanner::snapshot_account_ids(&p.scanner).map_err(|e| e.to_string())?;
+        let gone: Vec<String> = ids
+            .iter()
+            .filter(|id| !accounts.iter().any(|a| a.id == **id))
+            .map(hex::encode)
+            .collect();
+        if !gone.is_empty() {
+            return Err(format!(
+                "the state dir tracks accounts no longer configured: {} (removed apps are not supported; a [funding] wallet, once set, must stay configured with the same key)",
+                gone.join(", ")
+            ));
+        }
         let (old, new): (Vec<Account>, Vec<Account>) =
             accounts.into_iter().partition(|a| ids.contains(&a.id));
         let mut sc = Scanner::restore(&p.scanner, old)
             .map_err(|e| format!("restore (removed apps are not supported): {e}"))?;
         check_prune(sc.next_height(), "resuming the scanner")?;
+        if let Some(w) = funding.as_ref().filter(|w| !ids.contains(&w.id)) {
+            match w.start_height {
+                Some(h) if h < sc.next_height() => {
+                    return Err(format!(
+                        "[funding] is new to this state dir, whose scanner is at block {}: the wallet would only be scanned from there, not from start_height {h}. Use a fresh state_dir (the event log restarts at seq 1) or a start_height >= {}",
+                        sc.next_height(),
+                        sc.next_height()
+                    ))
+                }
+                _ => eprintln!(
+                    "funding wallet: new to this state dir, scanned from height {} on",
+                    sc.next_height()
+                ),
+            }
+        }
         for a in new {
             eprintln!(
                 "new app {}: scanned from height {} on",
@@ -1479,8 +1850,16 @@ async fn run() -> Result<(), String> {
             },
         )
     } else {
-        let start = cfg.start_height.unwrap_or(node_tip + 1).max(1);
-        check_prune(start - 1, "start_height (tree state at start_height - 1)")?;
+        let start = scan_start(
+            cfg.start_height,
+            funding.as_ref().and_then(|w| w.start_height),
+            node_tip,
+        );
+        check_prune(
+            start - 1,
+            "the scanner birthday (tree state at min(start_height, [funding] start_height) - 1)",
+        )?;
+        eprintln!("fresh state dir: scanning from height {start}");
         let sc = Scanner::from_node(ScannerConfig::new(params), accounts, &client, start)
             .await
             .map_err(|e| e.to_string())?;
@@ -1508,12 +1887,16 @@ async fn run() -> Result<(), String> {
         pubkeys: keys.pubkeys,
         min_signers,
         ak_group,
+        master_view_fingerprint: keyfile::master_view_fingerprint(&keys.master_view),
         mode,
         dev,
+        funding,
+        allow_remote_admin,
         inner: Mutex::new(Inner {
             scanner,
             refunds,
-            dev_pending: BTreeMap::new(),
+            wallet_pending: BTreeMap::new(),
+            genesis_pending: BTreeMap::new(),
             last_error: None,
             pending,
             sessions: BTreeMap::new(),
@@ -1558,16 +1941,41 @@ async fn run() -> Result<(), String> {
             .route("/dev/genesis", post(dev_genesis))
             .route("/dev/send", post(dev_send));
     }
+    if node.funding.is_some() {
+        app = app.merge(
+            Router::new()
+                .route("/admin/funding", get(admin_funding))
+                .route("/admin/genesis", post(admin_genesis))
+                .route("/admin/send", post(admin_send))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    node.clone(),
+                    admin_guard,
+                )),
+        );
+    }
     let app = app.with_state(node.clone());
     let addr: SocketAddr = cfg.listen.parse().map_err(|e| format!("listen: {e}"))?;
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| e.to_string())?;
     eprintln!(
-        "zol-zcashd {mode} on {addr}: network {network:?}, {} apps, ak_group {}, scanner tip {}",
+        "zol-zcashd {mode} on {addr}: network {network:?}, {} apps, ak_group {}, master_view_fingerprint {}, scanner tip {}",
         node.apps.len(),
         hex::encode(ak_group),
+        hex::encode(node.master_view_fingerprint),
         node.inner.lock().await.scanner.tip().0
     );
-    axum::serve(listener, app).await.map_err(|e| e.to_string())
+    if let Some(w) = &node.funding {
+        eprintln!(
+            "funding wallet {} (start_height {:?}): GET /admin/funding, POST /admin/genesis",
+            w.ua(&node.params),
+            w.start_height
+        );
+    }
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }

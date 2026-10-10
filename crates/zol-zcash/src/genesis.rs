@@ -144,3 +144,67 @@ pub fn build_multi(
         change_value: built.change_value,
     })
 }
+
+/// Why [`select_inputs`] found no covering set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortfall {
+    /// What the selection had to cover with `max_inputs` inputs: amount + ZIP 317 fee.
+    pub need: u64,
+    /// Sum and count of the candidates it could use (the largest `max_inputs`).
+    pub have: u64,
+    pub notes: usize,
+}
+
+/// Largest-first selection from `free` notes `(value, id)`: the fewest that cover `amount`
+/// plus the ZIP 317 fee for that many inputs and `outputs` outputs, at most `max_inputs`.
+pub fn select_inputs<T: Copy + Ord>(
+    mut free: Vec<(u64, T)>,
+    amount: u64,
+    outputs: usize,
+    max_inputs: usize,
+) -> Result<Vec<T>, Shortfall> {
+    free.sort_by(|a, b| b.cmp(a));
+    free.truncate(max_inputs);
+    let mut sum = 0u64;
+    let mut take = vec![];
+    for (v, id) in &free {
+        sum += v;
+        take.push(*id);
+        if sum >= amount + crate::testing::zip317_fee(take.len(), outputs) {
+            return Ok(take);
+        }
+    }
+    Err(Shortfall {
+        need: amount + crate::testing::zip317_fee(free.len().max(1), outputs),
+        have: sum,
+        notes: free.len(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_inputs_largest_first_with_fee() {
+        // fee is 10,000 for up to 2 actions, 5,000 per action beyond.
+        let free = vec![(30_000u64, 1u8), (100_000, 2), (50_000, 3)];
+        assert_eq!(select_inputs(free.clone(), 90_000, 2, 40), Ok(vec![2]));
+        assert_eq!(select_inputs(free.clone(), 95_000, 2, 40), Ok(vec![2, 3]));
+        // 3 inputs: fee 15,000; 180,000 - 15,000 = 165,000 is the most it can pay.
+        assert_eq!(select_inputs(free.clone(), 165_000, 2, 40), Ok(vec![2, 3, 1]));
+        assert_eq!(
+            select_inputs(free.clone(), 165_001, 2, 40),
+            Err(Shortfall { need: 180_001, have: 180_000, notes: 3 })
+        );
+        // The input cap drops the smallest notes.
+        assert_eq!(
+            select_inputs(free, 140_000, 2, 1),
+            Err(Shortfall { need: 150_000, have: 100_000, notes: 1 })
+        );
+        assert_eq!(
+            select_inputs(Vec::<(u64, u8)>::new(), 1, 2, 40),
+            Err(Shortfall { need: 10_001, have: 0, notes: 0 })
+        );
+    }
+}

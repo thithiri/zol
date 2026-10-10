@@ -54,11 +54,9 @@ fn main() {
         }
         Some("address") => {
             let key = arg(&args, "--key").expect("--key <file>");
-            let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(key).unwrap()).unwrap();
-            let net = v["network"].as_str().unwrap().to_string();
-            let b: [u8; 32] = hex::decode(v["orchard_spending_key"].as_str().unwrap()).unwrap().try_into().unwrap();
-            let sk = Option::<SpendingKey>::from(SpendingKey::from_bytes(b)).expect("valid key");
-            show(&sk, &net);
+            let (net, sk) = zol_zcash::keyfile::read_wallet_file(std::path::Path::new(&key))
+                .unwrap_or_else(|e| panic!("{e}"));
+            show(&sk, zol_zcash::keyfile::network_name(net));
         }
         _ => eprintln!("usage: zol-wallet new --network testnet --out <file> | zol-wallet address --key <file>"),
     }
