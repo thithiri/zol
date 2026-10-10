@@ -58,6 +58,8 @@ pub struct Env {
     pub attestor: SigningKey,
     pub guardians: Vec<Keypair>,
     pub now: i64,
+    /// Zcash network the ledger config binds digests to.
+    pub network: u8,
 }
 
 pub fn pda(seeds: &[&[u8]], program: &Pubkey) -> Pubkey {
@@ -149,6 +151,7 @@ impl Env {
             attestor: SigningKey::from_bytes(&[0xA7; 32]),
             guardians: (0..3).map(|_| Keypair::new()).collect(),
             now: T0,
+            network: NETWORK,
         };
         for g in &env.guardians {
             env.svm.airdrop(&g.pubkey(), 1_000_000_000).unwrap();
@@ -242,12 +245,29 @@ impl Env {
                     attestor: self.attestor_pubkey(),
                     guardians: self.guardians.iter().map(|g| g.pubkey()).collect(),
                     guardian_threshold: 2,
-                    network: NETWORK,
+                    network: self.network,
                     params: params(),
                 },
             },
         );
         self.send(&[ix], &[payer])
+    }
+
+    /// Initializes the ledger for another Zcash network (e.g. regtest).
+    pub fn initialize_network(&mut self, network: u8) {
+        self.network = network;
+        let r = self.initialize();
+        assert!(r.is_ok(), "{:?}", r.err().map(|f| f.meta.logs));
+    }
+
+    /// Activates an app with a real vault address and genesis head.
+    pub fn activate_with(&mut self, app_program: &Pubkey, vault: [u8; 43], genesis_head: [u8; 32]) -> TxResult {
+        let ix = ledger_ix(
+            zol_ledger::accounts::ActivateApp { admin: self.admin.pubkey(), config: config_pda(), app: app_pda(app_program) },
+            zol_ledger::instruction::ActivateApp { vault_address: vault, genesis_head },
+        );
+        let admin = self.admin.insecure_clone();
+        self.send(&[ix], &[&admin])
     }
 
     pub fn set_config(&mut self, args: zol_ledger::SetConfigArgs) -> TxResult {
@@ -331,8 +351,12 @@ impl Env {
     }
 
     pub fn credit_digest(args: &zol_ledger::CreditArgs, app_program: &Pubkey) -> [u8; 32] {
+        Self::credit_digest_on(NETWORK, args, app_program)
+    }
+
+    pub fn credit_digest_on(network: u8, args: &zol_ledger::CreditArgs, app_program: &Pubkey) -> [u8; 32] {
         CreditAttestation {
-            network: NETWORK,
+            network,
             app: app_program.to_bytes(),
             deposit_id: args.deposit_id,
             amount: args.amount,
@@ -363,7 +387,7 @@ impl Env {
 
     /// Credit with a valid attestation from the configured attestor key.
     pub fn credit_with(&mut self, args: zol_ledger::CreditArgs, signer: &SigningKey) -> TxResult {
-        let digest = Self::credit_digest(&args, &TEST_APP);
+        let digest = Self::credit_digest_on(self.network, &args, &TEST_APP);
         let ix = self.credit_ix(args);
         let r = self.relayer.insecure_clone();
         self.send(&[ed25519_ix(signer, &digest), ix], &[&r])

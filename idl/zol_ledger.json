@@ -2978,6 +2978,18 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "id",
+            "docs": [
+              "The deposit ID this account is keyed by, stored so indexers can list deposits."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
             "name": "state",
             "type": {
               "defined": {

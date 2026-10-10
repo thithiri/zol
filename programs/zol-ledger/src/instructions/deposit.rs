@@ -83,6 +83,7 @@ pub fn handle_credit_deposit(ctx: Context<CreditDeposit>, args: CreditArgs) -> R
     app.fee_pool = app.fee_pool.checked_add(fee).ok_or(ZolError::Overflow)?;
 
     let d = &mut ctx.accounts.deposit;
+    d.id = args.deposit_id;
     d.state = DepositState::Credited;
     d.app = app.key();
     d.index = index;
@@ -142,6 +143,7 @@ pub fn handle_void_deposit(ctx: Context<VoidDeposit>, deposit_id: [u8; 32]) -> R
     let digest = void_digest::<SolSha256>(config.network, &app.program_id.to_bytes(), &deposit_id);
     require_ed25519(&ctx.accounts.instructions, &config.attestor, &digest)?;
     let d = &mut ctx.accounts.deposit;
+    d.id = deposit_id;
     d.state = DepositState::Voided;
     d.app = app.key();
     d.digest = digest;

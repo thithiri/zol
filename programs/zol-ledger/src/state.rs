@@ -187,6 +187,8 @@ pub enum DepositState {
 #[account]
 #[derive(InitSpace)]
 pub struct Deposit {
+    /// The deposit ID this account is keyed by, stored so indexers can list deposits.
+    pub id: [u8; 32],
     pub state: DepositState,
     pub app: Pubkey,
     /// Position among this app's credited deposits; meaningless when voided.

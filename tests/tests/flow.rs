@@ -84,7 +84,7 @@ fn void_then_credit_is_impossible_and_vice_versa() {
     let k = solana_keypair::Keypair::new();
     ok!(env.void([0xD1; 32]));
     let d: st::Deposit = env.account(&deposit_pda(&[0xD1; 32]));
-    assert_eq!(d.state, DepositState::Voided);
+    assert_eq!((d.state, d.id), (DepositState::Voided, [0xD1; 32]));
     assert!(env.credit([0xD1; 32], 1_000_000, k.pubkey(), [7; 32]).is_err(), "credit after void");
 
     ok!(env.credit([0xD2; 32], 1_000_000, k.pubkey(), [7; 32]));
