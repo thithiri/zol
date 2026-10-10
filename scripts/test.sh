@@ -90,6 +90,10 @@ fi
 step "invariant fuzz, 2,000 cases (release)"
 PROPTEST_CASES=2000 cargo nextest run -p zol-tests --release --test invariants
 
+step "release binaries for the Zcash leg (zol-gateway, coinflip e2e client)"
+cargo build --release -p zol-gateway --bin zol-gateway
+(cd spikes/magicblock/ledger-e2e && cargo build --release --target-dir ../target/e2e)
+
 step "Zakura default pair (for the Zcash leg)"
 if ! curl -s -m 3 -X POST -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' http://127.0.0.1:18232/ >/dev/null; then

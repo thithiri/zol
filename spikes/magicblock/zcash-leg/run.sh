@@ -92,7 +92,7 @@ for i in 0 1 2; do
   done
   cat > "$W/gw$i.json" <<JSON
 {
-  "name": "op$i", "listen": "127.0.0.1:1871$i", "network": 2,
+  "name": "op$i", "listen": "127.0.0.1:1871$i", "public_url": "http://127.0.0.1:1871$i", "network": 2,
   "depths": { "early": 10, "full": 100, "payout": 100 },
   "early_credit_cap": 10000000, "denominations": [1000000, 10000000], "tip_stall_secs": 1800,
   "payout": { "max_records_per_tx": 4, "max_inputs": 8, "action_sizes": [4, 8, 16, 32], "interval_secs": 0,

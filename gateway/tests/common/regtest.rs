@@ -33,7 +33,9 @@ pub fn node_url() -> String {
 }
 
 pub fn node_rpc(method: &str, params: serde_json::Value) -> serde_json::Value {
-    let v: serde_json::Value = reqwest::blocking::Client::new()
+    // Mining in five parallel lanes can take well over reqwest's default 30 s.
+    let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(900)).build().unwrap();
+    let v: serde_json::Value = http
         .post(node_url())
         .json(&json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
         .send()
