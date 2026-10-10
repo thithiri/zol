@@ -164,3 +164,78 @@ curl -s "http://127.0.0.1:18300/head?app=$APP&genesis=<head_cmx hex>" | jq '.cha
 5. On operator 1, `GET /admin/funding` must show the TAZ. Then `POST /admin/genesis`.
 6. Once the genesis is mined, check that `GET /head` on every daemon shows the same
    `chain[0]`, then activate the app with `head_cmx`.
+
+## The first testnet deployment (2026-10-10)
+
+What was actually run for the trial, and what it taught us. One host carries all three
+operators, so this shows the system runs; it is not a security setup.
+
+### Host
+
+| | |
+| --- | --- |
+| Provider | DigitalOcean, SGP1, Basic $18: 2 vCPU, 2 GB RAM, 60 GB SSD, plus 4 GB swap (`vm.swappiness=10`) |
+| OS | Ubuntu 24.04, key-only SSH, unattended upgrades, `net.ipv4.tcp_slow_start_after_idle=0` (Zakura asks for it) |
+| Firewall (ufw) | 22, 80 and 443 (Caddy), 18233 (Zakura testnet P2P). Everything else is on 127.0.0.1 |
+| Public name | `159-223-38-126.sslip.io` (no domain needed; Caddy gets a Let's Encrypt certificate for it) |
+| Memory in use | about 1.5 GB with Zakura (about 1 GB) + three `zol-zcashd` + three gateways + Caddy |
+
+Binaries are cross-compiled on the developer's Mac and copied up, so the host never builds
+Rust:
+
+```sh
+cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.39 -p zol-gateway --bin zol-gateway
+(cd crates/zol-zcash && cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.39 --bin zol-zcashd)
+```
+
+### Layout (user `zol`, everything 0600/0700)
+
+```text
+/home/zol/zakura-testnet/          zakura.toml, cache/ (pruned state, about 9 GB)
+/home/zol/ops/shared/              app.hex, attestor/attestor-pubkeys.json, pallas/ (keygen output),
+                                   gateway-master-secret.hex, pubkeys.json, testnet-wallet.json
+/home/zol/ops/op{0,1,2}/           guardian.json, relayer.json, attestor-share.json,
+                                   serve.json, zcashd.toml, zcashd-state/, gateway.db
+/etc/systemd/system/               zol-zcashd@.service, zol-gateway@.service (instance = operator)
+/etc/caddy/Caddyfile               /op{0,1,2}/* -> 127.0.0.1:870{0,1,2}; /peer/* -> 404; / -> the page
+```
+
+- **Ports:** `zol-zcashd` on 127.0.0.1:1830N and gateways on 127.0.0.1:870N. Peers call each other on localhost.
+- **Funding:** only op0 has `[funding]`.
+- **Keys:** the Solana guardian and relayer keypairs were generated on the host (PyNaCl). The attestor key came from `zol-gateway keygen` and the Pallas shares from `zol-zcashd keygen`; both are dealer-generated on this one host.
+
+**Caddy rule order.** With `respond @peer 404` next to `handle_path` blocks, Caddy sorts
+`handle_path` first, so `/op0/peer/...` was proxied. Wrapping everything in `route { ... }`
+keeps the written order. Check with `curl -o /dev/null -w '%{http_code}' https://<host>/op0/peer/x`,
+which must print 404.
+
+### Solana devnet
+
+```sh
+solana program deploy -u devnet -k keys/devnet-relayer.json --program-id keys/zol_ledger-keypair.json target/deploy/zol_ledger.so
+solana program deploy -u devnet -k keys/devnet-relayer.json --program-id keys/zol_coinflip-keypair.json target/deploy/zol_coinflip.so
+D=spikes/magicblock/target/e2e/release/devnet   # (cd spikes/magicblock/ledger-e2e && cargo build --release --target-dir ../target/e2e --bin devnet)
+$D init --admin keys/devnet-relayer.json --attestor <group key> --guardians <g0,g1,g2>
+$D register --payer keys/devnet-relayer.json
+# after the genesis is at full depth:
+$D activate --admin keys/devnet-relayer.json --vault <vault hex43> --genesis <head_cmx>
+$D status
+```
+
+- **Cost:** about 6.3 SOL for both programs, at rent of 3.67 SOL (ledger) plus 2.56 SOL (coinflip). A deploy briefly needs twice its rent for the upload buffer. Fund each relayer with 0.4 SOL; guardians need none, because the relayer pays for `freeze_app`.
+- **Verify the deploy:** `solana program dump` the ledger and compare its sha256 with the release hash in the README.
+- **Rate limits:** the public devnet RPC sends 429s when three gateways share one IP. `RpcLedger` retries with backoff, and `poll_ms` is 5000. A dedicated endpoint, such as Helius or QuickNode Solana devnet, is a one-line `solana_rpc` change in each `serve.json`.
+- **The page:** built with `VITE_GATEWAY=https://<host>/op0`, `VITE_BASE_RPC=https://api.devnet.solana.com`, `VITE_ER_RPC=https://devnet-as.magicblock.app`, `VITE_VALIDATOR=MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57` (from the endpoint's `getIdentity`) and `VITE_VRF_QUEUE=5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc` (`DEFAULT_EPHEMERAL_QUEUE`). Then `rsync dist/` to `/var/www/zol`.
+- **Fees:** players' Solana fees come from the session key, or from a fee-payer key pasted into the page settings.
+
+### Zcash testnet
+
+- **Snapshot:** Zakura 1.6.0 rejects the post-NU7 pruned snapshots (see [zcash-node.md](zcash-node.md)). Use the Oct 1 pre-NU7 snapshot; the node crossed NU7 itself without trouble.
+  - **Speed:** syncing about 60,000 blocks took about 75 minutes, between 8 and 26 blocks/s.
+  - **The tip:** the snapshot's file timestamp is when it was published, not when its last block was mined. Use a block's `time` to estimate where the tip is.
+- **TAZ:** many faucets still run on the stale pre-NU7 fork.
+  - **fauzec's TAZ never reached our chain.** Its receipt showed block 4,472,783 on Oct 10, a height the NU7 chain had passed on Oct 6.
+  - **Valar's faucet works.** At `https://faucet.testnet.valargroup.dev` (`/api/status` reports `chainHeight`), it pays 0.125 TAZ per IP per day, on the NU7 chain.
+  - **Check any faucet first:** its height must match your node's.
+- **Genesis:** a 0.05 TAZ float, mined at 4,486,000 with a 10,000 zat fee. All three daemons showed the same `chain[0]` and no fault.
+  - **Activation:** activate only after 300 confirmations (about 2 h at 24 s/block). Guardians cancel an activation whose genesis is shallower. The ledger then waits `activation_delay_secs` (1 h) before taking deposits.
