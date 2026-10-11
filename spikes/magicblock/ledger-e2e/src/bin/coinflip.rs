@@ -185,7 +185,6 @@ fn setup() {
 fn play() {
     let admin = kp("payer");
     let relayer = kp("payer");
-    let nosol = kp("nosol");
     let queue: Pubkey = std::env::var("VRF_QUEUE").unwrap_or("Sc9MJUngNbQXSXGP3F67KvKwVnhaYn6kcioxXNVowYT".into()).parse().unwrap();
     let er_identity: Pubkey = rpc(ER, "getIdentity", json!([]))["identity"].as_str().unwrap().parse().unwrap();
     println!("{}", json!({"er_identity": er_identity.to_string(), "vrf_queue": queue.to_string(), "chain_now": now_on_chain(BASE)}));
@@ -310,8 +309,8 @@ fn play() {
     println!("{}", json!({"pot": pot.to_string(), "table": table.to_string(), "er_visible_ms": ms,
         "base_owner_pot": account(BASE, &pot).unwrap().0.to_string(), "base_owner_table": account(BASE, &table).unwrap().0.to_string()}));
 
-    // flip in the ER; fee payer and VRF payer = zero-SOL key
-    let flip_payer = if std::env::var("FLIP_PAYER_FUNDED").is_ok() { &relayer } else { &nosol };
+    // flip in the ER; fee payer and VRF payer = a seated player (zero SOL; only players may flip)
+    let flip_payer = &players[0];
     let ix = app_ix(
         zol_coinflip::accounts::Flip {
             payer: flip_payer.pubkey(),
@@ -335,10 +334,10 @@ fn play() {
     let p_er: st::Pot = load(ER, &pot);
     println!("{}", json!({"step": "land", "ok": true, "flip_to_land_ms": land_ms, "winner_seat": t.winner, "er_pot_amounts": &p_er.amounts[..2]}));
 
-    // finish in the ER; payer = zero-SOL key
+    // finish in the ER; payer = a seated player (zero SOL; the creator or a player may finish)
     let ix = app_ix(
         zol_coinflip::accounts::Finish {
-            payer: nosol.pubkey(),
+            payer: players[0].pubkey(),
             table,
             pot,
             app_authority: app_authority(),
@@ -349,7 +348,7 @@ fn play() {
         zol_coinflip::instruction::Finish {},
     );
     let tfin = Instant::now();
-    let f = step!("finish in ER (CPI close_pot + undelegate table)", send(ER, &[ix], &[&nosol]));
+    let f = step!("finish in ER (CPI close_pot + undelegate table)", send(ER, &[ix], &[&players[0]]));
     println!("{}", json!({"finish_er_logs": tx_logs(ER, &f.sig)}));
     let (_, ret_ms) = wait("pot and table back on base", 120, || {
         let p = account(BASE, &pot).filter(|a| a.0 == LEDGER)?;

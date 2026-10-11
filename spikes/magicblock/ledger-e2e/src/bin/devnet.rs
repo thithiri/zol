@@ -5,6 +5,7 @@
 //!   devnet register --payer <keypair.json>
 //!   devnet activate --admin <keypair.json> --vault <hex43> --genesis <hex32>
 //!   devnet set-cap  --admin <keypair.json> --cap <zat>
+//!   devnet set-min-exit --admin <keypair.json> --zat <n>   (the live params, min_exit changed)
 //!   devnet settle   --payer <keypair.json> <session b58>...   (balances must have requested exit)
 //!   devnet settlement <seq>
 //!   devnet unfreeze --payer <keypair.json> --guardians <g1.json,g2.json>   (a threshold of guardians)
@@ -149,6 +150,16 @@ fn main() {
             );
             run("set_cap", &[ix], &[&admin]);
         }
+        "set-min-exit" => {
+            let admin = keypair(&arg("--admin"));
+            let mut p = load::<st::Config>(&url(), &config_pda()).params;
+            p.min_exit = arg("--zat").parse().unwrap();
+            let ix = ledger_ix(
+                zol_ledger::accounts::AdminOnly { admin: admin.pubkey(), config: config_pda() },
+                zol_ledger::instruction::SetConfig { args: zol_ledger::SetConfigArgs { new_admin: None, attestor: None, params: Some(p), paused: None } },
+            );
+            run("set_config(min_exit)", &[ix], &[&admin]);
+        }
         "settle" => {
             let payer = keypair(&arg("--payer"));
             let a: st::App = load(&url(), &app_pda());
@@ -196,7 +207,7 @@ fn main() {
                         "{}",
                         json!({"config": config_pda().to_string(), "admin": c.admin.to_string(), "attestor": c.attestor.to_string(),
                                "guardians": c.guardians[..c.guardian_count as usize].iter().map(|g| g.to_string()).collect::<Vec<_>>(),
-                               "network": c.network, "paused": c.paused, "denominations": c.params.denominations})
+                               "network": c.network, "paused": c.paused, "denominations": c.params.denominations, "min_exit": c.params.min_exit})
                     );
                 }
             }
@@ -214,7 +225,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("usage: devnet init|register|activate|set-cap|status (see the file header)");
+            eprintln!("usage: devnet init|register|activate|set-cap|set-min-exit|status (see the file header)");
             std::process::exit(2);
         }
     }

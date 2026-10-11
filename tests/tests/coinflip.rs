@@ -73,6 +73,8 @@ fn cf_err(e: CoinflipError) -> u32 {
 
 struct Cf {
     env: Env,
+    /// The first player seated: flips are theirs (only a seated player may flip).
+    flipper: Option<Keypair>,
 }
 
 impl Cf {
@@ -101,7 +103,7 @@ impl Cf {
                 .unwrap();
         }
         ok!(env.initialize());
-        let mut cf = Cf { env };
+        let mut cf = Cf { env, flipper: None };
         ok!(cf.register());
         ok!(cf.env.activate(&COINFLIP));
         cf.env.warp(params().activation_delay_secs);
@@ -203,14 +205,22 @@ impl Cf {
     fn join(&mut self, p: &Keypair) -> TxResult {
         let ix = self.join_ix(&p.pubkey());
         let r = self.relayer();
-        self.env.send(&[ix], &[&r, p])
+        let res = self.env.send(&[ix], &[&r, p]);
+        if res.is_ok() && self.flipper.is_none() {
+            self.flipper = Some(p.insecure_clone());
+        }
+        res
     }
 
     fn join_rounds(&mut self, p: &Keypair, rounds: u16) -> TxResult {
         let mut ix = self.join_ix(&p.pubkey());
         ix.data = zol_coinflip::instruction::JoinRounds { rounds }.data();
         let r = self.relayer();
-        self.env.send(&[ix], &[&r, p])
+        let res = self.env.send(&[ix], &[&r, p]);
+        if res.is_ok() && self.flipper.is_none() {
+            self.flipper = Some(p.insecure_clone());
+        }
+        res
     }
 
     fn start(&mut self) -> TxResult {
@@ -264,9 +274,14 @@ impl Cf {
     }
 
     fn flip_with(&mut self, queue: Pubkey) -> TxResult {
+        let p = self.flipper.as_ref().expect("a seated player").insecure_clone();
+        self.flip_by(&p, queue)
+    }
+
+    fn flip_by(&mut self, who: &Keypair, queue: Pubkey) -> TxResult {
         let ix = cf_ix(
             zol_coinflip::accounts::Flip {
-                payer: self.env.relayer.pubkey(),
+                payer: who.pubkey(),
                 table: cf_table(),
                 pot: cf_pot(),
                 oracle_queue: queue,
@@ -277,8 +292,7 @@ impl Cf {
             },
             zol_coinflip::instruction::Flip { caller_seed: [9; 32] },
         );
-        let r = self.relayer();
-        self.env.send(&[ix], &[&r])
+        self.env.send(&[ix], &[who])
     }
 
     fn land_ix(&self, identity: Pubkey, randomness: [u8; 32]) -> Instruction {
@@ -318,9 +332,14 @@ impl Cf {
     }
 
     fn finish(&mut self) -> TxResult {
+        let r = self.relayer();
+        self.finish_by(&r)
+    }
+
+    fn finish_by(&mut self, who: &Keypair) -> TxResult {
         let ix = cf_ix(
             zol_coinflip::accounts::Finish {
-                payer: self.env.relayer.pubkey(),
+                payer: who.pubkey(),
                 table: cf_table(),
                 pot: cf_pot(),
                 app_authority: cf_authority(),
@@ -330,8 +349,7 @@ impl Cf {
             },
             zol_coinflip::instruction::Finish {},
         );
-        let r = self.relayer();
-        self.env.send(&[ix], &[&r])
+        self.env.send(&[ix], &[who])
     }
 
     fn cash_out(&mut self) -> TxResult {
@@ -743,6 +761,41 @@ fn a_one_stake_table_plays_once() {
     ok!(cf.flip());
     ok!(cf.vrf_callback(randomness_for(1)));
     assert_cf_err(&cf.flip(), CoinflipError::SeatShort);
+}
+
+#[test]
+fn start_records_the_players_and_flip_is_theirs() {
+    let (mut cf, a, b) = session(3);
+    let t = cf.table();
+    assert_eq!(t.players, [a.pubkey(), b.pubkey()], "receipt order");
+    assert!(t.session_deadline > 0);
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    assert_cf_err(&cf.flip_by(&stranger, VRF_QUEUE), CoinflipError::NotAtTable);
+    let r = cf.relayer(); // the creator may finish, not flip
+    assert_cf_err(&cf.flip_by(&r, VRF_QUEUE), CoinflipError::NotAtTable);
+    ok!(cf.flip_by(&b, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(1)));
+    ok!(cf.flip_by(&a, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(0)));
+    ok!(cf.flip_by(&a, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(1)));
+    assert_eq!(cf.table().results & 0b111, 0b101, "newest in bit 0: seat 1, seat 0, seat 1");
+}
+
+#[test]
+fn finish_is_the_creators_or_a_players_until_the_deadline() {
+    let (mut cf, _a, b) = session(3);
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    assert_cf_err(&cf.finish_by(&stranger), CoinflipError::NotAtTable);
+    ok!(cf.finish_by(&b));
+
+    let (mut cf, _a, _b) = session(3);
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    cf.env.warp(600); // start asked for 600 s
+    ok!(cf.finish_by(&stranger));
 }
 
 #[test]

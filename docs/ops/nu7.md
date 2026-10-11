@@ -138,8 +138,9 @@ When the height H is published (ZIP 259 requires a multiple of 3):
 2. `gateway/src/config.rs`: `pub const MAINNET_NU7_HEIGHT: Option<u32> = Some(H);`. The
    gateway weighs pre-NU7 blocks ×3 for depths. Both constants must change in the same
    release.
-3. Run `cd crates/zol-zcash && cargo test params` (`branches` then asserts the switch at H)
-   and `scripts/test.sh fast`.
+3. Run `cd crates/zol-zcash && cargo test params` (`branches` then asserts the switch at H),
+   `cd gateway && cargo test nu7_heights_match` (fails if the two constants differ) and
+   `scripts/test.sh fast`.
 4. Ship zol-zcashd and zol-gateway to **all operators before H**. The `branch` failure
    stops a mixed set from signing anything that cannot be mined; capped expiry stops any
    transaction from outliving H.

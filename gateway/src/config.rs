@@ -166,6 +166,20 @@ mod tests {
         assert!(b.full < 1_000, "inside the node's reorg window");
     }
 
+    /// The gateway cannot link zol-zcash (separate processes), so it keeps its own copy of the
+    /// NU7 heights. A release with the two differing would weigh depths wrongly: refuse it.
+    #[test]
+    fn nu7_heights_match_zol_zcash() {
+        let src = include_str!("../../crates/zol-zcash/src/params.rs");
+        let value = |name: &str| {
+            let line = src.lines().find(|l| l.trim_start().starts_with(&format!("pub const {name}:"))).unwrap_or_else(|| panic!("{name} not in zol-zcash"));
+            line.split('=').nth(1).unwrap().trim().trim_end_matches(';').replace('_', "")
+        };
+        let ours = |v: Option<u32>| v.map_or("None".to_string(), |h| format!("Some({h})"));
+        assert_eq!(value("MAINNET_NU7_HEIGHT"), ours(MAINNET_NU7_HEIGHT), "set both MAINNET_NU7_HEIGHT constants together (docs/ops/nu7.md)");
+        assert_eq!(value("TESTNET_NU7_HEIGHT"), TESTNET_NU7_HEIGHT.to_string());
+    }
+
     #[test]
     fn secrets_are_per_app_and_per_network() {
         let m = [1u8; 32];

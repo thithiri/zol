@@ -8,4 +8,5 @@ spikes/**/out/
 spikes/**/node_modules/
 spikes/**/*-keypair.json
 web/dist/
+web/dist-house/
 __pycache__/

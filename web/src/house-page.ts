@@ -118,13 +118,13 @@ $("logout-btn").onclick = () => {
   localStorage.removeItem(`zol:session:${S.app}`);
   location.reload();
 };
+// Show and hide the session key; having seen it counts as saving it (deposits need that).
 $("backup-btn").onclick = () => {
-  $("backup-text").textContent = exportSession(S.app, session!);
-  $("backup-out").hidden = false;
-};
-$("backup-done").onclick = () => {
-  markBackedUp(S.app, session!, localStorage);
-  $("backup-out").hidden = true;
+  const show = $("backup-out").hidden;
+  $("backup-text").textContent = show ? exportSession(S.app, session!) : "";
+  $("backup-out").hidden = !show;
+  $("backup-btn").textContent = show ? "hide session key" : "show session key";
+  if (show) markBackedUp(S.app, session!, localStorage);
   renderKey();
 };
 function renderKey() {
@@ -192,7 +192,7 @@ function render() {
   const n = stake > 0n ? total() / stake : 0n;
   $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} flip${n === 1n ? "" : "s"}' worth` : "deposit to play";
   const f = s?.flips ?? 0;
-  $("table-note").textContent = s && f > 0 ? `This table: ${s.wins ?? 0} won · ${f - (s.wins ?? 0)} lost` : "";
+  $("table-note").textContent = s && f > 0 ? `This table: ${s.wins ?? 0} won · ${f - (s.wins ?? 0)} lost${lastResults ? `  ${lastResults}` : ""}` : "";
   let can: boolean;
   if (inRollup()) can = !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
   else can = !s && balance >= stake && !exiting;
@@ -232,7 +232,7 @@ async function deposit(amount: bigint) {
   try {
     if (sessionKind(S.app, localStorage) === "backup" && !isBackedUp(S.app, session!, localStorage)) {
       $("backup-btn").click();
-      throw new Error("Save your session key first (below), then deposit");
+      throw new Error("Your session key is shown below: save it, then deposit again");
     }
     app ??= await gw.app(S.app);
     let addr = localStorage.getItem(payoutKey());
@@ -323,6 +323,13 @@ async function readRollup(id: string) {
   return { t, seats: [a[0], a[1]] as [bigint, bigint] };
 }
 
+/** The table's last results for the player (seat 1), oldest first: ● won, ○ lost. */
+let lastResults = "";
+function resultDots(t: { flips: number; results: bigint }) {
+  const n = Math.min(t.flips, 12);
+  return Array.from({ length: n }, (_, i) => ((t.results >> BigInt(n - 1 - i)) & 1n ? "●" : "○")).join("");
+}
+
 /** Rings the side the player called; the other fades while the coin is in the air. */
 function markCall(c: "H" | "T") {
   $("heads").classList.toggle("chosen", c === "H");
@@ -389,6 +396,7 @@ async function flipNow(id: string) {
   }
   seats = r.seats;
   tableState = r.t.state;
+  lastResults = resultDots(r.t);
   const won = r.t.winner === 1;
   coin.classList.remove("spin");
   for (const b of ["heads", "tails"]) $(b).classList.remove("unchosen");
@@ -418,6 +426,7 @@ async function pollGame() {
     if (r) {
       seats = r.seats;
       tableState = r.t.state;
+      lastResults = resultDots(r.t);
     }
   }
   const s = liveSession();
@@ -425,6 +434,7 @@ async function pollGame() {
     // Closed and paid back: the seat lands in the ledger balance; show it until a read does.
     pending = { seat: game.state === "failed" ? 0n : seats[1], before: balance, t: Date.now() };
     seats = null;
+    lastResults = "";
     void pollBalance();
     void pollHistory();
   }

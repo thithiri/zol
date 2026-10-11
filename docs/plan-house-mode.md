@@ -3,7 +3,35 @@
 Goal: someone with only a Zcash wallet can try ZOL in a few minutes, without a second player,
 without SOL and without reading logs, and can see each step happen.
 
-Status: plan, 2026-10-11. Builds on the testnet trial ([ops/testnet-deploy.md](ops/testnet-deploy.md)).
+Status: built and live on the testnet trial, 2026-10-11 ([ops/house.md](ops/house.md)). Builds on
+the testnet trial ([ops/testnet-deploy.md](ops/testnet-deploy.md)). The one-flip-per-table
+design below was replaced the same day by **sessions** (next section); the rest still holds.
+
+## Sessions: many flips per rollup table (2026-10-11)
+
+One flip per table cost 23–34 s: eight transactions, six of them on Solana, mostly moving the
+table into the rollup and back. The coin itself took about 3 s. So the table now stays in the
+rollup for a session:
+
+- **Program** (zol-coinflip, upgraded in place; the ledger is unchanged because `buy_in` and
+  `move_seat` already take any amount):
+  - stakes may also be a tenth of a deposit's net value (99,700 zat for 0.01 TAZ);
+  - `join_rounds(n)` buys n stakes; `start` needs equal, whole-stake seats and records the two
+    players and the session deadline in the table (the receipt stays on Solana);
+  - `flip` again after each landing while both seats cover a stake; only a seated player flips;
+    `land` moves one stake, counts flips and keeps the last 64 results;
+  - `finish` by the creator or a player (anyone after the deadline), before the first flip,
+    between flips, or 60 s after a flip the VRF never answered.
+  - One-stake tables play exactly as before, so the two-player page is unchanged.
+- **House:** one co-signed transaction creates the table, seats both sides with up to 10 stakes
+  and starts it (1,155 bytes). The house closes the table when a seat runs short, after 120 s
+  idle, near the deadline, or on `/house/stop` (withdraw), then cashes out and closes in one
+  transaction.
+- **Page:** flips go straight to the rollup and are read there.
+
+Measured on the first live session: 3 s from the click to the table in the rollup, the coin
+landing in under a second, 12 flips, the table closed 120 s after the last flip and the seat
+back in the ledger balance 5 s later.
 
 ## What the player sees
 

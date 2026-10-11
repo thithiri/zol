@@ -7,16 +7,16 @@
 //! | `join`         | Solana  | CPI `buy_in` for the table stake; the player's session key signs |
 //! | `join_rounds`  | Solana  | `join` for `rounds` stakes at once: a session of up to `rounds` flips |
 //! | `start`        | Solana  | CPI `delegate_pot` with the receipt's stakes, and delegates the table, both to the table's validator |
-//! | `flip`         | Rollup  | Requests MagicBlock VRF randomness; the callback is `land`. Again after each landing while both seats cover a stake |
+//! | `flip`         | Rollup  | A seated player requests MagicBlock VRF randomness; the callback is `land`. Again after each landing while both seats cover a stake |
 //! | `land`         | Rollup  | VRF callback only: CPI `move_seat` of one stake from the loser's seat to the winner's |
-//! | `finish`       | Rollup  | CPI `close_pot` and commits and undelegates the table |
+//! | `finish`       | Rollup  | The creator or a seated player (anyone after the session deadline): CPI `close_pot`, commits and undelegates the table |
 //! | `close_table`  | Solana  | Anyone, once the ledger's receipt is terminal: closes the table, rent to its creator |
 //!
 //! `cash_out` is the ledger's and anyone may call it once the pot is back.
 //!
-//! The app stores no player keys: who sits where is read from the ledger's
-//! `PotReceipt`, which is the source of truth. The app signs every ledger call
-//! with its `["zol-app"]` address.
+//! Who sits where is the ledger's `PotReceipt`, the source of truth. `start` copies the two
+//! keys into the table only so the rollup, where the receipt is not, can tell who may flip
+//! and finish. The app signs every ledger call with its `["zol-app"]` address.
 
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral, vrf, vrf_callback};
@@ -147,6 +147,9 @@ pub mod zol_coinflip {
         t.bump = ctx.bumps.table;
         t.flips = 0;
         t.flip_requested_at = 0;
+        t.players = [Pubkey::default(); 2];
+        t.session_deadline = 0;
+        t.results = 0;
         emit!(TableCreated { table: t.key(), pot: t.pot, stake, validator });
         Ok(())
     }
@@ -168,10 +171,11 @@ pub mod zol_coinflip {
         start_table(ctx, session_secs)
     }
 
-    /// Rollup. Anyone may trigger the flip of a started table, and again after each
-    /// landing while both seats still cover a stake; the outcome is the oracle's.
+    /// Rollup. A seated player flips a started table, and again after each landing while
+    /// both seats still cover a stake; the outcome is the oracle's.
     pub fn flip(ctx: Context<Flip>, caller_seed: [u8; 32]) -> Result<()> {
         require!(matches!(ctx.accounts.table.state, TableState::Started | TableState::Landed), CoinflipError::BadTableState);
+        require!(ctx.accounts.table.players.contains(&ctx.accounts.payer.key()), CoinflipError::NotAtTable);
         require!(ALLOWED_QUEUES.contains(&ctx.accounts.oracle_queue.key()), CoinflipError::BadQueue);
         {
             let info = ctx.accounts.pot.to_account_info();
@@ -240,17 +244,22 @@ pub mod zol_coinflip {
         t.winner = winner;
         t.randomness = randomness;
         t.flips = t.flips.saturating_add(1);
+        t.results = (t.results << 1) | winner as u64;
         emit!(Landed { table: t.key(), winner, amount });
         Ok(())
     }
 
-    /// Rollup. Anyone, between flips (or before the first): returns the pot (ledger
-    /// `close_pot`) and the table to Solana. A flip whose VRF answer has not landed
-    /// after `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.
+    /// Rollup. The table's creator or a seated player, between flips (or before the first):
+    /// returns the pot (ledger `close_pot`) and the table to Solana. Anyone may once the
+    /// session deadline has passed, so the pot comes home with its result before the ledger
+    /// would refund the buy-ins. A flip whose VRF answer has not landed after
+    /// `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.
     pub fn finish(ctx: Context<Finish>) -> Result<()> {
         let t = &ctx.accounts.table;
-        let stale_flip = t.state == TableState::Flipping
-            && Clock::get()?.unix_timestamp >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
+        let now = Clock::get()?.unix_timestamp;
+        let who = ctx.accounts.payer.key();
+        require!(who == t.creator || t.players.contains(&who) || now >= t.session_deadline, CoinflipError::NotAtTable);
+        let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
         require!(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip, CoinflipError::BadTableState);
         ctx.accounts.table.state = TableState::Finished;
         ctx.accounts.table.exit(&crate::ID)?;
@@ -459,8 +468,12 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     let first = expected[0].amount;
     require!(first > 0 && first % table.stake == 0 && expected.iter().all(|s| s.amount == first), CoinflipError::BadStake);
 
-    // Write the table before it changes owner.
+    // Write the table before it changes owner. The rollup cannot read the receipt, so the
+    // table carries the seated keys and the deadline for `flip` and `finish`.
+    let session_deadline = now.checked_add(session_secs).ok_or(CoinflipError::Overflow)?;
     table.state = TableState::Started;
+    table.players = [r.players[0], r.players[1]];
+    table.session_deadline = session_deadline;
     {
         let mut data = table_info.try_borrow_mut_data()?;
         let mut w: &mut [u8] = &mut data[..];
@@ -468,7 +481,6 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     }
 
     let a = &ctx.accounts;
-    let session_deadline = now.checked_add(session_secs).ok_or(CoinflipError::Overflow)?;
     let bump = ctx.bumps.app_authority;
     zol_ledger::cpi::delegate_pot(
         CpiContext::new_with_signer(
@@ -610,6 +622,12 @@ pub struct Table {
     pub flips: u32,
     /// When the pending flip asked the oracle (unix seconds, rollup clock).
     pub flip_requested_at: i64,
+    /// The seated keys, copied from the receipt by `start` (default before).
+    pub players: [Pubkey; 2],
+    /// The ledger session deadline `start` asked for (unix seconds).
+    pub session_deadline: i64,
+    /// Winning seats, newest in bit 0 (the last 64 flips).
+    pub results: u64,
 }
 
 // ---------------------------------------------------------------- accounts
@@ -907,4 +925,6 @@ pub enum CoinflipError {
     SeatShort,
     #[msg("rounds must be 1 to MAX_ROUNDS")]
     BadRounds,
+    #[msg("only a seated player (or, to finish, the table's creator) may do that")]
+    NotAtTable,
 }

@@ -44,7 +44,7 @@ test("ledger calls the page makes match idl/zol_ledger.json", () => {
 
 test("Table decoder reads the Anchor layout", () => {
   const disc = cfIdl.accounts.find((a: any) => a.name === "Table")!.discriminator;
-  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1 + 4 + 8);
+  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1 + 4 + 8 + 64 + 8 + 8);
   data.set(disc, 0);
   data.fill(7, 8, 40);
   data.set(potId, 40);
@@ -55,7 +55,14 @@ test("Table decoder reads the Anchor layout", () => {
   data[145] = 1; // winner seat 1
   new DataView(data.buffer).setUint32(179, 7, true); // flips
   new DataView(data.buffer).setBigInt64(183, 1_791_000_000n, true); // flip_requested_at
+  data.fill(4, 191, 223); // players[0]
+  new DataView(data.buffer).setBigInt64(255, 1_791_001_800n, true); // session_deadline
+  new DataView(data.buffer).setBigUint64(263, 0b101n, true); // results
   const t = decodeTable(data);
+  expect(t.players[0].toBytes()).toEqual(new Uint8Array(32).fill(4));
+  expect(t.sessionDeadline).toBe(1_791_001_800n);
+  expect(t.results).toBe(0b101n);
+  expect(decodeTable(data.subarray(0, 191)).players).toEqual([]);
   expect(t.flips).toBe(7);
   expect(t.flipRequestedAt).toBe(1_791_000_000n);
   // A table from before sessions (no flips fields) still decodes.

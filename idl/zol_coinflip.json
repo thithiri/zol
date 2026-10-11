@@ -176,9 +176,11 @@
     {
       "name": "finish",
       "docs": [
-        "Rollup. Anyone, between flips (or before the first): returns the pot (ledger",
-        "`close_pot`) and the table to Solana. A flip whose VRF answer has not landed",
-        "after `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were."
+        "Rollup. The table's creator or a seated player, between flips (or before the first):",
+        "returns the pot (ledger `close_pot`) and the table to Solana. Anyone may once the",
+        "session deadline has passed, so the pot comes home with its result before the ledger",
+        "would refund the buy-ins. A flip whose VRF answer has not landed after",
+        "`FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were."
       ],
       "discriminator": [
         67,
@@ -264,8 +266,8 @@
     {
       "name": "flip",
       "docs": [
-        "Rollup. Anyone may trigger the flip of a started table, and again after each",
-        "landing while both seats still cover a stake; the outcome is the oracle's."
+        "Rollup. A seated player flips a started table, and again after each landing while",
+        "both seats still cover a stake; the outcome is the oracle's."
       ],
       "discriminator": [
         24,
@@ -1364,6 +1366,11 @@
       "code": 6014,
       "name": "BadRounds",
       "msg": "rounds must be 1 to MAX_ROUNDS"
+    },
+    {
+      "code": 6015,
+      "name": "NotAtTable",
+      "msg": "only a seated player (or, to finish, the table's creator) may do that"
     }
   ],
   "types": [
@@ -1547,6 +1554,32 @@
               "When the pending flip asked the oracle (unix seconds, rollup clock)."
             ],
             "type": "i64"
+          },
+          {
+            "name": "players",
+            "docs": [
+              "The seated keys, copied from the receipt by `start` (default before)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "session_deadline",
+            "docs": [
+              "The ledger session deadline `start` asked for (unix seconds)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "results",
+            "docs": [
+              "Winning seats, newest in bit 0 (the last 64 flips)."
+            ],
+            "type": "u64"
           }
         ]
       }

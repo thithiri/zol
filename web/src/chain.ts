@@ -207,6 +207,8 @@ export interface TableAcc {
   pot: PublicKey; potId: Uint8Array; stake: bigint; validator: PublicKey; creator: PublicKey; state: (typeof TABLE_STATES)[number]; winner: number;
   /** Flips landed so far, and when the pending one asked the oracle (unix s). */
   flips: number; flipRequestedAt: bigint;
+  /** Seated keys and session deadline (set by `start`); winning seats, newest in bit 0. */
+  players: PublicKey[]; sessionDeadline: bigint; results: bigint;
 }
 export function decodeTable(data: Uint8Array): TableAcc {
   checkDisc(data, "Table");
@@ -214,9 +216,15 @@ export function decodeTable(data: Uint8Array): TableAcc {
   const t = { pot: r.key(), potId: r.bytes(32), stake: r.u64(), validator: r.key(), creator: r.key(), state: TABLE_STATES[r.u8()], winner: r.u8() };
   r.bytes(32); // randomness
   r.u8(); // bump
-  // Tables created before sessions existed end here.
-  const more = data.length >= r.o + 12;
-  return { ...t, flips: more ? r.u32() : 0, flipRequestedAt: more ? r.i64() : 0n };
+  // Older tables end earlier: before sessions (no flips), or before players (no players).
+  const sessions = data.length >= r.o + 12;
+  const flips = sessions ? r.u32() : 0;
+  const flipRequestedAt = sessions ? r.i64() : 0n;
+  const seated = data.length >= r.o + 80;
+  return {
+    ...t, flips, flipRequestedAt,
+    players: seated ? [r.key(), r.key()] : [], sessionDeadline: seated ? r.i64() : 0n, results: seated ? r.u64() : 0n,
+  };
 }
 
 export interface ReceiptAcc { state: (typeof POT_STATES)[number]; players: PublicKey[]; buyIns: bigint[]; total: bigint; validator: PublicKey }
