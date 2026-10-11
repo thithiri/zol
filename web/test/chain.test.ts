@@ -33,6 +33,9 @@ test("coinflip instruction builders match idl/zol_coinflip.json", () => {
   check(cfIdl, "start", cf.start(payer, potId, 600n));
   check(cfIdl, "flip", cf.flip(payer, potId, queue, new Uint8Array(32)));
   check(cfIdl, "finish", cf.finish(payer, potId));
+  check(cfIdl, "finish_and_pay", cf.finishAndPay(payer, potId));
+  check(cfIdl, "schedule_closer", cf.scheduleCloser(payer, potId));
+  check(cfIdl, "cash_out_table", cf.cashOutTable(potId, payer, [session, payer]));
   check(cfIdl, "close_table", cf.closeTable(potId, payer));
   check(cfIdl, "rescue_table", cf.rescueTable(potId, payer));
 });

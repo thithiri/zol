@@ -22,7 +22,7 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = { workspace = true }
-ephemeral-rollups-sdk = { workspace = true, features = ["vrf"] }
+ephemeral-rollups-sdk = { workspace = true, features = ["vrf", "crank"] }
 zol-ledger = { path = "../zol-ledger", features = ["cpi"] }
 
 [lints.rust]

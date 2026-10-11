@@ -132,6 +132,51 @@ export class Coinflip {
     );
   }
 
+  /** `finish`, and the table's return runs `cash_out_table` on Solana (a Magic Action). */
+  finishAndPay(payer: PublicKey, potId: Uint8Array) {
+    const d = this.pdas;
+    return this.ix(
+      [m(payer, true, true), m(d.table(potId), true), m(d.pot(potId), true), m(d.appAuthority()), m(this.p.ledger),
+        m(d.rentVault()), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+      disc("global", "finish_and_pay"),
+    );
+  }
+
+  /** Rollup, anyone: the rollup closes this table by itself once idle, short or near its deadline. */
+  scheduleCloser(payer: PublicKey, potId: Uint8Array) {
+    const d = this.pdas;
+    return this.ix(
+      [m(payer, true, true), m(d.table(potId)), m(d.pot(potId)), m(d.appAuthority()), m(this.p.ledger),
+        m(d.rentVault()), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+      disc("global", "schedule_closer"),
+    );
+  }
+
+  /** Solana, anyone: cash out a returned pot to both seats and close the table (no-op until the pot is back). */
+  cashOutTable(potId: Uint8Array, creator: PublicKey, players: PublicKey[]) {
+    const d = this.pdas;
+    const pot = d.pot(potId);
+    return this.ix(
+      [m(d.config()), m(d.app()), m(d.receipt(pot), true), m(pot), m(d.table(potId), true), m(creator, true),
+        m(d.balance(players[0]), true), m(d.balance(players[1]), true), m(this.p.ledger)],
+      disc("global", "cash_out_table"),
+    );
+  }
+
+  /** The escrow paying the Magic Action's Solana fee: the delegation program's ["balance", rent vault, 255]. */
+  actionEscrow() {
+    return this.pdas.pda([enc.encode("balance"), this.pdas.rentVault().toBytes(), Uint8Array.of(255)], DLP);
+  }
+
+  /** Delegation program `TopUpEphemeralBalance` for the action escrow. */
+  topUpActionEscrow(payer: PublicKey, lamports: bigint) {
+    return this.ix(
+      [m(payer, true, true), m(this.pdas.rentVault()), m(this.actionEscrow(), true), m(SystemProgram.programId)],
+      cat(Uint8Array.of(9, 0, 0, 0, 0, 0, 0, 0), u64le(lamports), Uint8Array.of(255)),
+      DLP,
+    );
+  }
+
   /** Anyone, once the pot is cashed out or refunded: the table's rent goes to its creator. */
   closeTable(potId: Uint8Array, creator: PublicKey) {
     const d = this.pdas;

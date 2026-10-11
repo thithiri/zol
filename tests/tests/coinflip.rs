@@ -352,6 +352,84 @@ impl Cf {
         self.env.send(&[ix], &[who])
     }
 
+    fn finish_and_pay_by(&mut self, who: &Keypair) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::FinishAndPay {
+                payer: who.pubkey(),
+                table: cf_table(),
+                pot: cf_pot(),
+                app_authority: cf_authority(),
+                ledger_program: LEDGER,
+                rent_vault: rent_vault(),
+                magic_program: MAGIC_PROGRAM,
+                magic_context: MAGIC_CONTEXT,
+            },
+            zol_coinflip::instruction::FinishAndPay {},
+        );
+        self.env.send(&[ix], &[who])
+    }
+
+    /// The scheduled task's transaction: no signer of ours, a stranger pays the fee.
+    fn crank_close(&mut self) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::CrankClose {
+                table: cf_table(),
+                pot: cf_pot(),
+                app_authority: cf_authority(),
+                ledger_program: LEDGER,
+                rent_vault: rent_vault(),
+                magic_program: MAGIC_PROGRAM,
+                magic_context: MAGIC_CONTEXT,
+            },
+            zol_coinflip::instruction::CrankClose {},
+        );
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
+    fn schedule_closer(&mut self, who: &Keypair) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::ScheduleCloser {
+                payer: who.pubkey(),
+                table: cf_table(),
+                pot: cf_pot(),
+                app_authority: cf_authority(),
+                ledger_program: LEDGER,
+                rent_vault: rent_vault(),
+                magic_program: MAGIC_PROGRAM,
+                magic_context: MAGIC_CONTEXT,
+            },
+            zol_coinflip::instruction::ScheduleCloser {},
+        );
+        self.env.send(&[ix], &[who])
+    }
+
+    /// What the Magic Action runs on Solana; anyone may send it too. `extra` stands for the
+    /// action's trailing accounts (source program, escrow authority, escrow).
+    fn cash_out_table(&mut self, extra: &[Pubkey]) -> TxResult {
+        let pot = cf_pot();
+        let r: st::PotReceipt = self.env.account(&receipt_pda(&pot));
+        let mut ix = cf_ix(
+            zol_coinflip::accounts::CashOutTable {
+                config: config_pda(),
+                app: cf_app(),
+                receipt: receipt_pda(&pot),
+                pot,
+                table: cf_table(),
+                creator: self.env.relayer.pubkey(),
+                balance0: balance_pda(&cf_app(), &r.players[0]),
+                balance1: balance_pda(&cf_app(), &r.players[1]),
+                ledger_program: LEDGER,
+            },
+            zol_coinflip::instruction::CashOutTable {},
+        );
+        ix.accounts.extend(extra.iter().map(|k| AccountMeta::new_readonly(*k, false)));
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
     fn cash_out(&mut self) -> TxResult {
         let pot = cf_pot();
         let r: st::PotReceipt = self.env.account(&receipt_pda(&pot));
@@ -796,6 +874,88 @@ fn finish_is_the_creators_or_a_players_until_the_deadline() {
     cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
     cf.env.warp(600); // start asked for 600 s
     ok!(cf.finish_by(&stranger));
+}
+
+// ------------------------------------------------------------------ closing without a keeper
+
+#[test]
+fn finish_and_pay_then_the_action_pays_both_seats_and_closes_the_table() {
+    let (mut cf, a, b) = session(3);
+    ok!(cf.flip_by(&b, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(1)));
+    let r = cf.relayer(); // the creator (the house's fee payer)
+    ok!(cf.finish_and_pay_by(&r));
+    assert_eq!(cf.table().state, TableState::Finished);
+    // The return, then the scheduled action on Solana, with the action's trailing accounts.
+    let rent = cf.lamports(&cf_table());
+    let before = cf.lamports(&cf.env.relayer.pubkey());
+    ok!(cf.cash_out_table(&[COINFLIP, rent_vault(), Keypair::new().pubkey()]));
+    assert_eq!(cf.receipt().state, PotState::CashedOut);
+    assert_eq!(cf.balance(&a.pubkey()), 997_000 - SMALL);
+    assert_eq!(cf.balance(&b.pubkey()), 997_000 + SMALL);
+    assert_eq!(cf.lamports(&cf.env.relayer.pubkey()), before + rent, "table rent to its creator");
+    assert!(cf.env.raw(&cf_table()).is_none_or(|x| x.lamports == 0));
+    // Running it again (a keeper after the action) changes nothing and does not fail.
+    ok!(cf.cash_out_table(&[]));
+    cf.env.check_invariants_for(&COINFLIP);
+}
+
+#[test]
+fn cash_out_table_waits_quietly_for_the_pot() {
+    let (mut cf, _a, _b) = Cf::started(); // pot and table still with the delegation program
+    ok!(cf.cash_out_table(&[]));
+    assert_eq!(cf.receipt().state, PotState::Delegated);
+}
+
+#[test]
+fn finish_and_pay_keeps_finishs_rules() {
+    let (mut cf, _a, _b) = session(3);
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    assert_cf_err(&cf.finish_and_pay_by(&stranger), CoinflipError::NotAtTable);
+    let p = cf.flipper.as_ref().unwrap().insecure_clone();
+    ok!(cf.flip_by(&p, VRF_QUEUE));
+    assert_cf_err(&cf.finish_and_pay_by(&p), CoinflipError::BadTableState);
+}
+
+#[test]
+fn crank_close_waits_for_idleness_then_closes() {
+    let (mut cf, a, _b) = session(3);
+    ok!(cf.schedule_closer(&a));
+    ok!(cf.crank_close()); // just started: nothing to do
+    assert_eq!(cf.table().state, TableState::Started);
+    cf.env.warp(zol_coinflip::IDLE_SECS - 5);
+    ok!(cf.flip_by(&a, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(0)));
+    cf.env.warp(zol_coinflip::IDLE_SECS - 5); // the flip counts as activity
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Landed);
+    cf.env.warp(10);
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Finished);
+    ok!(cf.cash_out_table(&[]));
+    assert_eq!(cf.receipt().state, PotState::CashedOut);
+}
+
+#[test]
+fn crank_close_closes_a_table_a_seat_cannot_play() {
+    let (mut cf, _a, b) = session(1);
+    ok!(cf.flip_by(&b, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(1)));
+    ok!(cf.crank_close()); // seat 0 is empty: closed at once
+    assert_eq!(cf.table().state, TableState::Finished);
+}
+
+#[test]
+fn crank_close_leaves_a_flip_in_the_air() {
+    let (mut cf, a, _b) = session(3);
+    ok!(cf.flip_by(&a, VRF_QUEUE));
+    cf.env.warp(zol_coinflip::FLIP_TIMEOUT_SECS - 5);
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Flipping);
+    cf.env.warp(10); // the VRF never answered: abandoned, stakes where they were
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Finished);
 }
 
 #[test]

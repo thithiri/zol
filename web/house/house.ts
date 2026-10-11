@@ -81,6 +81,9 @@ export interface Game {
   deadline?: number;
   /** The player asked to stop (to withdraw, say). */
   stop?: boolean;
+  /** The rollup's scheduled closer (`schedule_closer` signature), and attempts so far. */
+  closer?: string;
+  closerTries?: number;
   settlement?: string;
   zcash?: { txid: string; height: number };
   error?: string;
@@ -276,6 +279,28 @@ export class House {
     return { game: g.id, tx: g.tx, table: this.cf.pdas.table(potId).toBase58(), stake: g.stake, rounds: g.rounds, house: info.house };
   }
 
+  /** Finish with the payout action attached; plain `finish` if the action path is refused. */
+  private async finishInRollup(potId: Uint8Array) {
+    const house = this.session.keypair;
+    try {
+      return await sendTx(this.er, [this.cf.finishAndPay(house.publicKey, potId)], house);
+    } catch (e: any) {
+      console.error(new Date().toISOString(), "finish_and_pay refused, plain finish:", String(e?.message ?? e).split("\n")[0]);
+      return await sendTx(this.er, [this.cf.finish(house.publicKey, potId)], house);
+    }
+  }
+
+  /** Keeps the Magic Action escrow (paid from the fee payer) above 0.005 SOL; checked hourly. */
+  private escrowCheckedAt = 0;
+  async topUpActionEscrow() {
+    if (Date.now() - this.escrowCheckedAt < 3_600_000) return;
+    this.escrowCheckedAt = Date.now();
+    const have = await this.base.getBalance(this.cf.actionEscrow());
+    if (have >= 5_000_000) return;
+    const sig = await sendTx(this.base, [this.cf.topUpActionEscrow(this.feePayer.publicKey, 20_000_000n)], this.feePayer);
+    console.log(new Date().toISOString(), `action escrow ${this.cf.actionEscrow().toBase58()} topped up to ${have + 20_000_000} lamports: ${sig}`);
+  }
+
   private sessionSecs() {
     return this.cfg.sessionSecs ?? 1800;
   }
@@ -331,6 +356,7 @@ export class House {
 
   /** Advances every live game by at most one step. Call every few seconds. */
   async tick() {
+    await this.topUpActionEscrow().catch((e) => console.error(new Date().toISOString(), "escrow", String(e?.message ?? e).split("\n")[0]));
     for (const g of this.store.active()) {
       if (this.busy.has(g.id)) continue;
       this.busy.add(g.id);
@@ -395,6 +421,23 @@ export class House {
         const [ti, pi] = await this.er.getMultipleAccountsInfo([table, pot]);
         if (!ti || !pi) return; // not cloned into the rollup yet
         const t = decodeTable(ti.data);
+        // Closed in the rollup without us (its scheduled closer, or a player): follow it home.
+        if (t.state === "Finished") {
+          g.state = "finishing";
+          g.events.push({ step: `table closed in the rollup after ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}: you won ${g.wins ?? 0}; it returns to Solana`, t: now(), chain: "rollup" });
+          return;
+        }
+        // Once per table: the rollup itself closes it when idle, short or near its deadline,
+        // so it comes home even if this service is down.
+        if (!g.closer && (g.closerTries ?? 0) < 3) {
+          g.closerTries = (g.closerTries ?? 0) + 1;
+          try {
+            const sig = await sendTx(this.er, [this.cf.scheduleCloser(house.publicKey, potId)], house);
+            g.closer = sig;
+          } catch (e: any) {
+            g.events.push({ step: "retrying: could not schedule the rollup's closer", t: now(), detail: String(e?.message ?? e).slice(0, 200) });
+          }
+        }
         const amounts = decodePot(pi.data).amounts;
         const stake = BigInt(g.stake);
         if (t.flips !== (g.flips ?? 0)) {
@@ -413,14 +456,14 @@ export class House {
         const late = Date.now() > (g.deadline ?? Infinity) - 300_000;
         const short = amounts[0] < stake || amounts[1] < stake;
         if (!between || !(g.stop || short || idle || late)) return;
-        const sig = await sendTx(this.er, [this.cf.finish(house.publicKey, potId)], house);
+        const sig = await this.finishInRollup(potId);
         g.state = "finishing";
         const why = g.stop ? "you stopped" : short ? (amounts[1] < stake ? "your stakes are used up" : "you took all the house's stakes") : idle ? "no flips for a while" : "the session's time is nearly up";
         g.events.push({ step: `table closed (${why}) after ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}: you won ${g.wins ?? 0}; it returns to Solana`, t: now(), chain: "rollup", sig });
         return;
       }
       case "landed": {
-        const sig = await sendTx(this.er, [this.cf.finish(house.publicKey, potId)], house);
+        const sig = await this.finishInRollup(potId);
         g.state = "finishing";
         g.events.push({ step: "game finished in the rollup; the pot returns to Solana", t: now(), chain: "rollup", sig });
         return;
@@ -435,11 +478,20 @@ export class House {
       case "returned": {
         const [ri, ti] = await this.base.getMultipleAccountsInfo([this.cf.pdas.receipt(pot), table]);
         const r = decodeReceipt(ri!.data);
-        // Close the table in the same transaction when it is back too (it returns separately).
-        const close = ti?.owner.equals(this.cf.p.app) ? [this.cf.closeTable(potId, this.feePayer.publicKey)] : [];
-        const sig = await sendTx(this.base, [this.cf.cashOut(potId, r.players), ...close], this.feePayer);
+        const paid = g.rounds && g.amounts ? `your ${BigInt(g.amounts[1])} zat back in your ledger balance` : g.playerWon ? "winnings credited to your ledger balance" : "pot paid to the house";
+        if (r.state !== "Delegated") {
+          // The table's Magic Action (cash_out_table) already paid both seats.
+          g.state = "cashed_out";
+          g.events.push({ step: `${paid} (paid by the rollup's action on return)`, t: now(), chain: "solana" });
+          return;
+        }
+        // Not paid by the action (yet): pay, and close the table if it is back too.
+        const ix = ti?.owner.equals(this.cf.p.app) && r.players.length === 2
+          ? [this.cf.cashOutTable(potId, this.feePayer.publicKey, r.players)]
+          : [this.cf.cashOut(potId, r.players)];
+        const sig = await sendTx(this.base, ix, this.feePayer);
         g.state = "cashed_out";
-        g.events.push({ step: g.rounds && g.amounts ? `your ${BigInt(g.amounts[1])} zat back in your ledger balance` : g.playerWon ? "winnings credited to your ledger balance" : "pot paid to the house", t: now(), chain: "solana", sig });
+        g.events.push({ step: paid, t: now(), chain: "solana", sig });
         return;
       }
       case "cashed_out": {

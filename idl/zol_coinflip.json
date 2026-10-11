@@ -8,6 +8,62 @@
   },
   "instructions": [
     {
+      "name": "cash_out_table",
+      "docs": [
+        "Solana, anyone; also the Magic Action `finish_and_pay` schedules. Once the pot is",
+        "back: ledger `cash_out` for both seats, then the table closes with its rent to the",
+        "creator. If the pot is not back yet it does nothing (a keeper or a later call pays),",
+        "so a timing race never fails the action. Extra trailing accounts (the action's",
+        "escrow) are ignored."
+      ],
+      "discriminator": [
+        104,
+        58,
+        222,
+        39,
+        95,
+        109,
+        197,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "config"
+        },
+        {
+          "name": "app"
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "pot"
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "creator",
+          "writable": true
+        },
+        {
+          "name": "balance0",
+          "writable": true
+        },
+        {
+          "name": "balance1",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_table",
       "docs": [
         "Solana, anyone. Once the ledger's receipt for the table's pot is terminal",
@@ -58,6 +114,112 @@
           "relations": [
             "table"
           ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "crank_close",
+      "docs": [
+        "Rollup, no signer: a scheduled task (`schedule_closer`) runs it. Finishes and pays a",
+        "table nobody can or will play any more: no flip for `IDLE_SECS`, a seat that cannot",
+        "cover a stake, or within `DEADLINE_MARGIN_SECS` of the session deadline. Otherwise it",
+        "does nothing, so repeated runs are harmless. The table signs as the commit's payer."
+      ],
+      "discriminator": [
+        175,
+        170,
+        202,
+        94,
+        125,
+        200,
+        39,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "rent_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
         }
       ],
       "args": []
@@ -250,6 +412,116 @@
         {
           "name": "ledger_program",
           "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "finish_and_pay",
+      "docs": [
+        "Rollup. `finish` with the same rules, and the table's return to Solana schedules",
+        "`cash_out_table` there (a Magic Action paid from the rent vault's escrow), so both",
+        "seats reach the players' balances without anyone polling for the pot."
+      ],
+      "discriminator": [
+        129,
+        195,
+        224,
+        155,
+        24,
+        97,
+        241,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "rent_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "magic_program",
@@ -907,6 +1179,113 @@
       "args": []
     },
     {
+      "name": "schedule_closer",
+      "docs": [
+        "Rollup, anyone: schedules `crank_close` for this table every `CLOSER_INTERVAL_MS`",
+        "until its session deadline, so the table comes home even if every client is gone."
+      ],
+      "discriminator": [
+        100,
+        79,
+        163,
+        25,
+        216,
+        188,
+        24,
+        201
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "rent_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "start",
       "docs": [
         "Anyone, once both seats hold the stake. Sends the pot and the table to the",
@@ -1174,6 +1553,19 @@
   ],
   "events": [
     {
+      "name": "CloserScheduled",
+      "discriminator": [
+        208,
+        27,
+        25,
+        132,
+        103,
+        168,
+        30,
+        24
+      ]
+    },
+    {
       "name": "Finished",
       "discriminator": [
         234,
@@ -1375,6 +1767,22 @@
   ],
   "types": [
     {
+      "name": "CloserScheduled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "iterations",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Finished",
       "type": {
         "kind": "struct",
@@ -1551,7 +1959,8 @@
           {
             "name": "flip_requested_at",
             "docs": [
-              "When the pending flip asked the oracle (unix seconds, rollup clock)."
+              "When the last flip asked the oracle, or `start` ran (unix seconds): the table's last",
+              "activity, from which `crank_close` counts idleness."
             ],
             "type": "i64"
           },

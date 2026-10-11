@@ -10,6 +10,10 @@
 //! | `flip`         | Rollup  | A seated player requests MagicBlock VRF randomness; the callback is `land`. Again after each landing while both seats cover a stake |
 //! | `land`         | Rollup  | VRF callback only: CPI `move_seat` of one stake from the loser's seat to the winner's |
 //! | `finish`       | Rollup  | The creator or a seated player (anyone after the session deadline): CPI `close_pot`, commits and undelegates the table |
+//! | `finish_and_pay` | Rollup | `finish`, and the table's return schedules `cash_out_table` on Solana (a Magic Action) |
+//! | `crank_close`  | Rollup  | No signer (a scheduled task): finishes and pays a table that is idle, short or near its deadline |
+//! | `schedule_closer` | Rollup | Anyone: schedules `crank_close` for a table until its session deadline |
+//! | `cash_out_table` | Solana | Anyone (and the Magic Action): ledger `cash_out` for both seats, then closes the table |
 //! | `close_table`  | Solana  | Anyone, once the ledger's receipt is terminal: closes the table, rent to its creator |
 //!
 //! `cash_out` is the ledger's and anyone may call it once the pot is back.
@@ -19,13 +23,17 @@
 //! and finish. The app signs every ledger call with its `["zol-app"]` address.
 
 use anchor_lang::prelude::*;
+use anchor_lang::{InstructionData, ToAccountMetas};
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral, vrf, vrf_callback};
 use ephemeral_rollups_sdk::cpi::cpi_delegate;
 use ephemeral_rollups_sdk::types::DelegateAccountArgs;
 use ephemeral_rollups_sdk::utils::{close_pda_with_system_transfer, create_pda};
 use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::program::invoke_signed;
-use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
+#[allow(deprecated)]
+use ephemeral_rollups_sdk::crank::{ScheduleCrankCpi, ScheduleTaskArgs};
+use ephemeral_rollups_sdk::ephem::{CallHandler, FoldableIntentBuilder, MagicIntentBundleBuilder};
+use ephemeral_rollups_sdk::{ActionArgs, ShortAccountMeta};
 use ephemeral_rollups_sdk::vrf::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use ephemeral_rollups_sdk::vrf::types::SerializableAccountMeta;
 use zol_ledger::state::{bps, Config, Pot, PotReceipt, PotState, SeatStake};
@@ -43,6 +51,12 @@ pub const STAKE_SPLIT: u64 = 10;
 pub const MAX_ROUNDS: u16 = 100;
 /// A flip whose VRF answer has not landed after this long may be abandoned by `finish`.
 pub const FLIP_TIMEOUT_SECS: i64 = 60;
+/// A table with no flip for this long may be closed by anyone's `crank_close`.
+pub const IDLE_SECS: i64 = 120;
+/// `crank_close` closes a table this long before its session deadline.
+pub const DEADLINE_MARGIN_SECS: i64 = 300;
+/// How often the scheduled `crank_close` looks at a table.
+pub const CLOSER_INTERVAL_MS: i64 = 20_000;
 
 /// The stakes `create_table` accepts: for each denomination `d` the ledger permits
 /// (`Config.params.denominations`, nonzero entries), one deposit's net credited value
@@ -255,35 +269,147 @@ pub mod zol_coinflip {
     /// would refund the buy-ins. A flip whose VRF answer has not landed after
     /// `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.
     pub fn finish(ctx: Context<Finish>) -> Result<()> {
-        let t = &ctx.accounts.table;
-        let now = Clock::get()?.unix_timestamp;
-        let who = ctx.accounts.payer.key();
-        require!(who == t.creator || t.players.contains(&who) || now >= t.session_deadline, CoinflipError::NotAtTable);
-        let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
-        require!(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip, CoinflipError::BadTableState);
-        ctx.accounts.table.state = TableState::Finished;
-        ctx.accounts.table.exit(&crate::ID)?;
-        let a = &ctx.accounts;
+        check_finish(&ctx.accounts.table, ctx.accounts.payer.key(), Clock::get()?.unix_timestamp)?;
         let bump = ctx.bumps.app_authority;
-        zol_ledger::cpi::close_pot(CpiContext::new_with_signer(
-            zol_ledger::ID,
-            zol_ledger::cpi::accounts::ClosePot {
-                payer: a.payer.to_account_info(),
-                authority: a.app_authority.to_account_info(),
-                pot: a.pot.to_account_info(),
-                magic_program: a.magic_program.to_account_info(),
-                magic_context: a.magic_context.to_account_info(),
-            },
-            &[&[APP_AUTHORITY_SEED, &[bump]]],
-        ))?;
-        MagicIntentBundleBuilder::new(
-            a.payer.to_account_info(),
-            a.magic_context.to_account_info(),
-            a.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[a.table.to_account_info()])
-        .build_and_invoke()?;
-        emit!(Finished { table: a.table.key(), winner: a.table.winner });
+        let a = ctx.accounts;
+        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, None)
+    }
+
+    /// Rollup. `finish` with the same rules, and the table's return to Solana schedules
+    /// `cash_out_table` there (a Magic Action paid from the rent vault's escrow), so both
+    /// seats reach the players' balances without anyone polling for the pot.
+    pub fn finish_and_pay(ctx: Context<FinishAndPay>) -> Result<()> {
+        check_finish(&ctx.accounts.table, ctx.accounts.payer.key(), Clock::get()?.unix_timestamp)?;
+        let (bump, vault_bump) = (ctx.bumps.app_authority, ctx.bumps.rent_vault);
+        let a = ctx.accounts;
+        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, Some((&a.rent_vault, vault_bump)))
+    }
+
+    /// Rollup, no signer: a scheduled task (`schedule_closer`) runs it. Finishes and pays a
+    /// table nobody can or will play any more: no flip for `IDLE_SECS`, a seat that cannot
+    /// cover a stake, or within `DEADLINE_MARGIN_SECS` of the session deadline. Otherwise it
+    /// does nothing, so repeated runs are harmless. The table signs as the commit's payer.
+    pub fn crank_close(ctx: Context<CrankClose>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let t = &ctx.accounts.table;
+        let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
+        if !(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip) {
+            return Ok(());
+        }
+        let short = {
+            let info = ctx.accounts.pot.to_account_info();
+            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let data = info.try_borrow_data()?;
+            let pot = Pot::try_deserialize(&mut &data[..])?;
+            pot.amounts[..SEATS as usize].iter().any(|a| *a < t.stake)
+        };
+        let idle = now >= t.flip_requested_at.saturating_add(IDLE_SECS) && t.state != TableState::Flipping;
+        let late = now >= t.session_deadline.saturating_sub(DEADLINE_MARGIN_SECS);
+        if !(idle || short || late || stale_flip) {
+            return Ok(());
+        }
+        let (bump, vault_bump) = (ctx.bumps.app_authority, ctx.bumps.rent_vault);
+        let table_bump = t.bump;
+        let pot_id = t.pot_id;
+        let a = ctx.accounts;
+        let payer = a.table.to_account_info();
+        let table_seeds: &[&[u8]] = &[TABLE_SEED, &pot_id, &[table_bump]];
+        close_in_rollup(&payer, Some(table_seeds), &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, Some((&a.rent_vault, vault_bump)))
+    }
+
+    /// Rollup, anyone: schedules `crank_close` for this table every `CLOSER_INTERVAL_MS`
+    /// until its session deadline, so the table comes home even if every client is gone.
+    #[allow(deprecated)] // the legacy ScheduleTask; the validator turns it into a hydra crank
+    pub fn schedule_closer<'info>(ctx: Context<'info, ScheduleCloser<'info>>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let t = &ctx.accounts.table;
+        require!(matches!(t.state, TableState::Started | TableState::Flipping | TableState::Landed), CoinflipError::BadTableState);
+        let left_ms = t.session_deadline.saturating_sub(now).max(0).saturating_mul(1000);
+        let iterations = left_ms / CLOSER_INTERVAL_MS + 1;
+        let a = &ctx.accounts;
+        let ix = Instruction {
+            program_id: crate::ID,
+            accounts: accounts::CrankClose {
+                table: a.table.key(),
+                pot: a.pot.key(),
+                app_authority: a.app_authority.key(),
+                ledger_program: a.ledger_program.key(),
+                rent_vault: a.rent_vault.key(),
+                magic_program: a.magic_program.key(),
+                magic_context: a.magic_context.key(),
+            }
+            .to_account_metas(None),
+            data: instruction::CrankClose {}.data(),
+        };
+        let task_id = i64::from_le_bytes(t.pot_id[..8].try_into().unwrap()) & i64::MAX;
+        ScheduleCrankCpi {
+            payer: &ctx.accounts.payer,
+            magic_program: &ctx.accounts.magic_program,
+            instruction_accounts: &[
+                a.table.to_account_info(),
+                a.pot.to_account_info(),
+                a.app_authority.to_account_info(),
+                a.ledger_program.to_account_info(),
+                a.rent_vault.to_account_info(),
+                a.magic_context.to_account_info(),
+            ],
+            args: ScheduleTaskArgs { task_id, execution_interval_millis: CLOSER_INTERVAL_MS, iterations, instructions: vec![ix] },
+        }
+        .invoke()?;
+        emit!(CloserScheduled { table: a.table.key(), iterations });
+        Ok(())
+    }
+
+    /// Solana, anyone; also the Magic Action `finish_and_pay` schedules. Once the pot is
+    /// back: ledger `cash_out` for both seats, then the table closes with its rent to the
+    /// creator. If the pot is not back yet it does nothing (a keeper or a later call pays),
+    /// so a timing race never fails the action. Extra trailing accounts (the action's
+    /// escrow) are ignored.
+    pub fn cash_out_table<'info>(ctx: Context<'info, CashOutTable<'info>>) -> Result<()> {
+        let a = &ctx.accounts;
+        let read_receipt = || -> Result<PotReceipt> {
+            let info = &a.receipt;
+            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let (expected, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::RECEIPT, a.pot.key().as_ref()], &zol_ledger::ID);
+            require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
+            let data = info.try_borrow_data()?;
+            Ok(PotReceipt::try_deserialize(&mut &data[..])?)
+        };
+        let r = read_receipt()?;
+        require_keys_eq!(a.table.key(), table_address(&r.pot_id), CoinflipError::BadAccount);
+        if r.state == PotState::Delegated {
+            if *a.pot.owner != zol_ledger::ID {
+                msg!("pot not back on Solana yet");
+                return Ok(());
+            }
+            zol_ledger::cpi::cash_out(
+                CpiContext::new(
+                    zol_ledger::ID,
+                    zol_ledger::cpi::accounts::PotOutcome {
+                        config: a.config.to_account_info(),
+                        app: a.app.to_account_info(),
+                        receipt: a.receipt.to_account_info(),
+                        pot: a.pot.to_account_info(),
+                    },
+                )
+                .with_remaining_accounts(vec![a.balance0.to_account_info(), a.balance1.to_account_info()]),
+            )?;
+        }
+        let r = read_receipt()?;
+        let table = a.table.to_account_info();
+        if matches!(r.state, PotState::CashedOut | PotState::Refunded) && *table.owner == crate::ID {
+            let creator = {
+                let data = table.try_borrow_data()?;
+                Table::try_deserialize(&mut &data[..])?.creator
+            };
+            require_keys_eq!(creator, a.creator.key(), CoinflipError::BadAccount);
+            let lamports = table.lamports();
+            **a.creator.to_account_info().try_borrow_mut_lamports()? += lamports;
+            **table.try_borrow_mut_lamports()? = 0;
+            table.assign(&anchor_lang::system_program::ID);
+            table.resize(0)?;
+            emit!(TableClosed { table: table.key(), creator, pot_state: r.state as u8 });
+        }
         Ok(())
     }
 
@@ -474,6 +600,7 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     table.state = TableState::Started;
     table.players = [r.players[0], r.players[1]];
     table.session_deadline = session_deadline;
+    table.flip_requested_at = now; // last activity: `crank_close` counts idleness from here
     {
         let mut data = table_info.try_borrow_mut_data()?;
         let mut w: &mut [u8] = &mut data[..];
@@ -511,6 +638,95 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     delegate_table_via_vault(a, &table.pot_id, validator, ctx.bumps.rent_vault)?;
     emit!(Started { table: table_info.key(), validator, session_deadline });
     Ok(())
+}
+
+/// Who may finish and when: the creator or a seated player (anyone after the session
+/// deadline), between flips, before the first, or after a flip the VRF never answered.
+fn check_finish(t: &Table, who: Pubkey, now: i64) -> Result<()> {
+    require!(who == t.creator || t.players.contains(&who) || now >= t.session_deadline, CoinflipError::NotAtTable);
+    let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
+    require!(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip, CoinflipError::BadTableState);
+    Ok(())
+}
+
+/// Returns the pot (ledger `close_pot`) and the table to Solana. `payer_seeds` when the
+/// payer is one of this program's PDAs (the table, for `crank_close`). With `pay` (the rent
+/// vault and its bump), the table's return also runs `cash_out_table` on Solana, paid from
+/// the vault's escrow (`["balance", vault, 255]` under the delegation program).
+#[allow(clippy::too_many_arguments)]
+fn close_in_rollup<'info>(
+    payer: &AccountInfo<'info>,
+    payer_seeds: Option<&[&[u8]]>,
+    table: &mut Account<'info, Table>,
+    pot: &UncheckedAccount<'info>,
+    app_authority: &UncheckedAccount<'info>,
+    app_authority_bump: u8,
+    magic_program: &AccountInfo<'info>,
+    magic_context: &AccountInfo<'info>,
+    pay: Option<(&UncheckedAccount<'info>, u8)>,
+) -> Result<()> {
+    table.state = TableState::Finished;
+    table.exit(&crate::ID)?;
+    let auth_bump = [app_authority_bump];
+    let auth_seeds: &[&[u8]] = &[APP_AUTHORITY_SEED, &auth_bump];
+    let mut ledger_signers: Vec<&[&[u8]]> = vec![auth_seeds];
+    ledger_signers.extend(payer_seeds);
+    zol_ledger::cpi::close_pot(CpiContext::new_with_signer(
+        zol_ledger::ID,
+        zol_ledger::cpi::accounts::ClosePot {
+            payer: payer.clone(),
+            authority: app_authority.to_account_info(),
+            pot: pot.to_account_info(),
+            magic_program: magic_program.clone(),
+            magic_context: magic_context.clone(),
+        },
+        &ledger_signers,
+    ))?;
+    let bundle = MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone())
+        .commit_and_undelegate(&[table.to_account_info()]);
+    let mut signers: Vec<&[&[u8]]> = payer_seeds.into_iter().collect();
+    let vault_bump = [pay.map(|(_, b)| b).unwrap_or(0)];
+    let vault_seeds: [&[u8]; 2] = [RENT_VAULT_SEED, &vault_bump];
+    let bundle = match pay {
+        Some((vault, _)) => {
+            signers.push(&vault_seeds);
+            bundle.add_post_undelegate_actions([CallHandler {
+                destination_program: crate::ID,
+                accounts: cash_out_metas(table),
+                args: ActionArgs::new(instruction::CashOutTable {}.data()),
+                escrow_authority: vault.to_account_info(),
+                compute_units: 300_000,
+            }])
+        }
+        None => bundle,
+    };
+    if signers.is_empty() {
+        bundle.build_and_invoke()?;
+    } else {
+        bundle.build_and_invoke_signed(&signers)?;
+    }
+    emit!(Finished { table: table.key(), winner: table.winner });
+    Ok(())
+}
+
+/// The accounts of `cash_out_table` for this table, in its order.
+fn cash_out_metas(t: &Table) -> Vec<ShortAccountMeta> {
+    use zol_ledger::state::seeds;
+    let l = &zol_ledger::ID;
+    let pda = |s: &[&[u8]]| Pubkey::find_program_address(s, l).0;
+    let app = pda(&[seeds::APP, crate::ID.as_ref()]);
+    let meta = |pubkey: Pubkey, is_writable: bool| ShortAccountMeta { pubkey: pubkey.to_bytes().into(), is_writable };
+    vec![
+        meta(pda(&[seeds::CONFIG]), false),
+        meta(app, false),
+        meta(pda(&[seeds::RECEIPT, t.pot.as_ref()]), true),
+        meta(t.pot, false),
+        meta(table_address(&t.pot_id), true),
+        meta(t.creator, true),
+        meta(pda(&[seeds::BALANCE, app.as_ref(), t.players[0].as_ref()]), true),
+        meta(pda(&[seeds::BALANCE, app.as_ref(), t.players[1].as_ref()]), true),
+        meta(zol_ledger::ID, false),
+    ]
 }
 
 /// Tops the rent vault up to `RENT_VAULT_TARGET` from `start`'s payer.
@@ -620,7 +836,8 @@ pub struct Table {
     pub bump: u8,
     /// Flips landed so far (a table plays as many as its seats' stakes allow).
     pub flips: u32,
-    /// When the pending flip asked the oracle (unix seconds, rollup clock).
+    /// When the last flip asked the oracle, or `start` ran (unix seconds): the table's last
+    /// activity, from which `crank_close` counts idleness.
     pub flip_requested_at: i64,
     /// The seated keys, copied from the receipt by `start` (default before).
     pub players: [Pubkey; 2],
@@ -794,6 +1011,95 @@ pub struct Finish<'info> {
     pub ledger_program: UncheckedAccount<'info>,
 }
 
+#[commit]
+#[derive(Accounts)]
+pub struct FinishAndPay<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub table: Account<'info, Table>,
+    /// CHECK: checked by `has_one` and the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: escrow authority of the Magic Action (its escrow pays the Solana fee)
+    #[account(seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+}
+
+/// No signer: a scheduled task runs it.
+#[commit]
+#[derive(Accounts)]
+pub struct CrankClose<'info> {
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub table: Account<'info, Table>,
+    /// CHECK: checked by `has_one` and the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: escrow authority of the Magic Action
+    #[account(seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct ScheduleCloser<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub table: Account<'info, Table>,
+    /// CHECK: checked by `has_one`
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: escrow authority of the Magic Action
+    #[account(seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CashOutTable<'info> {
+    /// CHECK: ledger Config; checked by the ledger
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: ledger App; checked by the ledger
+    pub app: UncheckedAccount<'info>,
+    /// CHECK: owner and address checked in the handler, the rest by the ledger
+    #[account(mut)]
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger (address from the receipt) and its owner here
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: address from the receipt's pot id; closed here once the receipt is terminal
+    #[account(mut)]
+    pub table: UncheckedAccount<'info>,
+    /// CHECK: must be the table's creator
+    #[account(mut)]
+    pub creator: UncheckedAccount<'info>,
+    /// CHECK: the two seats' balances in receipt order; checked by the ledger
+    #[account(mut)]
+    pub balance0: UncheckedAccount<'info>,
+    /// CHECK: see `balance0`
+    #[account(mut)]
+    pub balance1: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+}
+
 #[derive(Accounts)]
 pub struct RescueTable<'info> {
     /// CHECK: the stuck table, owned by the delegation program; checked in the handler
@@ -886,6 +1192,11 @@ pub struct TableClosed {
     pub table: Pubkey,
     pub creator: Pubkey,
     pub pot_state: u8,
+}
+#[event]
+pub struct CloserScheduled {
+    pub table: Pubkey,
+    pub iterations: i64,
 }
 #[event]
 pub struct Finished {
