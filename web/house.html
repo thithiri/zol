@@ -11,7 +11,12 @@
     body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
     header { display: flex; justify-content: space-between; align-items: baseline; }
     h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
+    .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
+    .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 22px; line-height: 1; padding: 4px 8px; color: var(--muted); }
+    .panel-title { font-weight: 650; margin: 0 0 8px; }
+    .coin svg { width: 104px; height: 104px; }
+    button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 6px; }
+    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
     .center { text-align: center; }
     .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
     button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
@@ -61,27 +66,42 @@
       <div class="balance" id="balance">…</div>
       <div class="muted small" id="flips">&nbsp;</div>
       <div class="row" style="margin-top:10px">
-        <button id="add-btn">Add funds</button>
-        <button id="cashout-btn">Cash out to my wallet</button>
+        <button id="add-btn">Deposit Zcash</button>
+        <button id="cashout-btn">Withdraw Zcash</button>
       </div>
-      <div id="cashout-status" class="small" hidden><ol class="tl" id="cashout-tl"></ol></div>
+    </section>
+
+    <!-- Withdraw -->
+    <section id="withdraw" class="card" hidden>
+      <button class="close" data-close="withdraw" aria-label="Close">×</button>
+      <div class="panel-title">Withdraw Zcash</div>
+      <div id="withdraw-form">
+        <div class="kv"><span>Your balance</span><b id="w-balance"></b></div>
+        <div class="kv muted"><span>Exit fee (0.3%)</span><b id="w-fee"></b></div>
+        <div class="kv muted"><span>Zcash network fee</span><b>0.0002 TAZ</b></div>
+        <div class="kv"><span>You receive</span><b id="w-net"></b></div>
+        <div class="small muted" style="margin:6px 0">To <code id="w-addr"></code>, the address fixed at your first deposit.</div>
+        <div class="center"><button id="withdraw-go" class="primary">Withdraw</button></div>
+      </div>
+      <ol class="tl" id="cashout-tl"></ol>
     </section>
 
     <!-- Add funds -->
     <section id="add" class="card" hidden>
-      <div class="muted small">Add funds with shielded ZEC</div>
+      <button class="close" data-close="add" aria-label="Close">×</button>
+      <div class="panel-title">Deposit Zcash</div>
       <div id="addr-step">
-        <label class="small">Your Zcash testnet address, where cash-outs go (<code>utest1…</code>)
+        <label class="small">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
           <input id="payout" placeholder="utest1…" autocomplete="off" /></label>
         <p class="small muted" style="margin:6px 0 0">Asked once. It is fixed to your player, so even someone with your key could only pay you.</p>
       </div>
-      <div id="addr-known" class="small muted" hidden>Cash-outs go to <code id="addr-short"></code></div>
+      <div id="addr-known" class="small muted" hidden>Withdrawals go to <code id="addr-short"></code></div>
       <div class="row" style="margin-top:10px" id="amounts"></div>
       <div id="pay" class="center" style="margin-top:18px" hidden>
         <div class="qr" id="qr"></div>
         <p style="margin:6px 0">Scan with your Zcash wallet or <a id="link">open the payment link</a>. Pay <b id="pay-amount"></b> exactly.</p>
-        <p class="small muted" style="margin:0">To <code id="session-ua"></code></p>
-        <button id="fund-btn" class="link">No wallet? The house funds 0.01 TAZ once</button>
+        <code id="session-ua" hidden></code>
+        <button id="fund-btn" class="link" hidden>No wallet? The house funds 0.01 TAZ once</button>
         <div id="fund-msg" class="small" hidden></div>
       </div>
       <ol class="tl" id="deposit-tl"></ol>
@@ -89,11 +109,11 @@
 
     <!-- The coin -->
     <section class="card center">
-      <div class="coin" id="coin">Z</div>
+      <div class="coin" id="coin"></div>
       <div class="status" id="status">&nbsp;</div>
       <div class="row">
-        <button id="heads" class="primary">Heads</button>
-        <button id="tails" class="primary">Tails</button>
+        <button id="heads" class="primary"><span id="ico-heads"></span>Heads</button>
+        <button id="tails" class="primary"><span id="ico-tails"></span>Tails</button>
       </div>
       <div class="small muted" id="stake-note">&nbsp;</div>
     </section>
@@ -110,7 +130,7 @@
       <div class="small muted" style="margin-top:8px">Player key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show backup</button> <button id="logout-btn" class="link">switch player</button></div>
       <div id="backup-out" class="small" hidden><code id="backup-text"></code><br /><button id="backup-done" class="link">I saved it</button></div>
     </section>
-    <p class="small muted center">Two players instead? <a href="./">The two-player table</a></p>
+
   </main>
   <p id="err" class="err small center"></p>
   <script type="module" src="/src/house-page.ts"></script>

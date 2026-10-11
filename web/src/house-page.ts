@@ -49,6 +49,30 @@ const signB64 = (b64: string, s: Session) => {
   return Buffer.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })).toString("base64");
 };
 
+// ---------------------------------------------------------------- coin faces
+// Heads: a Zcash-style Z (with the bars above and below). Tails: a five-petal flower for
+// Zakura. Drawn here, not the official artwork.
+
+const zSvg = (fill: string) =>
+  `<svg viewBox="0 0 100 100" aria-label="Z heads"><g fill="${fill}">
+    <rect x="45" y="10" width="10" height="14" rx="2"/><rect x="45" y="76" width="10" height="14" rx="2"/>
+    <path d="M27 24h46v11L44 65h29v11H27V65l29-30H27z"/></g></svg>`;
+const flowerSvg = (petal: string, heart: string) =>
+  `<svg viewBox="0 0 100 100" aria-label="Zakura flower tails"><g transform="translate(50 50)">
+    ${[0, 72, 144, 216, 288].map((a) => `<path transform="rotate(${a})" d="M0 -6 C-14 -14 -16 -32 -6 -40 L0 -34 L6 -40 C16 -32 14 -14 0 -6Z" fill="${petal}"/>`).join("")}
+    <circle r="8" fill="${heart}"/></g></svg>`;
+const FACE = { H: zSvg("#6d4300"), T: flowerSvg("#f7b6cf", "#c2185b") };
+const ICON = { H: zSvg("currentColor"), T: flowerSvg("currentColor", "currentColor") };
+function face(f: "H" | "T") {
+  $("coin").innerHTML = FACE[f];
+}
+$("ico-heads").innerHTML = ICON.H.replace("<svg ", '<svg class="ico" ');
+$("ico-tails").innerHTML = ICON.T.replace("<svg ", '<svg class="ico" ');
+face("H");
+
+// Close buttons on the deposit and withdraw panels.
+for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>("button.close"))) b.onclick = () => ($(b.dataset.close!).hidden = true);
+
 // ---------------------------------------------------------------- the player key
 
 let session: Session | null = readSession(S.app, localStorage);
@@ -148,6 +172,7 @@ function renderAddress() {
 }
 $("add-btn").onclick = async () => {
   $("add").hidden = !$("add").hidden;
+  $("withdraw").hidden = true;
   renderAddress();
   if ($("add").hidden) return;
   try {
@@ -200,7 +225,7 @@ function showPay(link: string, ua: string, amount: bigint) {
   qr.addData(link);
   qr.make();
   $("qr").innerHTML = qr.createSvgTag({ cellSize: 3, margin: 2 });
-  $("fund-btn").hidden = amount !== 1_000_000n || !!localStorage.getItem(K("fundtx"));
+  // The house's "fund me" stays available in the API but is not offered on the page.
 }
 $("fund-btn").onclick = async () => {
   try {
@@ -252,7 +277,7 @@ async function play(c: "H" | "T") {
   call = c;
   busy = true;
   render();
-  coin.textContent = c;
+  face(c);
   coin.classList.add("spin");
   $("status").textContent = "The house matches your stake…";
   try {
@@ -298,7 +323,7 @@ async function pollGame() {
   if (game.playerWon !== undefined) {
     coin.classList.remove("spin");
     const other = call === "H" ? "T" : "H";
-    coin.textContent = game.playerWon ? call : other;
+    face(game.playerWon ? call : other);
     $("status").innerHTML = game.playerWon
       ? `<span class="ok">${call === "H" ? "Heads" : "Tails"}! You win ${taz(2n * BigInt(game.stake))}</span>`
       : `${other === "H" ? "Heads" : "Tails"}. The house wins this one.`;
@@ -322,16 +347,32 @@ async function pollGame() {
 
 // ---------------------------------------------------------------- cash out
 
-$("cashout-btn").onclick = async () => {
-  if (!confirm(`Cash out ${taz(balance)} to your Zcash address? (Less the 0.3% exit fee and a 0.0002 TAZ network fee.)`)) return;
+const NETWORK_FEE = 20_000n; // the ledger's network-fee allowance per withdrawal
+$("cashout-btn").onclick = () => {
+  $("withdraw").hidden = !$("withdraw").hidden;
+  $("add").hidden = true;
+  const fee = (balance * 30n) / 10_000n;
+  const net = balance - fee - NETWORK_FEE;
+  $("w-balance").textContent = taz(balance);
+  $("w-fee").textContent = taz(fee);
+  $("w-net").textContent = net > 0n ? taz(net) : "nothing (below the fees)";
+  const a = localStorage.getItem(payoutKey());
+  $("w-addr").textContent = a ? `${a.slice(0, 14)}…${a.slice(-6)}` : "your address";
+  $("withdraw-form").hidden = !!localStorage.getItem(K("withdraw-live"));
+  $<HTMLButtonElement>("withdraw-go").disabled = net <= 0n;
+};
+$("withdraw-go").onclick = async () => {
+  $<HTMLButtonElement>("withdraw-go").disabled = true;
   try {
     const w = await house<{ id: string; tx: string }>("/withdraw", { session: session!.keypair.publicKey.toBase58() });
     localStorage.setItem(K("withdraw-live"), w.id);
     await house("/withdraw/sign", { id: w.id, tx: signB64(w.tx, session!) });
+    $("withdraw-form").hidden = true;
     void pollWithdraw();
     void pollBalance();
   } catch (e) {
     localStorage.removeItem(K("withdraw-live"));
+    $<HTMLButtonElement>("withdraw-go").disabled = false;
     showError(e);
     render();
   }
@@ -349,7 +390,11 @@ async function pollWithdraw() {
   if (!id) return;
   try {
     const w = await house(`/game/${id}`);
-    $("cashout-status").hidden = false;
+    // A withdrawal in progress keeps its panel open with the status.
+    if (localStorage.getItem(K("withdraw-live"))) {
+      $("withdraw").hidden = false;
+      $("withdraw-form").hidden = true;
+    }
     const tail = w.state === "settled" ? '<li class="wait">the operators are signing the Zcash payment (a few minutes)…</li>'
       : w.state === "paid" ? '<li class="ok">in your wallet ✓</li>' : "";
     $("cashout-tl").innerHTML = w.events.filter((e: any) => !e.step.startsWith("retrying")).map(tlItem).join("") + tail;
