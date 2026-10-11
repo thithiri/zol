@@ -7,7 +7,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { base58 } from "@scure/base";
 import { Gateway, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
-import { hex, loadOrCreateSession, unhex, type Session } from "./session";
+import { exportSession, hex, isBackedUp, loadOrCreateSession, markBackedUp, restoreSession, unhex, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
 import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
 
@@ -74,6 +74,42 @@ async function act(label: string, f: () => Promise<unknown>) {
 // ---------------------------------------------------------------- deposit
 
 $("session").textContent = session.keypair.publicKey.toBase58();
+
+// ---------------------------------------------------------------- session backup
+// A deposit link is offered only once the player has a copy of the session key.
+
+function showBackupState() {
+  const done = isBackedUp(settings.app, session, localStorage);
+  $("backup-state").textContent = done ? "backed up" : "not backed up yet: deposits need a backup first";
+  $<HTMLButtonElement>("deposit-btn").disabled = !done;
+}
+$("backup-btn").onclick = () => {
+  $<HTMLTextAreaElement>("backup-text").value = exportSession(settings.app, session);
+  $("backup-out").hidden = false;
+};
+$("backup-copy").onclick = () => act("copy backup", () => navigator.clipboard.writeText(exportSession(settings.app, session)));
+$("backup-download").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([exportSession(settings.app, session) + "\n"], { type: "text/plain" }));
+  a.download = `zol-session-${session.keypair.publicKey.toBase58().slice(0, 8)}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$("backup-done").onclick = () => {
+  markBackedUp(settings.app, session, localStorage);
+  $("backup-out").hidden = true;
+  showBackupState();
+};
+$("restore-btn").onclick = () => ($("restore-out").hidden = false);
+$("restore-go").onclick = () => act("restore session", async () => {
+  const text = $<HTMLTextAreaElement>("restore-text").value;
+  const current = exportSession(settings.app, session);
+  if (text.trim() === current) throw new Error("that is the session already in use");
+  if (!isBackedUp(settings.app, session, localStorage) && !confirm("The current session key is not backed up. Replace it anyway? Any balance it holds would be lost.")) return;
+  restoreSession(settings.app, text, localStorage);
+  location.reload();
+});
+showBackupState();
 $<HTMLInputElement>("payout").value = localStorage.getItem(`zol:payout:${settings.app}`) ?? "";
 
 async function loadApp() {

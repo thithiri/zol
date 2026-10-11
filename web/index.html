@@ -26,6 +26,23 @@
   <section>
     <h2>Session</h2>
     <div>Session key <code id="session"></code></div>
+    <div>
+      <button id="backup-btn">Back up session key</button>
+      <button id="restore-btn">Restore a session…</button>
+      <span id="backup-state" class="muted"></span>
+    </div>
+    <div id="backup-out" hidden>
+      <p class="muted">This key is the only way to play, exit or recover your balance. It lives in this browser only. Keep a copy somewhere safe, and never share it: anyone holding it controls the balance.</p>
+      <textarea id="backup-text" rows="2" readonly style="width:100%"></textarea>
+      <button id="backup-copy">Copy</button>
+      <button id="backup-download">Download .txt</button>
+      <button id="backup-done">I saved it</button>
+    </div>
+    <div id="restore-out" hidden>
+      <p class="muted">Restoring replaces this browser's session key for this app.</p>
+      <textarea id="restore-text" rows="2" placeholder="zolsess1:…" style="width:100%"></textarea>
+      <button id="restore-go">Restore</button>
+    </div>
     <div>Ledger balance: <b id="balance">…</b></div>
     <div class="muted" id="sol"></div>
   </section>
