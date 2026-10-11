@@ -81,7 +81,10 @@ $("session").textContent = session.keypair.publicKey.toBase58();
 function showBackupState() {
   const done = isBackedUp(settings.app, session, localStorage);
   $("backup-state").textContent = done ? "backed up" : "not backed up yet: deposits need a backup first";
-  $<HTMLButtonElement>("deposit-btn").disabled = !done;
+  const btn = $<HTMLButtonElement>("deposit-btn");
+  btn.disabled = !done;
+  btn.textContent = done ? "Create deposit link" : "Back up your session key first (Session, above)";
+  btn.title = done ? "" : "The session key is the only way to use or recover your balance";
 }
 $("backup-btn").onclick = () => {
   $<HTMLTextAreaElement>("backup-text").value = exportSession(settings.app, session);
