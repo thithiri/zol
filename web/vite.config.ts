@@ -7,7 +7,8 @@ export default defineConfig({
   // scripts/) need the real one: their settings come from environment variables.
   define: process.argv.some((a) => /vite-node/.test(a)) ? {} : { "process.env": {} },
   // Pages: home (deposit, withdraw, the games), the coin flip and Up/Down (both from
-  // coinflip.html, see scripts/pages.py), the auction, and the original two-player table.
-  build: { rollupOptions: { input: { main: "index.html", coinflip: "coinflip.html", updown: "updown.html", auction: "auction.html", twoplayer: "two-player.html" } } },
+  // coinflip.html, see scripts/pages.py), the auction, the original two-player table, and the
+  // landing page about ZOL.
+  build: { rollupOptions: { input: { main: "index.html", coinflip: "coinflip.html", updown: "updown.html", auction: "auction.html", twoplayer: "two-player.html", landing: "landing.html" } } },
   test: { include: ["test/**/*.test.ts"] },
 } as any);
