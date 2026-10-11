@@ -36,7 +36,7 @@ export interface HouseConfig {
   stake?: number;
   /** Stakes each seat buys into a session (at most; less if either balance is short). Default 10. */
   maxRounds?: number;
-  /** A session with no flip for this long is finished. Default 120. */
+  /** A session with no flip for this long is finished by the house. Default 180 (the rollup's closer does it at 120). */
   idleSecs?: number;
   /** Ledger session deadline asked at start. Default 1800; it is finished 5 minutes before. */
   sessionSecs?: number;
@@ -452,7 +452,8 @@ export class House {
         g.amounts = [String(amounts[0]), String(amounts[1])];
         const flipStuck = t.state === "Flipping" && Date.now() / 1000 > Number(t.flipRequestedAt) + 65;
         const between = t.state === "Started" || t.state === "Landed" || flipStuck;
-        const idle = Date.now() - (g.lastFlipAt ?? g.inRollupAt ?? Date.now()) > (this.cfg.idleSecs ?? 120) * 1000;
+        // The rollup's own closer ends an idle table at 120 s; the house steps in only later.
+        const idle = Date.now() - (g.lastFlipAt ?? g.inRollupAt ?? Date.now()) > (this.cfg.idleSecs ?? 180) * 1000;
         const late = Date.now() > (g.deadline ?? Infinity) - 300_000;
         const short = amounts[0] < stake || amounts[1] < stake;
         if (!between || !(g.stop || short || idle || late)) return;

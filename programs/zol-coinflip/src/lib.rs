@@ -690,11 +690,16 @@ fn close_in_rollup<'info>(
     let bundle = match pay {
         Some((vault, _)) => {
             signers.push(&vault_seeds);
+            // The SDK copies each account's signer flag into the magic program's instruction,
+            // and the magic program needs the escrow authority to sign: mark the vault as a
+            // signer here; `invoke_signed` with its seeds makes that true.
+            let mut escrow_authority = vault.to_account_info();
+            escrow_authority.is_signer = true;
             bundle.add_post_undelegate_actions([CallHandler {
                 destination_program: crate::ID,
                 accounts: cash_out_metas(table),
                 args: ActionArgs::new(instruction::CashOutTable {}.data()),
-                escrow_authority: vault.to_account_info(),
+                escrow_authority,
                 compute_units: 300_000,
             }])
         }

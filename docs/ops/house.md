@@ -15,7 +15,7 @@ reasoning: [plan-house-mode.md](../plan-house-mode.md).
 3. **Flip the coin.** A stake is 99,700 zat (about 0.001 TAZ), a tenth of a 0.01 TAZ deposit after the entry fee.
    - The first flip opens a **session**: you and the house each put up to 10 stakes on one table, you sign once (no SOL needed), and the table moves into the rollup (about 5–10 s, once).
    - Every flip after that runs in the rollup only: one stake moves from the loser's seat to the winner's, the result shows in about 2–3 s.
-   - The house closes the table (back to Solana, your seat into your balance) when a side runs out of stakes, after 2 minutes without a flip, near the session deadline, or when you withdraw.
+   - The table closes (back to Solana, your seat into your balance) when a side runs out of stakes, after 2 minutes without a flip, near the session deadline, or when you withdraw. The rollup does this by itself (a scheduled `crank_close`), and the payout runs on Solana as the table returns (a Magic Action); the house only steps in if those fail.
 4. **Withdraw** when you like: the page closes any open table first, then the house co-signs your withdrawal. It reaches your address within minutes (0.3% exit fee and a 0.0002 TAZ network fee; the smallest withdrawal is 0.001 TAZ). "Final" follows about 2 h later.
 
 Every step appears in the timeline:
@@ -43,7 +43,7 @@ Every step appears in the timeline:
   - The house wins about half its games, so the bankroll drifts.
 - **Sessions** (`house.json`, all optional):
   - `stake` zat per flip, default the coinflip's smallest allowed stake (a tenth of the smallest deposit's net value);
-  - `maxRounds` 10 stakes per seat; `idleSecs` 120 before an idle table is closed; `sessionSecs` 1800, the ledger session deadline (closed 5 minutes before).
+  - `maxRounds` 10 stakes per seat; `idleSecs` 180 before the house closes an idle table (the rollup's closer does it at 120); `sessionSecs` 1800, the ledger session deadline (closed 5 minutes before).
 - **Limits** (`house.json`):
   - `maxOpenGames` 2 (open sessions);
   - `playsPerIpPerHour` 10;
