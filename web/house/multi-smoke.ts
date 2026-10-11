@@ -1,5 +1,5 @@
-// The game page's flow, headless: deposit once (no auto-exit), flip while the balance covers
-// a stake (at most 4 times), then cash out with the house's co-signed withdrawal and follow
+// The game page's flow, headless: deposit (no auto-exit), flip FLIPS times while the balance
+// covers a stake, then cash out with the house's co-signed withdrawal and follow
 // it to the Zcash payout. Run from web/ with the SSH tunnel to op0's zol-zcashd up:
 //   npx vite-node house/multi-smoke.ts
 import { Buffer } from "buffer";
@@ -54,16 +54,21 @@ const funding = await http(`${ZCASHD}/admin/funding`);
 out({ step: "player", session: me.toBase58() });
 
 // Deposit 0.01 TAZ without auto-exit: the balance stays on the ledger between flips.
-const d = await prepareDeposit([new Gateway(`${HOST}/op0`)], APP, p, funding.ua, 1_000_000n, false);
-await until("funding spendable", 600, async () => (await http(`${ZCASHD}/admin/funding`)).spendable >= 1_010_000, 10_000);
-const memo = Buffer.from(new URL(d.link.replace("zcash:", "zcash://x/")).searchParams.get("memo")!, "base64url").toString("utf8");
-await http(`${ZCASHD}/admin/send`, { to: d.session.ua, value: 1_000_000, memo });
+// DEPOSITS deposits of 0.01 TAZ (default 2, so a cash-out remains even if the house wins a round).
+const DEPOSITS = Number(process.env.DEPOSITS ?? 2);
+const FLIPS = Number(process.env.FLIPS ?? 1);
 const t0 = Date.now();
-await until("credited", 1800, async () => ((await balanceOf(me))?.amount ?? 0n) > 0n, 10_000);
+for (let i = 0; i < DEPOSITS; i++) {
+  const d = await prepareDeposit([new Gateway(`${HOST}/op0`)], APP, p, funding.ua, 1_000_000n, false);
+  await until("funding spendable", 600, async () => (await http(`${ZCASHD}/admin/funding`)).spendable >= 1_010_000, 10_000);
+  const memo = Buffer.from(new URL(d.link.replace("zcash:", "zcash://x/")).searchParams.get("memo")!, "base64url").toString("utf8");
+  await http(`${ZCASHD}/admin/send`, { to: d.session.ua, value: 1_000_000, memo });
+}
+await until("credited", 1800, async () => ((await balanceOf(me))?.amount ?? 0n) >= BigInt(DEPOSITS) * 997_000n, 10_000);
 out({ step: "credited", seconds: Math.round((Date.now() - t0) / 1000), auto_exit: (await balanceOf(me))!.autoExit });
 
 const stake = BigInt((await http(`${HOST}/house/info`)).stake);
-for (let round = 1; round <= 4; round++) {
+for (let round = 1; round <= FLIPS; round++) {
   const bal = (await balanceOf(me))!.amount;
   if (bal < stake) break;
   const r0 = Date.now();
