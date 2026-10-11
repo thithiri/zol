@@ -11,12 +11,10 @@ import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { Auctions, bidCommitment, bidSalt, Coinflip, decodeBalance, decodePrice, decodeTable, sendTx, ZEC_USD_FEED } from "../src/chain";
 import { sessionFromSeed, unhex, type Session } from "../src/session";
 
-// The web app's Vite config blanks `process.env` for the browser; read the real one.
-const ENV: Record<string, string | undefined> = (globalThis as any).process.env;
 
-const HOST = ENV.HOST ?? "https://159-223-38-126.sslip.io";
-const base = new Connection(ENV.BASE_RPC ?? "https://api.devnet.solana.com", "confirmed");
-const er = new Connection(ENV.ER_RPC ?? "https://devnet-as.magicblock.app", "confirmed");
+const HOST = process.env.HOST ?? "https://159-223-38-126.sslip.io";
+const base = new Connection(process.env.BASE_RPC ?? "https://api.devnet.solana.com", "confirmed");
+const er = new Connection(process.env.ER_RPC ?? "https://devnet-as.magicblock.app", "confirmed");
 const cf = new Coinflip({ ledger: new PublicKey("3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"), app: new PublicKey("7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo") });
 const au = new Auctions(cf);
 const out = (o: object) => console.log(JSON.stringify({ t: new Date().toISOString().slice(11, 19), ...o }));
@@ -46,7 +44,7 @@ const balanceOf = async (s: Session) => {
   return b ? decodeBalance(b.data).amount : 0n;
 };
 
-const players: Session[] = (JSON.parse(readFileSync(ENV.PLAYERS ?? "", "utf8")) as string[]).map((h) => sessionFromSeed(unhex(h)));
+const players: Session[] = (JSON.parse(readFileSync(process.env.PLAYERS ?? "", "utf8")) as string[]).map((h) => sessionFromSeed(unhex(h)));
 
 async function updown() {
   const p = players[0];
@@ -57,7 +55,7 @@ async function updown() {
   await until("Up/Down table in the rollup", 120, async () => (await http(`/house/game/${play.game}`)).state === "in_rollup");
   const potId = Uint8Array.from(Buffer.from(play.game, "hex"));
   out({ step: "table open", game: play.game.slice(0, 16), rounds: play.rounds, balance_before: String(before) });
-  for (let i = 0; i < Number(ENV.BETS ?? 2); i++) {
+  for (let i = 0; i < Number(process.env.BETS ?? 2); i++) {
     const up = i % 2 === 0;
     const price = decodePrice((await er.getAccountInfo(ZEC_USD_FEED))!.data).price;
     await sendTx(er, [cf.bet(p.keypair.publicKey, potId, up)], p.keypair);

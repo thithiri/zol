@@ -19,11 +19,9 @@ import { prepareDeposit } from "../src/deposit";
 import { Gateway } from "../src/gateway";
 import { hex, sessionFromSeed, unhex, type Session } from "../src/session";
 
-// The web app's Vite config blanks `process.env` for the browser; read the real one.
-const ENV: Record<string, string | undefined> = (globalThis as any).process.env;
 
 // The testnet deployment (dev-docs/reference/networks.md).
-const HOST = ENV.ZOL_HOST ?? "https://159-223-38-126.sslip.io";
+const HOST = process.env.ZOL_HOST ?? "https://159-223-38-126.sslip.io";
 const APP = "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo"; // the games app (coin flip, Up/Down, auction)
 const LEDGER = "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y";
 const VRF_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
@@ -31,7 +29,7 @@ const base = new Connection("https://api.devnet.solana.com", "confirmed");
 const er = new Connection("https://devnet-as.magicblock.app", "confirmed");
 const gateways = ["op0", "op1", "op2"].map((op) => new Gateway(`${HOST}/${op}`));
 const cf = new Coinflip({ ledger: new PublicKey(LEDGER), app: new PublicKey(APP) });
-const FILE = ENV.SESSION_FILE ?? "zol-session.json";
+const FILE = process.env.SESSION_FILE ?? "zol-session.json";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const taz = (zat: bigint) => `${Number(zat) / 1e8} TAZ`;

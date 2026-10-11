@@ -14,7 +14,15 @@ live in [`../docs/`](../docs/).
 | [Overview](overview.md) | What ZOL is, what it guarantees, the moving parts |
 | [Concepts](concepts.md) | Vault, deposits, balances, session keys, pots and seats, the rollup, exits |
 | [Quickstart](quickstart.md) | A player key, a shielded deposit, coin flips in the rollup and a withdrawal, from code, in about 15 minutes |
+
+## Build
+
+| Page | What it covers |
+| --- | --- |
 | [Build an app](build-an-app.md) | The anatomy of a ZOL app, walked through on the coin flip |
+| [Example apps](examples.md) | Coin flip (VRF), ZEC Up/Down (price oracle), sealed-bid auction (commit-reveal) |
+| [App design patterns](patterns.md) | Sessions, a counterparty service, closing without a keeper, deciding outcomes, many players |
+| [Session keys and passkeys](session-keys.md) | The player's key: what it signs, passkey derivation, backups, privacy |
 
 ## Reference
 
@@ -23,7 +31,16 @@ live in [`../docs/`](../docs/).
 | [Ledger program](reference/ledger.md) | Every account, instruction, event and error of `zol-ledger` |
 | [Gateway HTTP API](reference/gateway-api.md) | The operators' public API: app info, deposit intents, deposit status, the `ZOL1` memo |
 | [TypeScript client](reference/typescript-client.md) | Instruction builders, decoders, session keys, passkeys, deposits |
-| [Networks and addresses](reference/networks.md) | Program IDs, endpoints, the testnet deployment |
+| [Networks and addresses](reference/networks.md) | Program IDs, endpoints, testnet settings, MagicBlock in ZOL |
+
+## Ship
+
+| Page | What it covers |
+| --- | --- |
+| [Security model](security.md) | Who can do what, what the ledger guarantees, an app review checklist, known limitations |
+| [Testing](testing.md) | LiteSVM, the local stack, devnet scripts |
+| [Deploying](deploying.md) | From build to an active app on the testnet, services and pages |
+| [FAQ, glossary, troubleshooting](faq.md) | Common questions, terms, errors and their causes |
 
 ## Status
 
