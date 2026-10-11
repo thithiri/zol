@@ -182,7 +182,7 @@
       <details><summary>How it works, and what you trust</summary>
         <ul class="small muted">
           <li>Start a table: you and the house each put in up to 10 stakes, and the table moves into a MagicBlock rollup once. Each bet is one stake (0.001 TAZ) on ZEC/USD going up or down over the next 30 s.</li>
-          <li>The price is Pyth's, live in the rollup. A bet settles at the first price published after its 30 s: a right call pays 1.9× (the house's seat pays 0.9 stake), a wrong one pays its stake to the house, an unchanged price refunds it. Not settled within 10 s of expiry: void, nothing moves.</li>
+          <li>The price is Pyth's, live in the rollup. A bet settles at a price published within 2 s after its 30 s are up: a right call pays 1.9× (the house's seat pays 0.9 stake), a wrong one pays its stake to the house, an unchanged price refunds it. The page, the house and the rollup all settle at once; if none manages within that window, the bet is void and nothing moves, so nobody can wait for a better price.</li>
           <li>The table returns to Solana when you stop, run out, or leave it idle; the payout to your balance happens as it returns.</li>
         </ul>
       </details>

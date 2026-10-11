@@ -81,6 +81,10 @@ pub const UPDOWN_ROUND_SECS: i64 = 30;
 /// A bet settles at a price published at or after its expiry, within this window; after it
 /// the bet is void (nothing moves), so waiting for a better price never pays.
 pub const SETTLE_WINDOW_SECS: i64 = 10;
+/// ...and the price must be published at most this long after the expiry. The oracle keeps
+/// only its latest price, so whoever settles picks the moment; this bounds that choice to a
+/// few price updates (the feed publishes about every 200 ms). A later price voids the bet.
+pub const SETTLE_PUBLISH_WINDOW_SECS: i64 = 2;
 /// The oldest price `bet` and `settle_bet` accept.
 pub const MAX_PRICE_AGE_SECS: i64 = 5;
 /// MagicBlock's price oracle program and its ZEC/USD feed (Pyth Lazer id 66): a Pyth
@@ -310,10 +314,11 @@ pub mod zol_coinflip {
         Ok(())
     }
 
-    /// Rollup, anyone (the page at expiry, `crank_close` every few seconds). Settles the open
-    /// bet with a price published at or after its expiry: a tie moves nothing, a right call
-    /// is paid 0.9 stake by the other seat, a wrong one pays its stake to it. Past
-    /// `SETTLE_WINDOW_SECS` the bet is void instead.
+    /// Rollup, anyone (the page and the house at expiry, `crank_close` every few seconds).
+    /// Settles the open bet with a price published at or after its expiry and at most
+    /// `SETTLE_PUBLISH_WINDOW_SECS` after it: a tie moves nothing, a right call is paid
+    /// 0.9 stake by the other seat, a wrong one pays its stake to it. A later price, or a call
+    /// past `SETTLE_WINDOW_SECS`, voids the bet instead (nothing moves).
     pub fn settle_bet(ctx: Context<SettleBet>) -> Result<()> {
         let bump = ctx.bumps.app_authority;
         let a = ctx.accounts;
@@ -1184,6 +1189,12 @@ fn settle_open_bet<'info>(
         if strict {
             return err!(CoinflipError::PriceNotYet);
         }
+        return Ok(());
+    }
+    if published > b.expiry.saturating_add(SETTLE_PUBLISH_WINDOW_SECS) {
+        // Nobody settled near the expiry: void rather than let a later price decide.
+        table.bet.open = false;
+        emit!(BetSettled { table: table.key(), outcome: 3, settle_price: 0 });
         return Ok(());
     }
     let (from, to, amount, outcome) = if price == b.open_price {

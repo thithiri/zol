@@ -16,7 +16,7 @@ export const MAX_SEATS = 16;
 export const PRICE_PROGRAM = new PublicKey("PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd");
 export const ZEC_USD_FEED = new PublicKey("6XWQr2Y1XEpJrCdVbYGupnDeb3wkR4YXazVXdgn2Lwpg");
 /** Up/Down terms (zol-coinflip constants). */
-export const UPDOWN = { payoutBps: 19_000n, roundSecs: 30, settleWindowSecs: 10 } as const;
+export const UPDOWN = { payoutBps: 19_000n, roundSecs: 30, settleWindowSecs: 10, publishWindowSecs: 2 } as const;
 /** The oracle account: price (8 decimals) and publish time (unix s). */
 export function decodePrice(data: Uint8Array) {
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);

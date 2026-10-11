@@ -1084,14 +1084,42 @@ fn updown_settles_only_with_a_price_from_after_expiry_inside_the_window() {
     let now = cf.now();
     cf.set_price(150, now - 3); // fresh, but published before the expiry
     assert_cf_err(&cf.settle_bet(), CoinflipError::PriceNotYet);
-    // Nobody settles in time: void, nothing moves, whatever the price did.
-    cf.env.warp(zol_coinflip::SETTLE_WINDOW_SECS + 1);
+    // A price from too long after the expiry: void, whoever calls and whatever the price did.
+    let before = cf.pot().amounts;
+    cf.env.warp(zol_coinflip::SETTLE_PUBLISH_WINDOW_SECS + 1);
+    let now = cf.now();
+    cf.set_price(150, now);
+    ok!(cf.settle_bet());
+    assert_eq!(cf.pot().amounts, before);
+    assert!(!cf.table().bet.open);
+    assert_eq!(cf.table().flips, 0);
+}
+
+#[test]
+fn updown_settles_with_a_price_from_just_after_expiry() {
+    let (mut cf, _house, p) = updown(10);
+    let now = cf.now();
+    cf.set_price(100, now);
+    ok!(cf.bet_by(&p, true));
+    cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS + zol_coinflip::SETTLE_PUBLISH_WINDOW_SECS + 1);
+    let expiry = cf.table().bet.expiry;
+    cf.set_price(101, expiry + zol_coinflip::SETTLE_PUBLISH_WINDOW_SECS); // the last accepted publish
+    ok!(cf.settle_bet());
+    assert_eq!(cf.table().wins, 1);
+}
+
+#[test]
+fn updown_nobody_settles_in_time_is_void() {
+    let (mut cf, _house, p) = updown(10);
+    let now = cf.now();
+    cf.set_price(100, now);
+    ok!(cf.bet_by(&p, true));
+    cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS + zol_coinflip::SETTLE_WINDOW_SECS + 1);
     let now = cf.now();
     cf.set_price(150, now);
     let before = cf.pot().amounts;
     ok!(cf.settle_bet());
     assert_eq!(cf.pot().amounts, before);
-    assert!(!cf.table().bet.open);
     assert_eq!(cf.table().flips, 0);
 }
 

@@ -588,12 +588,13 @@ async function watchBet(id: string) {
       if (left <= 0) break;
       await sleep(1_000);
     }
-    // Settle: a price published after expiry arrives within a second or two.
-    for (let i = 0; i < 12; i++) {
+    // Settle right away: the program takes only a price published within 2 s of the expiry
+    // (later, the bet is void). The house and the rollup's closer try too.
+    for (let i = 0; i < 30; i++) {
       const r = await readRollup(id).catch(() => null);
       if (r && !r.t.bet.open) break;
       await sendTx(er, [cf.settleBet(potIdOf(id))], session!.keypair).catch(() => {});
-      await sleep(1_000);
+      await sleep(300);
     }
     const r = await readRollup(id);
     if (!r) throw new Error("could not read your table");
@@ -602,7 +603,7 @@ async function watchBet(id: string) {
     const t = r.t;
     const end = t.bet.settlePrice;
     if (t.flips === flipsBefore) {
-      $("status").textContent = "No price in time: the bet is void, your stake stays.";
+      $("status").textContent = "No price came in time: the bet is void, your stake stays.";
     } else if (t.wins > winsBefore) {
       $("status").innerHTML = `<span class="ok">${arrow}! ${usd(b.openPrice)} → ${usd(end)} · you win +${taz((stake * (UPDOWN.payoutBps - 10_000n)) / 10_000n)}</span>`;
     } else if (t.ties > tiesBefore) {

@@ -450,6 +450,11 @@ export class House {
         const [ti, pi] = await this.er.getMultipleAccountsInfo([table, pot]);
         if (!ti || !pi) return; // not cloned into the rollup yet
         const t = decodeTable(ti.data);
+        // An Up/Down bet just past its expiry: settle at once. The program only takes a price
+        // published within 2 s of the expiry, so prompt settlement keeps bets from voiding.
+        if (t.game === 1 && t.bet.open && Date.now() / 1000 >= t.bet.expiry && Date.now() / 1000 <= t.bet.expiry + UPDOWN.settleWindowSecs) {
+          await sendTx(this.er, [this.cf.settleBet(potId)], house).catch(() => {});
+        }
         // Closed in the rollup without us (its scheduled closer, or a player): follow it home.
         if (t.state === "Finished") {
           g.state = "finishing";

@@ -28,7 +28,7 @@ Every step appears in the timeline:
 
 - Same table, same balance: "Start table" on the Up/Down tab opens an Up/Down table (`create_updown_table`).
 - **Bet** Up or Down, one stake (0.001 TAZ), at the ZEC/USD price the rollup has (MagicBlock's Pyth Lazer feed, id 66). After 60 s it settles at a price published after expiry: a right call pays 1.9× (0.9 stake from the house's seat), a tie refunds. The page settles at expiry; the rollup's closer settles it too if the page is gone.
-- Not settled within 10 s of expiry → void (nothing moves), so waiting for a better price never pays. The template this follows (MagicBlock's binary-prediction) settles at whatever price is current whenever someone calls it; this is the one fix.
+- The settling price must be published within 2 s after expiry (`SETTLE_PUBLISH_WINDOW_SECS`), and the call made within 10 s; otherwise the bet is void (nothing moves). The oracle keeps only its latest price, so whoever settles picks the moment: the window bounds that choice to a few price updates. The page and the house settle at expiry, the rollup's closer within ~5 s. The template this follows (MagicBlock's binary-prediction) settles at whatever price is current whenever someone calls it (review finding F4).
 
 ### Sealed-bid auction (`/auction.html`)
 

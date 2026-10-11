@@ -65,6 +65,11 @@ Options, in order of effort:
 
 **Recommendation:** 1, before Up/Down is shown as fair to anyone but testers.
 
+**Fixed (2026-10-12):** option 1 with a 2 s window (`SETTLE_PUBLISH_WINDOW_SECS`; the price
+account's publish time trails the rollup clock by about a second, so 1 s left callers almost
+no time). The house now settles bets as soon as they expire, and the page retries every
+300 ms.
+
 ### F5 (low) — the sealed-bid auction under commit-reveal
 
 - The seller can register a second key as a bidder (shill). Under first price a shill can
