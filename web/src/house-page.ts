@@ -100,10 +100,10 @@ async function begin(f: () => Promise<Session>) {
   } catch (e) {
     const msg = String((e as any)?.message ?? e);
     if (msg === NO_PRF_HELP) {
-      // Show the advice where the buttons are, and open the backup-key option.
+      // Show the advice where the buttons are, and point at the session-key option.
       $("pk-help").textContent = msg;
       $("pk-help").hidden = false;
-      (document.querySelector("#start details") as HTMLDetailsElement).open = true;
+      $("nopk-new").classList.add("primary");
     } else {
       showError(e);
     }
@@ -130,9 +130,17 @@ $("backup-btn").onclick = () => {
 function renderKey() {
   const kind = sessionKind(S.app, localStorage);
   const ok = isBackedUp(S.app, session!, localStorage);
-  $("key-kind").innerHTML = kind === "passkey" ? "held by your passkey" : ok ? "saved" : '<span class="err">NOT saved yet</span>';
+  $("key-kind").innerHTML = kind === "passkey" ? "held by your passkey" : ok ? "session key, saved" : '<span class="err">session key, NOT saved yet</span>';
   $("backup-btn").hidden = kind === "passkey";
+  // An unsaved session key: a red dot on the key button until it is shown once.
+  $("key-warn").hidden = kind === "passkey" || ok;
 }
+// The key button (top right of the balance card) opens the player-key panel.
+$("key-btn").onclick = () => {
+  const open = $("key-panel").hidden;
+  $("key-panel").hidden = !open;
+  $("key-btn").setAttribute("aria-expanded", String(open));
+};
 
 // ---------------------------------------------------------------- state
 
@@ -152,7 +160,7 @@ let tableState = "";
 /** After a session closes, its seat until the ledger balance shows it (reads can lag). */
 let pending: { seat: bigint; before: bigint; t: number } | null = null;
 let busy = false;
-/** Which page this is (the `data-page` of index.html, house.html, updown.html), and its game. */
+/** Which page this is (the `data-page` of index.html, coinflip.html, updown.html), and its game. */
 type Mode = "coinflip" | "updown";
 const PAGE = (document.body.dataset.page ?? "coinflip") as "home" | Mode;
 const mode: Mode = PAGE === "updown" ? "updown" : "coinflip";
@@ -263,8 +271,9 @@ $("add-btn").onclick = async () => {
 async function deposit(amount: bigint) {
   try {
     if (sessionKind(S.app, localStorage) === "backup" && !isBackedUp(S.app, session!, localStorage)) {
+      $("key-panel").hidden = false;
       $("backup-btn").click();
-      throw new Error("Your session key is shown below: save it, then deposit again");
+      throw new Error("Your session key is shown at the top: save it, then deposit again");
     }
     app ??= await gw.app(S.app);
     let addr = localStorage.getItem(payoutKey());
@@ -814,7 +823,8 @@ else {
         ? "This browser's passkeys can't hold a player key. Use a session key, or open this page in Safari, or in Chrome signed in to Google Password Manager."
         : "This browser has no passkeys. Use a session key.";
       $("pk-help").hidden = false;
-      (document.querySelector("#start details") as HTMLDetailsElement).open = true;
+      $("nopk-new").classList.add("primary");
+      $("pk-new").classList.remove("primary");
     }
   });
 }

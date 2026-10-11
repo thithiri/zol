@@ -35,6 +35,10 @@
     .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
     .coin.spin { animation: spin .6s linear infinite; }
     nav.games { margin-top: 4px; color: var(--muted); } nav.games a { color: var(--muted); }
+    .restore { margin-top: 18px; text-align: left; } .restore button { margin-top: 10px; }
+    .keybtn { position: absolute; top: 8px; right: 8px; border: 0; background: none; padding: 6px 8px; font-size: 18px; line-height: 1; }
+    .keybtn .dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
+    .keypanel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); text-align: left; }
     a.game { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; color: var(--fg); text-decoration: none; }
     a.game:hover { border-color: var(--accent); } a.game b { display: block; } a.game span { display: block; }
     .spark { width: 100%; height: 96px; display: block; margin: 6px 0 0; }
@@ -67,22 +71,25 @@
 
   <!-- First visit: a player key held by a passkey -->
   <section id="start" class="card center" hidden>
-    <p style="margin-top:0">Flip a coin against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the game runs on Solana and a MagicBlock rollup.</p>
-    <button id="pk-new" class="primary">Start with a passkey</button>
-    <div><button id="pk-login" class="link">I already have one (passkey)</button></div>
+    <p style="margin-top:0">Play against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the games run on Solana and a MagicBlock rollup.</p>
+    <div class="row">
+      <button id="pk-new" class="primary">Start with a passkey</button>
+      <button id="nopk-new">Start with a session key</button>
+    </div>
+    <div><button id="pk-login" class="link">I already have a passkey</button></div>
     <p id="pk-help" class="small err" hidden></p>
-    <p class="small muted">Your passkey (Face ID, Touch ID, your password manager) holds your player key, on every device it syncs to. Nothing to write down.</p>
-    <details><summary>No passkey?</summary>
-      <p class="small muted">Use a session key kept in this browser. You must save it.</p>
-      <button id="nopk-new">Use a session key</button>
-      <p class="small muted">Or restore one:</p>
-      <input id="restore-text" placeholder="zolsess1:…" /><button id="restore-go">Restore</button>
-    </details>
+    <p class="small muted">A passkey (Face ID, Touch ID, your password manager) holds your player key on every device it syncs to: nothing to write down. A session key stays in this browser: save it when the page shows it.</p>
+    <div class="restore">
+      <label class="small muted" for="restore-text">Have a saved session key? Restore it:</label>
+      <input id="restore-text" placeholder="zolsess1:…" />
+      <button id="restore-go">Restore</button>
+    </div>
   </section>
 
   <main id="main" hidden>
     <!-- Balance -->
     <section class="card center">
+      <button id="key-btn" class="keybtn" title="Your player key" aria-label="Your player key" aria-expanded="false">🔑<span id="key-warn" class="dot" hidden></span></button>
       <div class="muted small">Game balance</div>
       <div class="balance" id="balance">…</div>
       <div class="muted small" id="flips">&nbsp;</div>
@@ -91,12 +98,17 @@
         <button id="cashout-btn">Withdraw Zcash</button>
       </div>
       <div class="small muted" id="funds-link" hidden style="margin-top:6px"><a href="/">Deposit or withdraw on the home page</a></div>
+      <div id="key-panel" class="keypanel small" hidden>
+        <div>Player key: <span id="key-kind"></span></div>
+        <div><button id="backup-btn" class="link" hidden>show session key</button> <button id="logout-btn" class="link">switch player</button></div>
+        <div id="backup-out" hidden><code id="backup-text"></code><br /><span class="muted">Keep it somewhere safe: it is the only way back to this balance without a passkey.</span></div>
+      </div>
     </section>
 
     <!-- Home: the games -->
     <section class="card" id="games" hidden>
       <div class="panel-title">Games</div>
-      <a class="game" href="/house.html"><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></a>
+      <a class="game" href="/coinflip.html"><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></a>
       <a class="game" href="/updown.html"><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></a>
       <a class="game" href="/auction.html"><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></a>
       <div class="small muted" style="margin-top:8px">Also: the <a href="/two-player.html">two-player table</a>, the original developer page.</div>
@@ -175,8 +187,6 @@
           <li>Cash-outs go only to the address you gave at your first deposit: the ledger fixes it, and the operators can't send it elsewhere.</li>
         </ul>
       </details>
-      <div class="small muted" style="margin-top:8px">Session key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show session key</button> <button id="logout-btn" class="link">switch player</button></div>
-      <div id="backup-out" class="small" hidden><code id="backup-text"></code><br /><span class="muted">Keep it somewhere safe: it is the only way back to this balance without a passkey.</span></div>
     </section>
 
   </main>

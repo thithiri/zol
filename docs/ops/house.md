@@ -1,6 +1,8 @@
 # The house: single-player coin flips
 
-The page `house.html` (https://159-223-38-126.sslip.io/house.html on the testnet trial)
+The pages (https://159-223-38-126.sslip.io/ on the testnet trial): home `/` (player key, deposit,
+withdraw, the games), `/coinflip.html` (`/house.html` redirects there), `/updown.html`, `/auction.html`;
+the original two-player page is `/two-player.html`.
 lets one person play against the house. The two-player page `/` is unchanged. Design and
 reasoning: [plan-house-mode.md](../plan-house-mode.md).
 

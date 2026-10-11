@@ -2,7 +2,7 @@
 //
 //   zol-house --config /home/zol/ops/house/house.json
 //
-// Routes (behind Caddy at /house/*; the page is /house.html):
+// Routes (behind Caddy at /house/*; the pages are /, /coinflip.html, /updown.html, /auction.html):
 //   GET  /house/info                        bankroll, stake, whether a game can start
 //   POST /house/play   {session, game?}     -> {game, tx}: create+join (coinflip or updown) for the player to sign
 //   POST /house/join   {game, tx}           the player's signed tx; the house co-signs and sends
