@@ -17,7 +17,7 @@ export interface AuctionTerms {
   commitSecs: number;
   revealSecs: number;
 }
-export const DEFAULT_TERMS: AuctionTerms = { deposit: 500_000, registerSecs: 300, commitSecs: 300, revealSecs: 300 };
+export const DEFAULT_TERMS: AuctionTerms = { deposit: 500_000, registerSecs: 45, commitSecs: 45, revealSecs: 45 };
 
 const now = () => new Date().toISOString().slice(11, 19);
 

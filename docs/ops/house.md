@@ -31,9 +31,9 @@ Every step appears in the timeline:
 ### Sealed-bid auction (`/auction.html`)
 
 - The house sells a numbered certificate; anyone with a balance bids. Same player and balance as the game page.
-- **Register** (5 min): pay the deposit, 0.005 TAZ (also the most you can bid), into the auction's pot; the house co-signs and pays the fee. At most 8 bidders.
-- **Seal a bid** (5 min, in the rollup): only `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount ‖ salt)` goes on-chain; the salt comes from your player key, the amount is remembered by your browser.
-- **Reveal** (5 min): the page reveals your bid; a sealed bid never revealed loses 10% of the deposit, shared by those who revealed.
+- **Register** (45 s): pay the deposit, 0.005 TAZ (also the most you can bid), into the auction's pot; the house co-signs and pays the fee. At most 8 bidders.
+- **Seal a bid** (45 s, in the rollup): only `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount ‖ salt)` goes on-chain; the salt comes from your player key, the amount is remembered by your browser.
+- **Reveal** (45 s): the page reveals your bid; a sealed bid never revealed loses 10% of the deposit, shared by those who revealed.
 - **Result:** the highest revealed bid pays its bid to the seller (first price; ties go to the earlier registration). The rollup ends the auction (`schedule_auction_end`) and the pot's return pays every seat (`cash_out_auction`); the auction account stays on Solana as the certificate. Nobody registered: cancelled, the ledger refunds the seller's 1-zat stake.
 - Operators: `GET /house/auction`, `POST /house/auction/open`; the desk is `web/house/auction.ts`. The ledger's `max_seats` is 16 on devnet (`devnet set-max-seats`).
 

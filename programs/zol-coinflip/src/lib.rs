@@ -102,6 +102,9 @@ pub const SELLER_STAKE: u64 = 1;
 pub const AUCTION_START_GRACE_SECS: i64 = 120;
 /// The ledger session deadline is this long after the reveal deadline.
 pub const AUCTION_SESSION_MARGIN_SECS: i64 = 900;
+/// The scheduled `end_auction` keeps running this long past the reveal deadline (a run after
+/// the end fails harmlessly, the auction having left the rollup).
+pub const AUCTION_END_TAIL_SECS: i64 = 60;
 /// A commitment revealed too late, or never: 1/10 of the deposit, to those who revealed.
 pub const NO_REVEAL_PENALTY_DIV: u64 = 10;
 /// Each phase lasts at most this long.
@@ -790,7 +793,7 @@ pub mod zol_coinflip {
         let now = Clock::get()?.unix_timestamp;
         let x = &ctx.accounts.auction;
         require!(x.state == AuctionState::Bidding, CoinflipError::AuctionPhase);
-        let left_ms = (x.reveal_deadline + AUCTION_SESSION_MARGIN_SECS / 2 - now).max(0).saturating_mul(1000);
+        let left_ms = (x.reveal_deadline + AUCTION_END_TAIL_SECS - now).max(0).saturating_mul(1000);
         let iterations = left_ms / CLOSER_INTERVAL_MS + 1;
         let a = &ctx.accounts;
         let ix = Instruction {
