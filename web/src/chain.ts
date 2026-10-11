@@ -12,6 +12,9 @@ export const MAGIC_PROGRAM = new PublicKey("Magic1111111111111111111111111111111
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 export const MAX_SEATS = 16;
+/** MagicBlock's fee vault for a validator: a delegated payer's commit fees go there. */
+export const magicFeeVault = (validator: PublicKey) =>
+  PublicKey.findProgramAddressSync([new TextEncoder().encode("magic-fee-vault"), validator.toBytes()], DLP)[0];
 /** A deposit also splits into this many smaller stakes (zol-coinflip STAKE_SPLIT). */
 export const STAKE_SPLIT = 10n;
 /** Stakes `create_table` accepts: one deposit's net credited value, for each denomination
@@ -143,11 +146,11 @@ export class Coinflip {
   }
 
   /** Rollup, anyone: the rollup closes this table by itself once idle, short or near its deadline. */
-  scheduleCloser(payer: PublicKey, potId: Uint8Array) {
+  scheduleCloser(payer: PublicKey, potId: Uint8Array, validator: PublicKey) {
     const d = this.pdas;
     return this.ix(
       [m(payer, true, true), m(d.table(potId)), m(d.pot(potId)), m(d.appAuthority()), m(this.p.ledger),
-        m(d.rentVault()), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+        m(d.rentVault()), m(magicFeeVault(validator)), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
       disc("global", "schedule_closer"),
     );
   }

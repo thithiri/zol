@@ -371,6 +371,22 @@
           "writable": true
         },
         {
+          "name": "magic_fee_vault",
+          "docs": [
+            "when the payer is itself a delegated account (an app's PDA in a scheduled task)."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "escrow_authority",
+          "docs": [
+            "The app's escrow authority for `action` (the app signs for its PDA)."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
           "name": "magic_program",
           "address": "Magic11111111111111111111111111111111111111"
         },
@@ -380,7 +396,18 @@
           "address": "MagicContext1111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "PotAction"
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "credit_deposit",
@@ -2560,9 +2587,30 @@
       "code": 6038,
       "name": "BadDenomination",
       "msg": "Deposit amount is not a permitted denomination"
+    },
+    {
+      "code": 6039,
+      "name": "BadAction",
+      "msg": "A pot's return action must call its own app, within the limits, with a signing escrow authority"
     }
   ],
   "types": [
+    {
+      "name": "ActionAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_writable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
     {
       "name": "ActivationCancelled",
       "type": {
@@ -3348,6 +3396,41 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PotAction",
+      "docs": [
+        "An instruction the delegation program runs on Solana right after a pot returns",
+        "(`close_pot`), signed only by the app's escrow (its fee payer). It may call only the",
+        "pot's own app program; the ledger never signs for it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "program",
+            "type": "pubkey"
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ActionAccount"
+                }
+              }
+            }
+          },
+          {
+            "name": "data",
+            "type": "bytes"
+          },
+          {
+            "name": "compute_units",
+            "type": "u32"
           }
         ]
       }

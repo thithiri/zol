@@ -98,8 +98,8 @@ pub mod zol_ledger {
         pot::handle_move_seat(ctx, from, to, amount)
     }
 
-    pub fn close_pot(ctx: Context<ClosePot>) -> Result<()> {
-        pot::handle_close_pot(ctx)
+    pub fn close_pot(ctx: Context<ClosePot>, action: Option<PotAction>) -> Result<()> {
+        pot::handle_close_pot(ctx, action)
     }
 
     pub fn cash_out<'info>(ctx: Context<'info, PotOutcome<'info>>) -> Result<()> {

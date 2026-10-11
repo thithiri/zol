@@ -455,3 +455,86 @@ fn credit_amount_must_be_a_ledger_denomination() {
     ok!(env.credit([3; 32], 10_000_000, k.pubkey(), [7; 32]));
     env.check_invariants();
 }
+
+// ------------------------------------------------------------------ close_pot's return action
+
+const MAGIC_PROGRAM: solana_pubkey::Pubkey = solana_pubkey::pubkey!("Magic11111111111111111111111111111111111111");
+const MAGIC_CONTEXT: solana_pubkey::Pubkey = solana_pubkey::pubkey!("MagicContext1111111111111111111111111111111");
+
+/// `close_pot` through the test app, as the rollup runs it (the magic program is a no-op here).
+fn close_pot_ix(escrow: Option<solana_pubkey::Pubkey>, action: Option<zol_ledger::state::PotAction>, payer: solana_pubkey::Pubkey) -> Instruction {
+    let app = app_pda(&TEST_APP);
+    let mut ix = via_app(ledger_ix(
+        zol_ledger::accounts::ClosePot {
+            payer,
+            authority: app_authority(&TEST_APP),
+            pot: pot_pda(&app, &POT),
+            magic_fee_vault: None,
+            escrow_authority: escrow,
+            magic_program: MAGIC_PROGRAM,
+            magic_context: MAGIC_CONTEXT,
+        },
+        zol_ledger::instruction::ClosePot { action },
+    ));
+    // The escrow authority signs (an app signs for its own PDA; here a plain key).
+    for m in ix.accounts.iter_mut().filter(|m| Some(m.pubkey) == escrow) {
+        m.is_signer = true;
+    }
+    ix
+}
+
+fn action_for(program: solana_pubkey::Pubkey, n_accounts: usize) -> zol_ledger::state::PotAction {
+    zol_ledger::state::PotAction {
+        program,
+        accounts: (0..n_accounts).map(|_| zol_ledger::state::ActionAccount { pubkey: Keypair::new().pubkey(), is_writable: true }).collect(),
+        data: vec![1, 2, 3],
+        compute_units: 200_000,
+    }
+}
+
+#[test]
+fn close_pot_action_calls_only_the_pots_app_with_a_signing_escrow() {
+    let mut env = Env::new();
+    env.svm.add_program(MAGIC_PROGRAM, &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/noop.so")).unwrap()).unwrap();
+    delegated(&mut env);
+    let r = env.relayer.insecure_clone();
+    let escrow = Keypair::new();
+    let in_rollup = |env: &mut Env| env.simulate_return(POT, |p| p.delegated = true);
+    in_rollup(&mut env);
+
+    // Another program: refused (the ledger never schedules calls outside the pot's app).
+    for other in [LEDGER, Keypair::new().pubkey()] {
+        let ix = close_pot_ix(Some(escrow.pubkey()), Some(action_for(other, 9)), r.pubkey());
+        assert_zerr!(env.send(&[ix], &[&r, &escrow]), BadAction);
+    }
+    // The app itself, but the escrow authority does not sign, or is missing.
+    let mut ix = close_pot_ix(Some(escrow.pubkey()), Some(action_for(TEST_APP, 9)), r.pubkey());
+    for m in ix.accounts.iter_mut().filter(|m| m.pubkey == escrow.pubkey()) {
+        m.is_signer = false;
+    }
+    assert_eq!(err_code(&env.send(&[ix], &[&r])), Some(anchor_lang::error::ErrorCode::AccountNotSigner as u32));
+    let ix = close_pot_ix(None, Some(action_for(TEST_APP, 9)), r.pubkey());
+    assert_zerr!(env.send(&[ix], &[&r]), BadAction);
+    // Out of bounds.
+    let ix = close_pot_ix(Some(escrow.pubkey()), Some(action_for(TEST_APP, zol_ledger::state::limits::MAX_ACTION_ACCOUNTS + 1)), r.pubkey());
+    assert_zerr!(env.send(&[ix], &[&r, &escrow]), BadAction);
+    let mut a = action_for(TEST_APP, 1);
+    a.data = vec![0; zol_ledger::state::limits::MAX_ACTION_DATA + 1];
+    let ix = close_pot_ix(Some(escrow.pubkey()), Some(a), r.pubkey());
+    assert_zerr!(env.send(&[ix], &[&r, &escrow]), BadAction);
+    let mut a = action_for(TEST_APP, 1);
+    a.compute_units = zol_ledger::state::limits::MAX_ACTION_COMPUTE_UNITS + 1;
+    let ix = close_pot_ix(Some(escrow.pubkey()), Some(a), r.pubkey());
+    assert_zerr!(env.send(&[ix], &[&r, &escrow]), BadAction);
+    assert!(env.pot_snapshot(POT).delegated, "nothing closed so far");
+
+    // The app's own action with a signing escrow: the pot closes.
+    let ix = close_pot_ix(Some(escrow.pubkey()), Some(action_for(TEST_APP, 9)), r.pubkey());
+    ok!(env.send(&[ix], &[&r, &escrow]));
+    let raw = env.raw(&pot_pda(&app_pda(&TEST_APP), &POT)).unwrap();
+    let pot = <zol_ledger::state::Pot as anchor_lang::AccountDeserialize>::try_deserialize(&mut &raw.data[..]).unwrap();
+    assert!(!pot.delegated);
+    // And without an action, as before.
+    in_rollup(&mut env);
+    ok!(env.send(&[close_pot_ix(None, None, r.pubkey())], &[&r]));
+}

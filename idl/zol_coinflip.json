@@ -213,6 +213,13 @@
           }
         },
         {
+          "name": "magic_fee_vault",
+          "docs": [
+            "a delegated account, and those pay commit fees there"
+          ],
+          "writable": true
+        },
+        {
           "name": "magic_program",
           "address": "Magic11111111111111111111111111111111111111"
         },
@@ -1272,6 +1279,12 @@
               }
             ]
           }
+        },
+        {
+          "name": "magic_fee_vault",
+          "docs": [
+            "in the scheduled instruction"
+          ]
         },
         {
           "name": "magic_program",

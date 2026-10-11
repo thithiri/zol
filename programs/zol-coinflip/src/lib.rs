@@ -55,8 +55,9 @@ pub const FLIP_TIMEOUT_SECS: i64 = 60;
 pub const IDLE_SECS: i64 = 120;
 /// `crank_close` closes a table this long before its session deadline.
 pub const DEADLINE_MARGIN_SECS: i64 = 300;
-/// How often the scheduled `crank_close` looks at a table.
-pub const CLOSER_INTERVAL_MS: i64 = 20_000;
+/// How often the scheduled `crank_close` looks at a table (devnet ran it about every 5 s
+/// when 20 s was asked, so iterations are sized for the faster pace).
+pub const CLOSER_INTERVAL_MS: i64 = 5_000;
 
 /// The stakes `create_table` accepts: for each denomination `d` the ledger permits
 /// (`Config.params.denominations`, nonzero entries), one deposit's net credited value
@@ -272,7 +273,7 @@ pub mod zol_coinflip {
         check_finish(&ctx.accounts.table, ctx.accounts.payer.key(), Clock::get()?.unix_timestamp)?;
         let bump = ctx.bumps.app_authority;
         let a = ctx.accounts;
-        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, None)
+        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, None, None)
     }
 
     /// Rollup. `finish` with the same rules, and the table's return to Solana schedules
@@ -282,7 +283,7 @@ pub mod zol_coinflip {
         check_finish(&ctx.accounts.table, ctx.accounts.payer.key(), Clock::get()?.unix_timestamp)?;
         let (bump, vault_bump) = (ctx.bumps.app_authority, ctx.bumps.rent_vault);
         let a = ctx.accounts;
-        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, Some((&a.rent_vault, vault_bump)))
+        close_in_rollup(&a.payer.to_account_info(), None, &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, None, Some((&a.rent_vault, vault_bump)))
     }
 
     /// Rollup, no signer: a scheduled task (`schedule_closer`) runs it. Finishes and pays a
@@ -314,7 +315,9 @@ pub mod zol_coinflip {
         let a = ctx.accounts;
         let payer = a.table.to_account_info();
         let table_seeds: &[&[u8]] = &[TABLE_SEED, &pot_id, &[table_bump]];
-        close_in_rollup(&payer, Some(table_seeds), &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, Some((&a.rent_vault, vault_bump)))
+        require_keys_eq!(a.magic_fee_vault.key(), magic_fee_vault(&a.table.validator), CoinflipError::BadAccount);
+        let fee_vault = a.magic_fee_vault.to_account_info();
+        close_in_rollup(&payer, Some(table_seeds), &mut a.table, &a.pot, &a.app_authority, bump, &a.magic_program, &a.magic_context, Some(&fee_vault), Some((&a.rent_vault, vault_bump)))
     }
 
     /// Rollup, anyone: schedules `crank_close` for this table every `CLOSER_INTERVAL_MS`
@@ -335,6 +338,7 @@ pub mod zol_coinflip {
                 app_authority: a.app_authority.key(),
                 ledger_program: a.ledger_program.key(),
                 rent_vault: a.rent_vault.key(),
+                magic_fee_vault: magic_fee_vault(&t.validator),
                 magic_program: a.magic_program.key(),
                 magic_context: a.magic_context.key(),
             }
@@ -351,6 +355,7 @@ pub mod zol_coinflip {
                 a.app_authority.to_account_info(),
                 a.ledger_program.to_account_info(),
                 a.rent_vault.to_account_info(),
+                a.magic_fee_vault.to_account_info(),
                 a.magic_context.to_account_info(),
             ],
             args: ScheduleTaskArgs { task_id, execution_interval_millis: CLOSER_INTERVAL_MS, iterations, instructions: vec![ix] },
@@ -650,9 +655,11 @@ fn check_finish(t: &Table, who: Pubkey, now: i64) -> Result<()> {
 }
 
 /// Returns the pot (ledger `close_pot`) and the table to Solana. `payer_seeds` when the
-/// payer is one of this program's PDAs (the table, for `crank_close`). With `pay` (the rent
-/// vault and its bump), the table's return also runs `cash_out_table` on Solana, paid from
-/// the vault's escrow (`["balance", vault, 255]` under the delegation program).
+/// payer is one of this program's PDAs (the table, for `crank_close`): a delegated payer
+/// needs the validator's magic fee vault. With `pay` (the rent vault and its bump), the
+/// pot's return runs `cash_out_table` on Solana (a Magic Action the ledger attaches to the
+/// pot, paid from the vault's escrow `["balance", vault, 255]` under the delegation program),
+/// so the payout happens exactly when the money is back.
 #[allow(clippy::too_many_arguments)]
 fn close_in_rollup<'info>(
     payer: &AccountInfo<'info>,
@@ -663,55 +670,69 @@ fn close_in_rollup<'info>(
     app_authority_bump: u8,
     magic_program: &AccountInfo<'info>,
     magic_context: &AccountInfo<'info>,
+    fee_vault: Option<&AccountInfo<'info>>,
     pay: Option<(&UncheckedAccount<'info>, u8)>,
 ) -> Result<()> {
     table.state = TableState::Finished;
     table.exit(&crate::ID)?;
     let auth_bump = [app_authority_bump];
     let auth_seeds: &[&[u8]] = &[APP_AUTHORITY_SEED, &auth_bump];
-    let mut ledger_signers: Vec<&[&[u8]]> = vec![auth_seeds];
-    ledger_signers.extend(payer_seeds);
-    zol_ledger::cpi::close_pot(CpiContext::new_with_signer(
-        zol_ledger::ID,
-        zol_ledger::cpi::accounts::ClosePot {
-            payer: payer.clone(),
-            authority: app_authority.to_account_info(),
-            pot: pot.to_account_info(),
-            magic_program: magic_program.clone(),
-            magic_context: magic_context.clone(),
-        },
-        &ledger_signers,
-    ))?;
-    let bundle = MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone())
-        .commit_and_undelegate(&[table.to_account_info()]);
-    let mut signers: Vec<&[&[u8]]> = payer_seeds.into_iter().collect();
     let vault_bump = [pay.map(|(_, b)| b).unwrap_or(0)];
     let vault_seeds: [&[u8]; 2] = [RENT_VAULT_SEED, &vault_bump];
-    let bundle = match pay {
-        Some((vault, _)) => {
-            signers.push(&vault_seeds);
-            // The SDK copies each account's signer flag into the magic program's instruction,
-            // and the magic program needs the escrow authority to sign: mark the vault as a
-            // signer here; `invoke_signed` with its seeds makes that true.
-            let mut escrow_authority = vault.to_account_info();
-            escrow_authority.is_signer = true;
-            bundle.add_post_undelegate_actions([CallHandler {
-                destination_program: crate::ID,
-                accounts: cash_out_metas(table),
-                args: ActionArgs::new(instruction::CashOutTable {}.data()),
+    let mut signers: Vec<&[&[u8]]> = vec![auth_seeds];
+    signers.extend(payer_seeds);
+    // The ledger sees the vault as a signer only if it is marked so: `invoke_signed` with its
+    // seeds makes that true.
+    let escrow_authority = pay.map(|(vault, _)| {
+        let mut info = vault.to_account_info();
+        info.is_signer = true;
+        info
+    });
+    if pay.is_some() {
+        signers.push(&vault_seeds);
+    }
+    let action = pay.map(|_| zol_ledger::state::PotAction {
+        program: crate::ID,
+        accounts: cash_out_metas(table)
+            .into_iter()
+            .map(|m| zol_ledger::state::ActionAccount { pubkey: Pubkey::new_from_array(m.pubkey.to_bytes()), is_writable: m.is_writable })
+            .collect(),
+        data: instruction::CashOutTable {}.data(),
+        compute_units: 300_000,
+    });
+    zol_ledger::cpi::close_pot(
+        CpiContext::new_with_signer(
+            zol_ledger::ID,
+            zol_ledger::cpi::accounts::ClosePot {
+                payer: payer.clone(),
+                authority: app_authority.to_account_info(),
+                pot: pot.to_account_info(),
+                magic_fee_vault: fee_vault.cloned(),
                 escrow_authority,
-                compute_units: 300_000,
-            }])
-        }
-        None => bundle,
-    };
-    if signers.is_empty() {
-        bundle.build_and_invoke()?;
-    } else {
-        bundle.build_and_invoke_signed(&signers)?;
+                magic_program: magic_program.clone(),
+                magic_context: magic_context.clone(),
+            },
+            &signers,
+        ),
+        action,
+    )?;
+    let mut bundle = MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone());
+    if let Some(v) = fee_vault {
+        bundle = bundle.magic_fee_vault(v.clone());
+    }
+    let bundle = bundle.commit_and_undelegate(&[table.to_account_info()]);
+    match payer_seeds {
+        Some(s) => bundle.build_and_invoke_signed(&[s])?,
+        None => bundle.build_and_invoke()?,
     }
     emit!(Finished { table: table.key(), winner: table.winner });
     Ok(())
+}
+
+/// MagicBlock's fee vault for a validator (`["magic-fee-vault", validator]` under the
+/// delegation program): a delegated payer's commit fees go there.
+pub fn magic_fee_vault(validator: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"magic-fee-vault", validator.as_ref()], &ephemeral_rollups_sdk::id()).0
 }
 
 /// The accounts of `cash_out_table` for this table, in its order.
@@ -1055,6 +1076,10 @@ pub struct CrankClose<'info> {
     /// CHECK: escrow authority of the Magic Action
     #[account(seeds = [RENT_VAULT_SEED], bump)]
     pub rent_vault: UncheckedAccount<'info>,
+    /// CHECK: the table validator's magic fee vault (checked in the handler); the table pays as
+    /// a delegated account, and those pay commit fees there
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[commit]
@@ -1075,6 +1100,9 @@ pub struct ScheduleCloser<'info> {
     /// CHECK: escrow authority of the Magic Action
     #[account(seeds = [RENT_VAULT_SEED], bump)]
     pub rent_vault: UncheckedAccount<'info>,
+    /// CHECK: must be `magic_fee_vault(table.validator)` (checked in the handler); only named
+    /// in the scheduled instruction
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]

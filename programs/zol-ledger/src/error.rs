@@ -80,4 +80,6 @@ pub enum ZolError {
     BadFlags,
     #[msg("Deposit amount is not a permitted denomination")]
     BadDenomination,
+    #[msg("A pot's return action must call its own app, within the limits, with a signing escrow authority")]
+    BadAction,
 }

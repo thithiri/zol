@@ -84,6 +84,8 @@ export interface Game {
   /** The rollup's scheduled closer (`schedule_closer` signature), and attempts so far. */
   closer?: string;
   closerTries?: number;
+  /** When the pot was paid out; the table may still be on its way back. */
+  cashedOutAt?: number;
   settlement?: string;
   zcash?: { txid: string; height: number };
   error?: string;
@@ -432,7 +434,7 @@ export class House {
         if (!g.closer && (g.closerTries ?? 0) < 3) {
           g.closerTries = (g.closerTries ?? 0) + 1;
           try {
-            const sig = await sendTx(this.er, [this.cf.scheduleCloser(house.publicKey, potId)], house);
+            const sig = await sendTx(this.er, [this.cf.scheduleCloser(house.publicKey, potId, new PublicKey(this.cfg.validator))], house);
             g.closer = sig;
           } catch (e: any) {
             g.events.push({ step: "retrying: could not schedule the rollup's closer", t: now(), detail: String(e?.message ?? e).slice(0, 200) });
@@ -497,7 +499,11 @@ export class House {
       }
       case "cashed_out": {
         // Return the table's rent to the house, then settle the player's balance if it auto-exited.
-        if ((await this.base.getAccountInfo(table))?.owner.equals(this.cf.p.app)) {
+        // The pot's action pays as soon as the pot is back; the table returns separately, so
+        // wait for it (up to a minute) rather than leave its rent behind.
+        const tableOwner = (await this.base.getAccountInfo(table))?.owner;
+        if (tableOwner?.equals(DLP) && Date.now() - (g.cashedOutAt ??= Date.now()) < 60_000) return;
+        if (tableOwner?.equals(this.cf.p.app)) {
           await sendTx(this.base, [this.cf.closeTable(potId, this.feePayer.publicKey)], this.feePayer).catch(() => {});
         }
         const me = new PublicKey(g.player);

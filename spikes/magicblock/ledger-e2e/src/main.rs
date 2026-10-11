@@ -443,8 +443,8 @@ fn run() {
 
     // close_pot in the ER via forward; payer = zero-SOL key
     let ix = ledger_ix(
-        zol_ledger::accounts::ClosePot { payer: nosol.pubkey(), authority, pot, magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT },
-        zol_ledger::instruction::ClosePot {},
+        zol_ledger::accounts::ClosePot { payer: nosol.pubkey(), authority, pot, magic_fee_vault: None, escrow_authority: None, magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT },
+        zol_ledger::instruction::ClosePot { action: None },
     );
     let tclose = Instant::now();
     let close = step!("close_pot in ER (forward, payer nosol)", send(ER, &[via_app(ix)], &[&nosol]));

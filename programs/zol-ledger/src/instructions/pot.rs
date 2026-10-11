@@ -7,7 +7,8 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::{commit, delegate};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
-use ephemeral_rollups_sdk::ephem::{FoldableIntentBuilder, MagicIntentBundleBuilder};
+use ephemeral_rollups_sdk::ephem::{CallHandler, FoldableIntentBuilder, MagicIntentBundleBuilder};
+use ephemeral_rollups_sdk::{ActionArgs, ShortAccountMeta};
 
 use crate::error::ZolError;
 use crate::events::*;
@@ -268,10 +269,18 @@ pub struct ClosePot<'info> {
     /// CHECK: loaded by hand; must be written before the commit CPI.
     #[account(mut)]
     pub pot: UncheckedAccount<'info>,
+    /// CHECK: MagicBlock's fee vault for the validator; the magic program checks it. Needed
+    /// when the payer is itself a delegated account (an app's PDA in a scheduled task).
+    #[account(mut)]
+    pub magic_fee_vault: Option<UncheckedAccount<'info>>,
+    /// The app's escrow authority for `action` (the app signs for its PDA).
+    pub escrow_authority: Option<Signer<'info>>,
 }
 
-/// Commits the pot and returns it to Solana.
-pub fn handle_close_pot(ctx: Context<ClosePot>) -> Result<()> {
+/// Commits the pot and returns it to Solana. With `action`, the delegation program then runs
+/// that instruction on Solana right after the pot is back (paid from the app's escrow): an
+/// app can pay its players out without a keeper. The action may only call the pot's app.
+pub fn handle_close_pot(ctx: Context<ClosePot>, action: Option<PotAction>) -> Result<()> {
     let pot_info = ctx.accounts.pot.to_account_info();
     require_keys_eq!(*pot_info.owner, crate::ID, ZolError::BadAccount);
     let authority = ctx.accounts.authority.key();
@@ -283,13 +292,44 @@ pub fn handle_close_pot(ctx: Context<ClosePot>) -> Result<()> {
         pot.delegated = false;
         Ok(())
     })?;
-    MagicIntentBundleBuilder::new(
+    let mut bundle = MagicIntentBundleBuilder::new(
         ctx.accounts.payer.to_account_info(),
         ctx.accounts.magic_context.to_account_info(),
         ctx.accounts.magic_program.to_account_info(),
-    )
-    .commit_and_undelegate(&[pot_info])
-    .build_and_invoke()?;
+    );
+    if let Some(vault) = &ctx.accounts.magic_fee_vault {
+        bundle = bundle.magic_fee_vault(vault.to_account_info());
+    }
+    let bundle = bundle.commit_and_undelegate(&[pot_info]);
+    let Some(a) = action else {
+        bundle.build_and_invoke()?;
+        return Ok(());
+    };
+    // Only the pot's own app: its signing address is the pot's authority.
+    let (app_authority, _) = Pubkey::find_program_address(&[seeds::APP_AUTHORITY], &a.program);
+    require_keys_eq!(app_authority, authority, ZolError::BadAction);
+    require!(
+        a.accounts.len() <= limits::MAX_ACTION_ACCOUNTS
+            && a.data.len() <= limits::MAX_ACTION_DATA
+            && a.compute_units > 0
+            && a.compute_units <= limits::MAX_ACTION_COMPUTE_UNITS,
+        ZolError::BadAction
+    );
+    let escrow = ctx.accounts.escrow_authority.as_ref().ok_or(ZolError::BadAction)?;
+    require!(escrow.is_signer, ZolError::BadAction);
+    bundle
+        .add_post_undelegate_actions([CallHandler {
+            destination_program: a.program,
+            accounts: a
+                .accounts
+                .iter()
+                .map(|x| ShortAccountMeta { pubkey: x.pubkey.to_bytes().into(), is_writable: x.is_writable })
+                .collect(),
+            args: ActionArgs::new(a.data),
+            escrow_authority: escrow.to_account_info(),
+            compute_units: a.compute_units,
+        }])
+        .build_and_invoke()?;
     Ok(())
 }
 

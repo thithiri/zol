@@ -4,6 +4,10 @@ use anchor_lang::prelude::*;
 pub mod limits {
     pub const MAX_GUARDIANS: usize = 7;
     pub const MAX_SEATS: usize = 16;
+    /// Bounds on the action `close_pot` may attach to a pot's return.
+    pub const MAX_ACTION_ACCOUNTS: usize = 16;
+    pub const MAX_ACTION_DATA: usize = 256;
+    pub const MAX_ACTION_COMPUTE_UNITS: u32 = 400_000;
     pub const MAX_PAYOUTS: usize = zol_wire::MAX_PAYOUTS_PER_SETTLEMENT;
     /// 1% cap on each of the entry and exit fee.
     pub const MAX_FEE_BPS: u16 = 100;
@@ -311,6 +315,23 @@ pub struct Settlement {
     pub payouts: [PayoutEntry; MAX_PAYOUTS],
     pub total: u64,
     pub bump: u8,
+}
+
+/// An instruction the delegation program runs on Solana right after a pot returns
+/// (`close_pot`), signed only by the app's escrow (its fee payer). It may call only the
+/// pot's own app program; the ledger never signs for it.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PotAction {
+    pub program: Pubkey,
+    pub accounts: Vec<ActionAccount>,
+    pub data: Vec<u8>,
+    pub compute_units: u32,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActionAccount {
+    pub pubkey: Pubkey,
+    pub is_writable: bool,
 }
 
 /// One expected stake passed to `delegate_pot`.
