@@ -255,3 +255,19 @@ $D status
 - **Books:** credited 3,000,000 = liability 997,000 + fee pool 34,982 + unpaid 1,968,018.
 - **Health:** no halts or failed polls, and no restarts of Zakura, the daemons or the gateways. Memory peaked at about 1.6 GB of 2 GB with 91 MB of swap, so the payout proof fits the $18 droplet.
 - **A stranded 0.01 TAZ.** The first run of the script crashed before its second deposit. Its single-note funding wallet had the change still unmined, so `/admin/send` correctly returned 422. The script had kept the sessions' keys only in memory, so p0's deposit was credited to a session nobody holds: the 997,000 of liability above. The script now writes session seeds to `keys/smoke-sessions-*.json` before any money moves, and waits for spendable change before each send. **A page must do the same: the session key is the only way to use or exit a balance.** The web page keeps it in the browser, so losing browser storage strands the balance in the same way.
+
+### Operations: status and backups
+
+- **`zol-status`** (`infra/testnet/zol-status.sh`, installed in `/usr/local/bin`) prints one screen of health. It exits 1 if any check fails:
+  - Zakura's tip age and restarts;
+  - each daemon's scanner lag and last error;
+  - each gateway's health and halt flag, failed polls and guardian freezes;
+  - the funding balance and the public page API;
+  - free memory, swap and disk, and the age of the last backup.
+
+  `--json` prints one line, which cron appends to `/var/log/zol-status.jsonl` every 5 minutes (rotated weekly).
+- **`zol-backup`** (`infra/testnet/zol-backup.sh`) runs daily at 03:17 UTC and keeps 14 backups in `/var/backups/zol/`. Each backup holds:
+  - `/home/zol/ops`, including every key and both state dirs, with the gateway databases as consistent SQLite copies (`gateway.db.backup`);
+  - the Zakura config, the Caddyfile and the systemd units.
+
+  It's encrypted with `age` to the recipient in `/etc/zol/backup-recipient.txt`. **The identity is not on the host:** it's `keys/backup/age-identity.txt` on the developer's Mac. Keep a second copy of it in a password manager. Restore with `age -d -i age-identity.txt zol-….tar.age | tar -x -C /`, then rename each `gateway.db.backup` to `gateway.db`.
