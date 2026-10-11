@@ -51,7 +51,11 @@ Every step appears in the timeline:
 - **How a session runs:** the house builds one transaction that creates the table, seats both the house and the player with the same number of stakes (`join_rounds`) and starts it (pot and table into the rollup). It is 1,155 bytes, so it fits; the house falls back to a separate `start` if it ever does not.
   - The player signs it; the house checks it's byte-for-byte the transaction it built, adds its signatures and sends it.
   - Either all of it happens or nothing does, so the house never strands an open table.
-  - The page flips in the rollup and watches the table there. The house watches too and closes the table (finish; then cash out and close in one Solana transaction). Withdrawals go through `/house/stop` first.
+  - The page flips in the rollup and watches the table there. Withdrawals go through `/house/stop` first.
+  - **Closing and paying need no keeper** (verified on devnet 2026-10-12):
+    - the house schedules `crank_close` once per table (`schedule_closer`); the rollup runs it every ~5 s and closes a table idle for 120 s, with a short seat, or near its deadline. The table pays its own commits (with the validator's magic fee vault), from a 0.001 SOL buffer `start` puts in it;
+    - every close attaches `cash_out_table` to the **pot's** return through the ledger's `close_pot` (a Magic Action, paid from the rent vault's escrow `6AD3QX…`, which the house tops up from its fee payer). It pays both seats the moment the pot is back and closes the table if it is back too;
+    - the house is the fallback: it closes an idle table at 180 s with `finish_and_pay` (plain `finish` if refused) and pays with `cash_out_table` if the action did not.
 - **A game stuck** (in `failed`): the timeline says so. Use the two-player page's **Rescue stuck table** or the ledger's refund path. The pot is refunded by the ledger after the session deadline and grace.
 
 ## Lessons from bringing it up (2026-10-11)
