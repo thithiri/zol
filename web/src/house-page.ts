@@ -177,7 +177,8 @@ async function pollHouse() {
     const i = await house("/info");
     stake = BigInt(i.stake);
     minExit = BigInt(i.min_exit ?? 0);
-    $("stake-note").textContent = i.can_play || inRollup() ? `${taz(stake)} a flip; win ${taz(2n * stake)}` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
+    // A stake is a tenth of a 0.01 TAZ deposit after the entry fee: 0.000997, shown as 0.001.
+    $("stake-note").textContent = i.can_play || inRollup() ? `${(Number(stake) / 1e8).toFixed(3)} TAZ per flip` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
   } catch {
     // Usually a rate-limited RPC on the operators' side: keep the last note, retry soon.
     if (!stake) $("stake-note").textContent = "Connecting to the house…";
@@ -193,10 +194,16 @@ function render() {
   $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} flip${n === 1n ? "" : "s"}' worth` : "deposit to play";
   const f = s?.flips ?? 0;
   $("table-note").textContent = s && f > 0 ? `This table: ${s.wins ?? 0} won · ${f - (s.wins ?? 0)} lost${lastResults ? `  ${lastResults}` : ""}` : "";
-  let can: boolean;
-  if (inRollup()) can = !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
-  else can = !s && balance >= stake && !exiting;
-  for (const id of ["heads", "tails"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !can;
+  // Heads and tails once the table is in the rollup; before that, one button that starts it.
+  const ready = inRollup();
+  for (const id of ["heads", "tails"]) $(id).hidden = !ready;
+  const start = $<HTMLButtonElement>("start-table");
+  start.hidden = ready;
+  const closing = s && ["finishing", "returned", "cashed_out"].includes(s.state);
+  start.textContent = closing ? "Closing table…" : s || busy ? "Starting table…" : "Start table";
+  start.disabled = busy || !!s || stake === 0n || balance < stake || exiting;
+  const canFlip = ready && !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
+  for (const id of ["heads", "tails"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !canFlip;
   $<HTMLButtonElement>("cashout-btn").disabled = busy || total() === 0n || !!localStorage.getItem(K("withdraw-live"));
 }
 
@@ -339,6 +346,43 @@ function markCall(c: "H" | "T") {
 }
 const sideName = (c: "H" | "T") => (c === "H" ? "Z heads" : "Zakura flower tails");
 
+/** Opens a table for this session: one signature, then it moves into the rollup (once). */
+async function setupTable(): Promise<string> {
+  $("status").textContent = "Setting up your table…";
+  const p = await house<{ game: string; tx?: string; resume?: boolean }>("/play", { session: session!.keypair.publicKey.toBase58() });
+  const id = p.game;
+  localStorage.setItem(K("game"), id);
+  if (!p.resume) game = await house("/join", { game: id, tx: signB64(p.tx!, session!) });
+  $("status").textContent = "Moving your table into the rollup…";
+  for (let i = 0; i < 90 && game?.state !== "in_rollup"; i++) {
+    await sleep(1_000);
+    game = await house(`/game/${id}`).catch(() => game);
+    if (["failed", "expired", "done", "final"].includes(game?.state)) throw new Error(game.error ?? `the table is ${game.state}`);
+  }
+  if (game?.state !== "in_rollup") throw new Error("the table is taking long to reach the rollup; try again in a minute");
+  const r = await readRollup(id).catch(() => null);
+  if (r) {
+    seats = r.seats;
+    tableState = r.t.state;
+  }
+  return id;
+}
+
+$("start-table").onclick = async () => {
+  busy = true;
+  render();
+  try {
+    await setupTable();
+    $("status").textContent = "Table ready: call it.";
+  } catch (e) {
+    $("status").textContent = " ";
+    showError(e);
+  } finally {
+    busy = false;
+    render();
+  }
+};
+
 async function play(c: "H" | "T") {
   call = c;
   markCall(c);
@@ -347,22 +391,7 @@ async function play(c: "H" | "T") {
   face(c);
   coin.classList.add("spin");
   try {
-    let id = liveSession()?.id as string | undefined;
-    if (!id || !inRollup()) {
-      // A new table for this session: one signature, then it moves into the rollup (once).
-      $("status").textContent = "Setting up your table…";
-      const p = await house<{ game: string; tx?: string; resume?: boolean }>("/play", { session: session!.keypair.publicKey.toBase58() });
-      id = p.game;
-      localStorage.setItem(K("game"), id);
-      if (!p.resume) game = await house("/join", { game: id, tx: signB64(p.tx!, session!) });
-      $("status").textContent = "Moving your table into the rollup (once per session)…";
-      for (let i = 0; i < 90 && game?.state !== "in_rollup"; i++) {
-        await sleep(1_000);
-        game = await house(`/game/${id}`).catch(() => game);
-        if (["failed", "expired", "done", "final"].includes(game?.state)) throw new Error(game.error ?? `the table is ${game.state}`);
-      }
-      if (game?.state !== "in_rollup") throw new Error("the table is taking long to reach the rollup; try again in a minute");
-    }
+    const id = inRollup() ? (liveSession()!.id as string) : await setupTable();
     await flipNow(id);
   } catch (e) {
     coin.classList.remove("spin");
