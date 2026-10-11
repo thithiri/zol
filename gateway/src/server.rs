@@ -223,7 +223,11 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
     // needed for first and release it.
     let (app_state, denominations) = if matches!((method, &parts[1..]), (Method::Get, [])) {
         let l = st.ledger.lock().unwrap();
-        let d = l.config().map(|c| c.params.denominations.iter().copied().filter(|d| *d > 0).collect()).unwrap_or_default();
+        // A failed ledger read (a rate-limited RPC) must not look like "no denominations".
+        let d: Vec<u64> = match l.config() {
+            Ok(c) => c.params.denominations.iter().copied().filter(|d| *d > 0).collect(),
+            Err(e) => return err(503, format!("ledger unavailable, try again: {e}")),
+        };
         // The ledger turns Activating into Active lazily (`App::refresh`, on the next
         // instruction); report what it would be now, as the gateways decide by it.
         let now = l.now().unwrap_or(0);
