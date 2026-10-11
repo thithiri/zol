@@ -9,7 +9,7 @@ import { Gateway, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
 import { exportSession, hex, isBackedUp, loadOrCreateSession, markBackedUp, restoreSession, unhex, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
-import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendTx } from "./chain";
+import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendTx, decodeApp } from "./chain";
 
 // ---------------------------------------------------------------- settings
 
@@ -174,11 +174,33 @@ async function readLive(key: PublicKey) {
   return b;
 }
 
+/** Solana fees come from the fee payer; say so plainly before a transaction would fail. */
+async function requireFees() {
+  const fp = feePayer().publicKey;
+  const lamports = await base.getBalance(fp);
+  if (lamports < 2_000_000) {
+    throw new Error(`the fee payer ${fp.toBase58().slice(0, 8)}… has ${lamports / 1e9} SOL. Paste a funded devnet key into Settings → feePayer (empty means this session key pays)`);
+  }
+}
+async function myBalance() {
+  const b = await base.getAccountInfo(cf.pdas.balance(session.keypair.publicKey));
+  return b ? decodeBalance(b.data) : null;
+}
+
 $("create-btn").onclick = () => act("create table", async () => {
-  potId = crypto.getRandomValues(new Uint8Array(32));
-  location.hash = `table=${hex(potId)}`;
+  await requireFees();
   const stake = BigInt($<HTMLSelectElement>("stake").value);
-  return sendTx(base, [cf.createTable(feePayer().publicKey, potId, stake, 1800n, await validator())], feePayer());
+  const id = crypto.getRandomValues(new Uint8Array(32));
+  const ixs = [cf.createTable(feePayer().publicKey, id, stake, 1800n, await validator())];
+  const bal = await myBalance();
+  // The creator takes a seat in the same transaction when its balance covers the stake.
+  const seat = bal && !bal.exiting && bal.amount >= stake;
+  if (seat) ixs.push(cf.join(session.keypair.publicKey, id));
+  const sig = await sendTx(base, ixs, feePayer(), seat ? [session.keypair] : []);
+  potId = id;
+  location.hash = `table=${hex(potId)}`;
+  log(seat ? "you are seated; share the table link with the other player" : "table created; join once your deposit is credited");
+  return sig;
 });
 $("open-btn").onclick = () => {
   potId = unhex($<HTMLInputElement>("table-id").value.trim());
@@ -189,17 +211,25 @@ const need = () => {
   if (!potId) throw new Error("no table");
   return potId;
 };
-$("join-btn").onclick = () => act("join", () => sendTx(base, [cf.join(session.keypair.publicKey, need())], feePayer(), [session.keypair]));
-$("start-btn").onclick = () => act("start", () => sendTx(base, [cf.start(feePayer().publicKey, need(), 600n)], feePayer(), [], 400_000));
+$("join-btn").onclick = () => act("join", async () => {
+  await requireFees();
+  return sendTx(base, [cf.join(session.keypair.publicKey, need())], feePayer(), [session.keypair]);
+});
+$("start-btn").onclick = () => act("start", async () => {
+  await requireFees();
+  return sendTx(base, [cf.start(feePayer().publicKey, need(), 600n)], feePayer(), [], 400_000);
+});
 // Rollup transactions are free: the session key pays even with no SOL.
 $("flip-btn").onclick = () => act("flip", () => sendTx(er, [cf.flip(session.keypair.publicKey, need(), new PublicKey(settings.vrfQueue), crypto.getRandomValues(new Uint8Array(32)))], session.keypair));
 $("finish-btn").onclick = () => act("finish", () => sendTx(er, [cf.finish(session.keypair.publicKey, need())], session.keypair));
 $("cashout-btn").onclick = () => act("cash out", async () => {
+  await requireFees();
   const pot = cf.pdas.pot(need());
   const r = decodeReceipt((await base.getAccountInfo(cf.pdas.receipt(pot)))!.data);
   return sendTx(base, [cf.cashOut(need(), r.players)], feePayer());
 });
 $("close-btn").onclick = () => act("close table", async () => {
+  await requireFees();
   const t = decodeTable((await base.getAccountInfo(cf.pdas.table(need())))!.data);
   return sendTx(base, [cf.closeTable(need(), t.creator)], feePayer());
 });
@@ -207,7 +237,20 @@ $("rescue-btn").onclick = () => act("rescue table", async () => {
   const t = decodeTable((await base.getAccountInfo(cf.pdas.table(need())))!.data);
   return sendTx(base, [cf.rescueTable(need(), t.validator)], feePayer());
 });
-$("exit-btn").onclick = () => act("request exit", () => sendTx(base, [cf.requestExit(session.keypair.publicKey)], feePayer(), [session.keypair]));
+// Exit and settle in one transaction: the balance is marked for exit and put into the app's
+// next settlement, which the operators then pay on Zcash to the payout address.
+$("exit-btn").onclick = () => act("exit and settle", async () => {
+  await requireFees();
+  const bal = await myBalance();
+  if (!bal || bal.amount === 0n) throw new Error("nothing to exit");
+  const app = decodeApp((await base.getAccountInfo(cf.pdas.app()))!.data);
+  const me = session.keypair.publicKey;
+  const ixs = bal.exiting ? [] : [cf.requestExit(me)];
+  ixs.push(cf.settle(feePayer().publicKey, app.nextSettlement, [me]));
+  const sig = await sendTx(base, ixs, feePayer(), bal.exiting ? [] : [session.keypair]);
+  log(`settlement ${app.nextSettlement}: the operators pay it on Zcash in a few minutes`);
+  return sig;
+});
 $("airdrop-btn").onclick = () => act("airdrop (local only)", async () => base.requestAirdrop(feePayer().publicKey, 1e9));
 
 /** Stakes follow the ledger's entry fee: one deposit's net credited value per seat. */
@@ -221,15 +264,30 @@ async function loadStakes() {
   }
 }
 
+/** Enables only the steps that can succeed now, so a click is never ahead of the chain. */
+function setButtons(s: { bal: bigint; exiting: boolean; table?: string; pot?: string; seated?: boolean; seats?: number; stake?: bigint; inRollup?: boolean }) {
+  const on = (id: string, v: boolean) => ($<HTMLButtonElement>(id).disabled = !v);
+  on("create-btn", true);
+  on("join-btn", s.table === "Open" && s.pot === "Open" && !s.seated && (s.seats ?? 0) < 2 && !s.exiting && s.bal >= (s.stake ?? 0n));
+  on("start-btn", s.table === "Open" && s.seats === 2);
+  on("flip-btn", s.table === "Started" && !!s.inRollup && !!s.seated);
+  on("finish-btn", s.table === "Landed" && !!s.inRollup);
+  on("cashout-btn", s.table === "Finished" && s.pot === "Delegated" && !s.inRollup);
+  on("close-btn", s.pot === "CashedOut" || s.pot === "Refunded");
+  on("exit-btn", s.bal > 0n);
+}
+
 async function refresh() {
+  let bal: Awaited<ReturnType<typeof myBalance>> = null;
   try {
-    const b = await base.getAccountInfo(cf.pdas.balance(session.keypair.publicKey));
-    const bal = b ? decodeBalance(b.data) : null;
+    bal = await myBalance();
     $("balance").textContent = bal ? `${bal.amount} zat${bal.exiting ? " (exiting)" : ""}` : "no balance yet";
     $("sol").textContent = `${(await base.getBalance(feePayer().publicKey)) / 1e9} SOL (fee payer on Solana)`;
   } catch (e: any) {
     $("balance").textContent = `rpc: ${e.message}`;
   }
+  const mine = { bal: bal?.amount ?? 0n, exiting: !!bal?.exiting };
+  setButtons(mine);
   if (!potId) return;
   $<HTMLInputElement>("table-id").value = hex(potId);
   try {
@@ -246,7 +304,9 @@ async function refresh() {
     const r = decodeReceipt(rAcc.data);
     const amounts = p ? decodePot(p.data).amounts : [];
     const me = session.keypair.publicKey;
-    const where = (await base.getAccountInfo(tableKey))?.owner.equals(DLP) ? "rollup" : "Solana";
+    const inRollup = !!(await base.getAccountInfo(tableKey))?.owner.equals(DLP);
+    const where = inRollup ? "rollup" : "Solana";
+    setButtons({ ...mine, table: table.state, pot: r.state, seated: r.players.some((pl) => pl.equals(me)), seats: r.players.length, stake: table.stake, inRollup });
     $("table").innerHTML = `
       <div>Table <code>${tableKey.toBase58()}</code> · stake ${table.stake} zat · <b>${table.state}</b> (${where}) · pot ${r.state}</div>
       <div class="muted">Rollup validator (trusted for the outcome): <code>${table.validator.toBase58()}</code></div>

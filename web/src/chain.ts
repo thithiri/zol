@@ -46,7 +46,7 @@ export interface Programs {
 
 export class Pdas {
   constructor(readonly p: Programs) {}
-  private pda(seeds: Uint8Array[], program: PublicKey) {
+  pda(seeds: Uint8Array[], program: PublicKey) {
     return PublicKey.findProgramAddressSync(seeds, program)[0];
   }
   config() { return this.pda([enc.encode("config")], this.p.ledger); }
@@ -159,6 +159,17 @@ export class Coinflip {
     const d = this.pdas;
     return this.ix([m(session, false, true), m(d.config()), m(d.balance(session), true)], disc("global", "request_exit"), this.p.ledger);
   }
+
+  /** Anyone: turns exiting balances (up to 16) into settlement `seq` (the app's `next_settlement`). */
+  settle(payer: PublicKey, seq: bigint, sessions: PublicKey[]) {
+    const d = this.pdas;
+    const settlement = d.pda([enc.encode("settlement"), d.app().toBytes(), u64le(seq)], this.p.ledger);
+    return this.ix(
+      [m(payer, true, true), m(d.config()), m(d.app(), true), m(settlement, true), m(SystemProgram.programId), ...sessions.map((s) => m(d.balance(s), true))],
+      disc("global", "settle"),
+      this.p.ledger,
+    );
+  }
 }
 
 // ---------------------------------------------------------------- decoders
@@ -214,6 +225,24 @@ export function decodePot(data: Uint8Array): PotAcc {
   return { seatCount: n, amounts, delegated: r.u8() === 1 };
 }
 
+export interface AppAcc { state: number; activatesAt: bigint; liability: bigint; feePool: bigint; nextSettlement: bigint; paidCount: bigint; unpaidTotal: bigint }
+export function decodeApp(data: Uint8Array): AppAcc {
+  checkDisc(data, "App");
+  const r = new Reader(data);
+  r.key(); r.key(); r.key();
+  const state = r.u8();
+  const activatesAt = r.i64();
+  r.bytes(43); r.bytes(32);
+  r.u64(); // deposit_cap
+  const liability = r.u64();
+  r.u64(); r.u64(); // deposit_count, credited_total
+  const feePool = r.u64();
+  const nextSettlement = r.u64();
+  const paidCount = r.u64();
+  const unpaidTotal = r.u64();
+  return { state, activatesAt, liability, feePool, nextSettlement, paidCount, unpaidTotal };
+}
+
 export interface LedgerParams { entryFeeBps: number; denominations: bigint[] }
 /** Ledger Config params the page needs. `params` starts after admin, attestor, 7 guardians
  *  and 4 one-byte fields; `denominations` follows 2 u16, 2 u64, a u8, 5 i64 and a u64. */
@@ -237,6 +266,12 @@ export function decodeBalance(data: Uint8Array): BalanceAcc {
 
 // ---------------------------------------------------------------- sending
 
+/**
+ * Signs and sends, then rebroadcasts every 2 s until the transaction is confirmed or its
+ * blockhash expires (a node may drop a transaction it was handed once). Preflight is on:
+ * a transaction that cannot succeed, e.g. an unfunded fee payer, fails here with its reason
+ * instead of silently expiring.
+ */
 export async function sendTx(conn: Connection, ixs: TransactionInstruction[], feePayer: Keypair, signers: Keypair[] = [], cuLimit?: number) {
   const tx = new Transaction();
   if (cuLimit) tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }));
@@ -246,11 +281,23 @@ export async function sendTx(conn: Connection, ixs: TransactionInstruction[], fe
   tx.recentBlockhash = bh.blockhash;
   const all = [feePayer, ...signers.filter((s) => !s.publicKey.equals(feePayer.publicKey))];
   tx.sign(...all);
-  const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
-  const res = await conn.confirmTransaction({ signature: sig, ...bh }, "confirmed");
-  if (res.value.err) {
-    const t = await conn.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
-    throw new Error(`${JSON.stringify(res.value.err)}\n${(t?.meta?.logMessages ?? []).slice(-8).join("\n")}`);
+  const raw = tx.serialize();
+  let sig: string;
+  try {
+    sig = await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 0 });
+  } catch (e: any) {
+    const logs: string[] = e?.logs ?? e?.transactionLogs ?? [];
+    throw new Error(`${e?.transactionMessage ?? e?.message ?? e}${logs.length ? "\n" + logs.slice(-8).join("\n") : ""}`);
   }
-  return sig;
+  for (;;) {
+    const st = (await conn.getSignatureStatuses([sig])).value[0];
+    if (st?.err) {
+      const t = await conn.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
+      throw new Error(`${JSON.stringify(st.err)}\n${(t?.meta?.logMessages ?? []).slice(-8).join("\n")}`);
+    }
+    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return sig;
+    if ((await conn.getBlockHeight("confirmed")) > bh.lastValidBlockHeight) throw new Error(`transaction ${sig.slice(0, 16)}… expired before it landed; try again`);
+    await new Promise((r) => setTimeout(r, 2000));
+    await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+  }
 }

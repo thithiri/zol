@@ -4,7 +4,8 @@ import { expect, test } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import cfIdl from "../../idl/zol_coinflip.json";
 import ledgerIdl from "../../idl/zol_ledger.json";
-import { allowedStakes, Coinflip, decodeLedgerParams, decodeTable } from "../src/chain";
+import { allowedStakes, Coinflip, decodeApp, decodeLedgerParams, decodeTable } from "../src/chain";
+import { sha256 } from "@noble/hashes/sha256";
 
 const cf = new Coinflip({ ledger: new PublicKey(ledgerIdl.address), app: new PublicKey(cfIdl.address) });
 const payer = Keypair.generate().publicKey;
@@ -73,4 +74,26 @@ test("stakes are one deposit's net value at the ledger's entry fee", () => {
   dv.setBigUint64(369, 1_000_000n, true);
   dv.setBigUint64(377, 10_000_000n, true);
   expect(decodeLedgerParams(data)).toEqual({ entryFeeBps: 30, denominations: two });
+});
+
+test("settle matches the ledger IDL; settlement PDA uses next_settlement", () => {
+  const ix = cf.settle(payer, 7n, [session]);
+  check(ledgerIdl, "settle", ix);
+  const seq = new Uint8Array(8); new DataView(seq.buffer).setBigUint64(0, 7n, true);
+  const [want] = PublicKey.findProgramAddressSync([Buffer.from("settlement"), cf.pdas.app().toBytes(), seq], new PublicKey(ledgerIdl.address));
+  expect(ix.keys[3].pubkey.toBase58()).toBe(want.toBase58());
+  expect(ix.keys[5].pubkey.toBase58()).toBe(cf.pdas.balance(session).toBase58());
+  expect(ix.keys[5].isWritable).toBe(true);
+});
+
+test("decodeApp reads the App account layout", () => {
+  const b = new Uint8Array(8 + 32 * 3 + 1 + 8 + 43 + 32 + 8 * 10 + 1);
+  b.set(sha256(new TextEncoder().encode("account:App")).subarray(0, 8));
+  const dv = new DataView(b.buffer);
+  let o = 8 + 96;
+  b[o] = 3; o += 1; // state
+  dv.setBigInt64(o, 1234n, true); o += 8 + 43 + 32;
+  const u = [5n, 997000n, 3n, 3000000n, 34982n, 2n, 1n, 0n]; // cap, liability, count, credited, fee_pool, next, paid, unpaid
+  for (const v of u) { dv.setBigUint64(o, v, true); o += 8; }
+  expect(decodeApp(b)).toEqual({ state: 3, activatesAt: 1234n, liability: 997000n, feePool: 34982n, nextSettlement: 2n, paidCount: 1n, unpaidTotal: 0n });
 });
