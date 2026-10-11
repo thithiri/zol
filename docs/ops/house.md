@@ -28,6 +28,15 @@ Every step appears in the timeline:
 - **Bet** Up or Down, one stake (0.001 TAZ), at the ZEC/USD price the rollup has (MagicBlock's Pyth Lazer feed, id 66). After 60 s it settles at a price published after expiry: a right call pays 1.9× (0.9 stake from the house's seat), a tie refunds. The page settles at expiry; the rollup's closer settles it too if the page is gone.
 - Not settled within 10 s of expiry → void (nothing moves), so waiting for a better price never pays. The template this follows (MagicBlock's binary-prediction) settles at whatever price is current whenever someone calls it; this is the one fix.
 
+### Sealed-bid auction (`/auction.html`)
+
+- The house sells a numbered certificate; anyone with a balance bids. Same player and balance as the game page.
+- **Register** (5 min): pay the deposit, 0.005 TAZ (also the most you can bid), into the auction's pot; the house co-signs and pays the fee. At most 8 bidders.
+- **Seal a bid** (5 min, in the rollup): only `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount ‖ salt)` goes on-chain; the salt comes from your player key, the amount is remembered by your browser.
+- **Reveal** (5 min): the page reveals your bid; a sealed bid never revealed loses 10% of the deposit, shared by those who revealed.
+- **Result:** the highest revealed bid pays its bid to the seller (first price; ties go to the earlier registration). The rollup ends the auction (`schedule_auction_end`) and the pot's return pays every seat (`cash_out_auction`); the auction account stays on Solana as the certificate. Nobody registered: cancelled, the ledger refunds the seller's 1-zat stake.
+- Operators: `GET /house/auction`, `POST /house/auction/open`; the desk is `web/house/auction.ts`. The ledger's `max_seats` is 16 on devnet (`devnet set-max-seats`).
+
 ## For operators
 
 - **Service:** `zol-house` is a Bun binary built from `web/house/server.ts`:

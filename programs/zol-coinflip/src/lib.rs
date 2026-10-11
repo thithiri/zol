@@ -19,6 +19,19 @@
 //! | `cash_out_table` | Solana | Anyone (and the Magic Action): ledger `cash_out` for both seats, then closes the table |
 //! | `close_table`  | Solana  | Anyone, once the ledger's receipt is terminal: closes the table, rent to its creator |
 //!
+//! Sealed-bid auctions (commit, then reveal; first price) on a ledger pot, the lot a certificate:
+//!
+//! | Instruction    | Runs on | What it does |
+//! |----------------|---------|--------------|
+//! | `create_auction` | Solana | The seller opens a pot (seat 0, a 1-zat stake) and an `Auction` with its deadlines and deposit |
+//! | `register_bidder` | Solana | A bidder pays the deposit (the bid cap) into the pot, before the register deadline |
+//! | `start_auction` | Solana | Anyone, at the register deadline: pot and auction into the rollup |
+//! | `commit_bid`   | Rollup  | A bidder posts `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount ‖ salt)` before the commit deadline |
+//! | `reveal_bid`   | Rollup  | Between the commit and reveal deadlines: the amount and salt, checked against the commitment |
+//! | `end_auction`  | Rollup  | No signer, after the reveal deadline: highest revealed bid pays its bid to the seller; unrevealed commitments lose 10% of the deposit to those who revealed; the pot returns and `cash_out_auction` pays every seat |
+//! | `schedule_auction_end` | Rollup | Anyone: the rollup runs `end_auction` by itself |
+//! | `cash_out_auction` | Solana | Anyone (and the pot's return action): ledger `cash_out` for every seat |
+//!
 //! `cash_out` is the ledger's and anyone may call it once the pot is back.
 //!
 //! Who sits where is the ledger's `PotReceipt`, the source of truth. `start` copies the two
@@ -30,6 +43,7 @@ use anchor_lang::{InstructionData, ToAccountMetas};
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral, vrf, vrf_callback};
 use ephemeral_rollups_sdk::cpi::cpi_delegate;
 use ephemeral_rollups_sdk::types::DelegateAccountArgs;
+use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::utils::{close_pda_with_system_transfer, create_pda};
 use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::program::invoke_signed;
@@ -77,6 +91,21 @@ pub const ZEC_USD_FEED_ID: [u8; 32] = [
     0x52, 0x1b, 0x1d, 0x3a, 0x3a, 0x32, 0xdb, 0xf1, 0xf9, 0x1f, 0xc6, 0x02, 0xf6, 0x3f, 0xde, 0x2b,
     0x8e, 0x43, 0x53, 0xa7, 0x94, 0xb1, 0xa0, 0x34, 0x84, 0xb7, 0x19, 0x19, 0xe7, 0x68, 0x2b, 0x4d,
 ];
+
+/// Auctions: the seller plus at most this many bidders (the pot's return action names every
+/// seat's balance, within the ledger's 16-account action limit).
+pub const AUCTION_SEATS: usize = 9;
+pub const AUCTION_SEED: &[u8] = b"auction";
+/// The seller's own stake (seat 0), so the pot has a seat to pay the price into.
+pub const SELLER_STAKE: u64 = 1;
+/// After the register deadline, the pot stays open this long for `start_auction`.
+pub const AUCTION_START_GRACE_SECS: i64 = 120;
+/// The ledger session deadline is this long after the reveal deadline.
+pub const AUCTION_SESSION_MARGIN_SECS: i64 = 900;
+/// A commitment revealed too late, or never: 1/10 of the deposit, to those who revealed.
+pub const NO_REVEAL_PENALTY_DIV: u64 = 10;
+/// Each phase lasts at most this long.
+pub const MAX_PHASE_SECS: i64 = 1_800;
 
 /// Lamports `start` adds to a table above its rent, for the fees it pays as a delegated
 /// payer in `crank_close` (returned to the creator on close).
@@ -470,6 +499,365 @@ pub mod zol_coinflip {
         Ok(())
     }
 
+    // ------------------------------------------------------------ sealed-bid auctions
+
+    /// Solana. The seller (a session key with a ledger balance) opens an auction: a pot with
+    /// the seller in seat 0 (`SELLER_STAKE`), and the `Auction` with absolute deadlines for the
+    /// register, commit and reveal phases. The lot is a certificate: this account, kept on
+    /// Solana with the winner and price once the auction ends.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_auction(
+        ctx: Context<CreateAuction>,
+        pot_id: [u8; 32],
+        deposit: u64,
+        register_secs: i64,
+        commit_secs: i64,
+        reveal_secs: i64,
+        validator: Pubkey,
+    ) -> Result<()> {
+        require!(deposit >= NO_REVEAL_PENALTY_DIV, CoinflipError::BadAuction);
+        for secs in [register_secs, commit_secs, reveal_secs] {
+            require!(secs > 0 && secs <= MAX_PHASE_SECS, CoinflipError::BadAuction);
+        }
+        require_keys_neq!(validator, Pubkey::default(), CoinflipError::BadValidator);
+        let now = Clock::get()?.unix_timestamp;
+        let register_deadline = now + register_secs;
+        let a = &ctx.accounts;
+        let bump = ctx.bumps.app_authority;
+        let signer: &[&[&[u8]]] = &[&[APP_AUTHORITY_SEED, &[bump]]];
+        zol_ledger::cpi::open_pot(
+            CpiContext::new_with_signer(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::OpenPot {
+                    payer: a.payer.to_account_info(),
+                    config: a.config.to_account_info(),
+                    app: a.app.to_account_info(),
+                    authority: a.app_authority.to_account_info(),
+                    pot: a.pot.to_account_info(),
+                    receipt: a.receipt.to_account_info(),
+                    system_program: a.system_program.to_account_info(),
+                },
+                signer,
+            ),
+            pot_id,
+            register_deadline + AUCTION_START_GRACE_SECS,
+        )?;
+        zol_ledger::cpi::buy_in(
+            CpiContext::new_with_signer(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::BuyIn {
+                    config: a.config.to_account_info(),
+                    app: a.app.to_account_info(),
+                    authority: a.app_authority.to_account_info(),
+                    session_key: a.seller.to_account_info(),
+                    balance: a.seller_balance.to_account_info(),
+                    pot: a.pot.to_account_info(),
+                    receipt: a.receipt.to_account_info(),
+                },
+                signer,
+            ),
+            SELLER_STAKE,
+        )?;
+        let x = &mut ctx.accounts.auction;
+        x.pot = ctx.accounts.pot.key();
+        x.pot_id = pot_id;
+        x.creator = ctx.accounts.payer.key();
+        x.validator = validator;
+        x.deposit = deposit;
+        x.register_deadline = register_deadline;
+        x.commit_deadline = register_deadline + commit_secs;
+        x.reveal_deadline = register_deadline + commit_secs + reveal_secs;
+        x.state = AuctionState::Registering;
+        x.seat_count = 1;
+        x.players = [Pubkey::default(); AUCTION_SEATS];
+        x.players[0] = ctx.accounts.seller.key();
+        x.commits = [[0; 32]; AUCTION_SEATS];
+        x.bids = [0; AUCTION_SEATS];
+        x.committed = 0;
+        x.revealed = 0;
+        x.winner = NO_WINNER;
+        x.price = 0;
+        x.bump = ctx.bumps.auction;
+        emit!(AuctionCreated { auction: x.key(), deposit, register_deadline, commit_deadline: x.commit_deadline, reveal_deadline: x.reveal_deadline });
+        Ok(())
+    }
+
+    /// Solana. A bidder's session key pays the deposit (the bid cap) into the pot, before the
+    /// register deadline. Every bidder pays the same, so deposits say nothing about bids.
+    pub fn register_bidder(ctx: Context<RegisterBidder>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let x = &ctx.accounts.auction;
+        require!(x.state == AuctionState::Registering && now < x.register_deadline, CoinflipError::AuctionPhase);
+        require!((x.seat_count as usize) < AUCTION_SEATS, CoinflipError::TableFull);
+        let me = ctx.accounts.session_key.key();
+        require!(!x.players[..x.seat_count as usize].contains(&me), CoinflipError::AlreadySeated);
+        let a = &ctx.accounts;
+        let bump = ctx.bumps.app_authority;
+        zol_ledger::cpi::buy_in(
+            CpiContext::new_with_signer(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::BuyIn {
+                    config: a.config.to_account_info(),
+                    app: a.app.to_account_info(),
+                    authority: a.app_authority.to_account_info(),
+                    session_key: a.session_key.to_account_info(),
+                    balance: a.balance.to_account_info(),
+                    pot: a.pot.to_account_info(),
+                    receipt: a.receipt.to_account_info(),
+                },
+                &[&[APP_AUTHORITY_SEED, &[bump]]],
+            ),
+            a.auction.deposit,
+        )?;
+        let x = &mut ctx.accounts.auction;
+        let seat = x.seat_count as usize;
+        x.players[seat] = me;
+        x.seat_count += 1;
+        emit!(Registered { auction: x.key(), bidder: me, seat: seat as u8 });
+        Ok(())
+    }
+
+    /// Solana, anyone, from the register deadline (or once full) until the pot's open deadline:
+    /// the pot and the auction move into the rollup. Needs at least one bidder; an auction
+    /// nobody joined is refunded by the ledger after its open deadline.
+    pub fn start_auction(ctx: Context<StartAuction>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let info = ctx.accounts.auction.to_account_info();
+        require_keys_eq!(*info.owner, crate::ID, CoinflipError::BadAccount);
+        let mut x = {
+            let data = info.try_borrow_data()?;
+            Box::new(Auction::try_deserialize(&mut &data[..])?)
+        };
+        let (expected, _) = Pubkey::find_program_address(&[AUCTION_SEED, &x.pot_id], &crate::ID);
+        require_keys_eq!(expected, info.key(), CoinflipError::BadAccount);
+        require_keys_eq!(x.pot, ctx.accounts.pot.key(), CoinflipError::BadAccount);
+        require!(x.state == AuctionState::Registering, CoinflipError::AuctionPhase);
+        require!(now >= x.register_deadline || x.seat_count as usize == AUCTION_SEATS, CoinflipError::AuctionPhase);
+        require!(x.seat_count >= 2, CoinflipError::NotFull);
+        let r = {
+            let rinfo = &ctx.accounts.receipt;
+            require_keys_eq!(*rinfo.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let data = rinfo.try_borrow_data()?;
+            Box::new(PotReceipt::try_deserialize(&mut &data[..])?)
+        };
+        require_keys_eq!(r.pot, x.pot, CoinflipError::BadAccount);
+        let n = r.seat_count as usize;
+        require!(n == x.seat_count as usize && r.players[..n] == x.players[..n], CoinflipError::BadAccount);
+        let expected: Vec<SeatStake> = (0..n).map(|i| SeatStake { player: r.players[i], amount: r.buy_ins[i] }).collect();
+        x.state = AuctionState::Bidding;
+        {
+            let mut data = info.try_borrow_mut_data()?;
+            let mut w: &mut [u8] = &mut data[..];
+            x.try_serialize(&mut w)?;
+        }
+        let a = &ctx.accounts;
+        let bump = ctx.bumps.app_authority;
+        zol_ledger::cpi::delegate_pot(
+            CpiContext::new_with_signer(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::DelegatePot {
+                    payer: a.payer.to_account_info(),
+                    config: a.config.to_account_info(),
+                    app: a.app.to_account_info(),
+                    authority: a.app_authority.to_account_info(),
+                    receipt: a.receipt.to_account_info(),
+                    buffer_pot: a.ledger_buffer_pot.to_account_info(),
+                    delegation_record_pot: a.ledger_delegation_record_pot.to_account_info(),
+                    delegation_metadata_pot: a.ledger_delegation_metadata_pot.to_account_info(),
+                    pot: a.pot.to_account_info(),
+                    owner_program: a.ledger_program.to_account_info(),
+                    delegation_program: a.delegation_program.to_account_info(),
+                    system_program: a.system_program.to_account_info(),
+                },
+                &[&[APP_AUTHORITY_SEED, &[bump]]],
+            ),
+            expected,
+            x.reveal_deadline + AUCTION_SESSION_MARGIN_SECS,
+            x.validator,
+        )?;
+        // The auction pays its own commits at the end (a scheduled task has no signer): a buffer.
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                anchor_lang::system_program::ID,
+                anchor_lang::system_program::Transfer { from: a.payer.to_account_info(), to: info.clone() },
+            ),
+            TABLE_FEE_BUFFER,
+        )?;
+        let pot_id = x.pot_id;
+        ctx.accounts.delegate_auction(
+            &ctx.accounts.payer,
+            &[AUCTION_SEED, &pot_id],
+            DelegateConfig { validator: Some(x.validator), ..Default::default() },
+        )?;
+        emit!(AuctionStarted { auction: info.key(), bidders: x.seat_count - 1 });
+        Ok(())
+    }
+
+    /// Rollup. A registered bidder posts (or replaces) their sealed bid before the commit
+    /// deadline: `bid_commitment(auction, bidder, amount, salt)`.
+    pub fn commit_bid(ctx: Context<AuctionBid>, commitment: [u8; 32]) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let x = &mut ctx.accounts.auction;
+        require!(x.state == AuctionState::Bidding && now < x.commit_deadline, CoinflipError::AuctionPhase);
+        let seat = bidder_seat(x, &ctx.accounts.bidder.key())?;
+        x.commits[seat] = commitment;
+        x.committed |= 1 << seat;
+        Ok(())
+    }
+
+    /// Rollup. Between the commit and reveal deadlines the bidder reveals: the amount (at most
+    /// the deposit) and salt must match the commitment.
+    pub fn reveal_bid(ctx: Context<AuctionBid>, amount: u64, salt: [u8; 32]) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let key = ctx.accounts.auction.key();
+        let x = &mut ctx.accounts.auction;
+        require!(x.state == AuctionState::Bidding && now >= x.commit_deadline && now < x.reveal_deadline, CoinflipError::AuctionPhase);
+        let bidder = ctx.accounts.bidder.key();
+        let seat = bidder_seat(x, &bidder)?;
+        require!(x.committed & (1 << seat) != 0, CoinflipError::NoCommitment);
+        require!(amount > 0 && amount <= x.deposit, CoinflipError::BadBid);
+        require!(bid_commitment(&key, &bidder, amount, &salt) == x.commits[seat], CoinflipError::BadReveal);
+        x.bids[seat] = amount;
+        x.revealed |= 1 << seat;
+        Ok(())
+    }
+
+    /// Rollup, no signer (the scheduled task, or anyone) after the reveal deadline. The highest
+    /// revealed bid wins (ties: the earlier registration) and pays its bid to the seller.
+    /// Each commitment never revealed pays 1/10 of the deposit, shared by those who revealed.
+    /// Then the pot returns to Solana with `cash_out_auction` attached, and the auction too,
+    /// where it stays as the certificate. Before the deadline it does nothing.
+    pub fn end_auction(mut ctx: Context<EndAuction>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let x = &ctx.accounts.auction;
+        if x.state != AuctionState::Bidding || now < x.reveal_deadline {
+            return Ok(());
+        }
+        let n = x.seat_count as usize;
+        let revealers: Vec<usize> = (1..n).filter(|s| x.revealed & (1 << s) != 0).collect();
+        let quitters: Vec<usize> = (1..n).filter(|s| x.committed & (1 << s) != 0 && x.revealed & (1 << s) == 0).collect();
+        let winner = revealers.iter().copied().fold(None::<usize>, |best, s| match best {
+            Some(b) if x.bids[b] >= x.bids[s] => Some(b),
+            _ => Some(s),
+        });
+        let mut moves: Vec<(u8, u8, u64)> = vec![];
+        if let Some(w) = winner {
+            moves.push((w as u8, 0, x.bids[w]));
+        }
+        if !revealers.is_empty() {
+            let penalty = x.deposit / NO_REVEAL_PENALTY_DIV;
+            for q in &quitters {
+                let share = penalty / revealers.len() as u64;
+                for (i, r) in revealers.iter().enumerate() {
+                    let extra = if i == 0 { penalty - share * revealers.len() as u64 } else { 0 };
+                    if share + extra > 0 {
+                        moves.push((*q as u8, *r as u8, share + extra));
+                    }
+                }
+            }
+        }
+        let bump = ctx.bumps.app_authority;
+        for (from, to, amount) in moves {
+            zol_ledger::cpi::move_seat(
+                CpiContext::new_with_signer(
+                    zol_ledger::ID,
+                    zol_ledger::cpi::accounts::MoveSeat {
+                        authority: ctx.accounts.app_authority.to_account_info(),
+                        pot: ctx.accounts.pot.to_account_info(),
+                        app_authority: ctx.accounts.app_authority.to_account_info(),
+                    },
+                    &[&[APP_AUTHORITY_SEED, &[bump]]],
+                ),
+                from,
+                to,
+                amount,
+            )?;
+        }
+        require_keys_eq!(ctx.accounts.magic_fee_vault.key(), magic_fee_vault(&ctx.accounts.auction.validator), CoinflipError::BadAccount);
+        let a = &mut ctx.accounts;
+        a.auction.state = AuctionState::Ended;
+        a.auction.winner = winner.map(|w| w as u8).unwrap_or(NO_WINNER);
+        a.auction.price = winner.map(|w| a.auction.bids[w]).unwrap_or(0);
+        emit!(AuctionEnded { auction: a.auction.key(), winner: winner.map(|w| a.auction.players[w]), price: a.auction.price, revealed: revealers.len() as u8, forfeited: quitters.len() as u8 });
+        a.auction.exit(&crate::ID)?;
+        close_auction_in_rollup(a, bump, ctx.bumps.rent_vault)
+    }
+
+    /// Rollup, anyone: the rollup runs `end_auction` every few seconds until well past the
+    /// reveal deadline, so the auction ends and pays even if every client is gone.
+    #[allow(deprecated)]
+    pub fn schedule_auction_end<'info>(ctx: Context<'info, ScheduleAuctionEnd<'info>>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let x = &ctx.accounts.auction;
+        require!(x.state == AuctionState::Bidding, CoinflipError::AuctionPhase);
+        let left_ms = (x.reveal_deadline + AUCTION_SESSION_MARGIN_SECS / 2 - now).max(0).saturating_mul(1000);
+        let iterations = left_ms / CLOSER_INTERVAL_MS + 1;
+        let a = &ctx.accounts;
+        let ix = Instruction {
+            program_id: crate::ID,
+            accounts: accounts::EndAuction {
+                auction: a.auction.key(),
+                pot: a.pot.key(),
+                app_authority: a.app_authority.key(),
+                ledger_program: a.ledger_program.key(),
+                rent_vault: a.rent_vault.key(),
+                magic_fee_vault: magic_fee_vault(&x.validator),
+                magic_program: a.magic_program.key(),
+                magic_context: a.magic_context.key(),
+            }
+            .to_account_metas(None),
+            data: instruction::EndAuction {}.data(),
+        };
+        let task_id = i64::from_le_bytes(x.pot_id[8..16].try_into().unwrap()) & i64::MAX;
+        ScheduleCrankCpi {
+            payer: &ctx.accounts.payer,
+            magic_program: &ctx.accounts.magic_program,
+            instruction_accounts: &[
+                a.auction.to_account_info(),
+                a.pot.to_account_info(),
+                a.app_authority.to_account_info(),
+                a.ledger_program.to_account_info(),
+                a.rent_vault.to_account_info(),
+                a.magic_fee_vault.to_account_info(),
+                a.magic_context.to_account_info(),
+            ],
+            args: ScheduleTaskArgs { task_id, execution_interval_millis: CLOSER_INTERVAL_MS, iterations, instructions: vec![ix] },
+        }
+        .invoke()?;
+        Ok(())
+    }
+
+    /// Solana, anyone; also the action `end_auction` attaches to the pot's return. Once the
+    /// pot is back, ledger `cash_out` for every seat (balances in seat order, then anything
+    /// else, which is ignored). A no-op until then.
+    pub fn cash_out_auction<'info>(ctx: Context<'info, CashOutAuction<'info>>) -> Result<()> {
+        let a = &ctx.accounts;
+        let r = {
+            let info = &a.receipt;
+            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let data = info.try_borrow_data()?;
+            Box::new(PotReceipt::try_deserialize(&mut &data[..])?)
+        };
+        if r.state != PotState::Delegated || *a.pot.owner != zol_ledger::ID {
+            msg!("pot not back on Solana, or already paid");
+            return Ok(());
+        }
+        let n = r.seat_count as usize;
+        require!(ctx.remaining_accounts.len() >= n, CoinflipError::BadAccount);
+        zol_ledger::cpi::cash_out(
+            CpiContext::new(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::PotOutcome {
+                    config: a.config.to_account_info(),
+                    app: a.app.to_account_info(),
+                    receipt: a.receipt.to_account_info(),
+                    pot: a.pot.to_account_info(),
+                },
+            )
+            .with_remaining_accounts(ctx.remaining_accounts[..n].to_vec()),
+        )
+    }
+
     /// Solana, anyone. Rescues a table stuck in the rollup (the VRF never answered, or
     /// nobody finished) once the ledger has refunded its pot. It uses the delegation
     /// program's owner-requested undelegation, which exists on MagicBlock's devnet
@@ -839,6 +1227,73 @@ fn settle_open_bet<'info>(
     Ok(())
 }
 
+/// The sealed bid a bidder commits: `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount (u64 LE) ‖ salt)`.
+pub fn bid_commitment(auction: &Pubkey, bidder: &Pubkey, amount: u64, salt: &[u8; 32]) -> [u8; 32] {
+    solana_sha256_hasher::hashv(&[b"ZOL/bid/v1", auction.as_ref(), bidder.as_ref(), &amount.to_le_bytes(), salt]).to_bytes()
+}
+
+fn bidder_seat(x: &Auction, bidder: &Pubkey) -> Result<usize> {
+    let n = x.seat_count as usize;
+    (1..n).find(|s| x.players[*s] == *bidder).ok_or(error!(CoinflipError::NotAtTable))
+}
+
+pub fn auction_address(pot_id: &[u8; 32]) -> Pubkey {
+    Pubkey::find_program_address(&[AUCTION_SEED, pot_id], &crate::ID).0
+}
+
+/// `end_auction`'s return: the pot with `cash_out_auction` attached (paid from the rent
+/// vault's escrow), then the auction itself; the auction PDA pays, with the fee vault.
+fn close_auction_in_rollup<'info>(a: &mut EndAuction<'info>, app_authority_bump: u8, vault_bump: u8) -> Result<()> {
+    use zol_ledger::state::seeds;
+    let x = &a.auction;
+    let pot_id = x.pot_id;
+    let auction_bump = [x.bump];
+    let auction_seeds: &[&[u8]] = &[AUCTION_SEED, &pot_id, &auction_bump];
+    let auth_bump = [app_authority_bump];
+    let auth_seeds: &[&[u8]] = &[APP_AUTHORITY_SEED, &auth_bump];
+    let vb = [vault_bump];
+    let vault_seeds: &[&[u8]] = &[RENT_VAULT_SEED, &vb];
+    let l = &zol_ledger::ID;
+    let pda = |s: &[&[u8]]| Pubkey::find_program_address(s, l).0;
+    let app = pda(&[seeds::APP, crate::ID.as_ref()]);
+    let n = x.seat_count as usize;
+    let mut accounts = vec![
+        zol_ledger::state::ActionAccount { pubkey: pda(&[seeds::CONFIG]), is_writable: false },
+        zol_ledger::state::ActionAccount { pubkey: app, is_writable: false },
+        zol_ledger::state::ActionAccount { pubkey: pda(&[seeds::RECEIPT, x.pot.as_ref()]), is_writable: true },
+        zol_ledger::state::ActionAccount { pubkey: x.pot, is_writable: false },
+        zol_ledger::state::ActionAccount { pubkey: zol_ledger::ID, is_writable: false },
+    ];
+    for p in &x.players[..n] {
+        accounts.push(zol_ledger::state::ActionAccount { pubkey: pda(&[seeds::BALANCE, app.as_ref(), p.as_ref()]), is_writable: true });
+    }
+    let action = zol_ledger::state::PotAction { program: crate::ID, accounts, data: instruction::CashOutAuction {}.data(), compute_units: 300_000 };
+    let payer = a.auction.to_account_info();
+    let mut escrow = a.rent_vault.to_account_info();
+    escrow.is_signer = true;
+    zol_ledger::cpi::close_pot(
+        CpiContext::new_with_signer(
+            zol_ledger::ID,
+            zol_ledger::cpi::accounts::ClosePot {
+                payer: payer.clone(),
+                authority: a.app_authority.to_account_info(),
+                pot: a.pot.to_account_info(),
+                magic_fee_vault: Some(a.magic_fee_vault.to_account_info()),
+                escrow_authority: Some(escrow),
+                magic_program: a.magic_program.to_account_info(),
+                magic_context: a.magic_context.to_account_info(),
+            },
+            &[auth_seeds, auction_seeds, vault_seeds],
+        ),
+        Some(action),
+    )?;
+    MagicIntentBundleBuilder::new(payer, a.magic_context.to_account_info(), a.magic_program.to_account_info())
+        .magic_fee_vault(a.magic_fee_vault.to_account_info())
+        .commit_and_undelegate(&[a.auction.to_account_info()])
+        .build_and_invoke_signed(&[auction_seeds])?;
+    Ok(())
+}
+
 /// Who may finish and when: the creator or a seated player (anyone after the session
 /// deadline), between flips, before the first, or after a flip the VRF never answered.
 fn check_finish(t: &Table, who: Pubkey, now: i64) -> Result<()> {
@@ -1076,6 +1531,44 @@ pub struct Table {
     pub ties: u32,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum AuctionState {
+    Registering,
+    Bidding,
+    Ended,
+}
+
+/// A sealed-bid auction on a ledger pot. Seat 0 is the seller. Kept on Solana after it ends:
+/// the certificate (`winner`, `price`).
+#[account]
+#[derive(InitSpace)]
+pub struct Auction {
+    pub pot: Pubkey,
+    pub pot_id: [u8; 32],
+    /// Paid the rent; the account stays as the certificate.
+    pub creator: Pubkey,
+    pub validator: Pubkey,
+    /// Every bidder's deposit, and the highest allowed bid.
+    pub deposit: u64,
+    pub register_deadline: i64,
+    pub commit_deadline: i64,
+    pub reveal_deadline: i64,
+    pub state: AuctionState,
+    pub seat_count: u8,
+    /// The pot's seats in order: the seller, then bidders by registration.
+    pub players: [Pubkey; AUCTION_SEATS],
+    pub commits: [[u8; 32]; AUCTION_SEATS],
+    /// Revealed bids.
+    pub bids: [u64; AUCTION_SEATS],
+    /// Bit per seat: committed, revealed.
+    pub committed: u16,
+    pub revealed: u16,
+    /// The winning seat (`NO_WINNER` if none) and the price paid.
+    pub winner: u8,
+    pub price: u64,
+    pub bump: u8,
+}
+
 /// An Up/Down bet: the bettor's seat, their call, the price at the bet and when it expires.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
 pub struct BetSlot {
@@ -1247,6 +1740,170 @@ pub struct Finish<'info> {
     /// CHECK: this program's signing address
     #[account(seeds = [APP_AUTHORITY_SEED], bump)]
     pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(pot_id: [u8; 32])]
+pub struct CreateAuction<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// The seller's session key (seat 0).
+    pub seller: Signer<'info>,
+    #[account(init, payer = payer, space = 8 + Auction::INIT_SPACE, seeds = [AUCTION_SEED, pot_id.as_ref()], bump)]
+    pub auction: Box<Account<'info, Auction>>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    #[account(mut)]
+    pub app: UncheckedAccount<'info>,
+    /// CHECK: created by the ledger at its pot address
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: created by the ledger
+    #[account(mut)]
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: the seller's ledger balance; checked by the ledger
+    #[account(mut)]
+    pub seller_balance: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RegisterBidder<'info> {
+    pub session_key: Signer<'info>,
+    #[account(mut, seeds = [AUCTION_SEED, auction.pot_id.as_ref()], bump = auction.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub auction: Box<Account<'info, Auction>>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    #[account(mut)]
+    pub app: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger (seeds from the session key)
+    #[account(mut)]
+    pub balance: UncheckedAccount<'info>,
+    /// CHECK: checked by `has_one` and the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    #[account(mut)]
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+}
+
+#[delegate]
+#[derive(Accounts)]
+pub struct StartAuction<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: the auction PDA; untyped because it changes owner in this instruction
+    #[account(mut, del)]
+    pub auction: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    #[account(mut)]
+    pub app: UncheckedAccount<'info>,
+    /// CHECK: owner and pot checked here, seeds by the ledger
+    #[account(mut)]
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: checked against the auction and by the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: ledger's delegation buffer for the pot
+    #[account(mut)]
+    pub ledger_buffer_pot: UncheckedAccount<'info>,
+    /// CHECK: delegation program record for the pot
+    #[account(mut)]
+    pub ledger_delegation_record_pot: UncheckedAccount<'info>,
+    /// CHECK: delegation program metadata for the pot
+    #[account(mut)]
+    pub ledger_delegation_metadata_pot: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AuctionBid<'info> {
+    pub bidder: Signer<'info>,
+    #[account(mut, seeds = [AUCTION_SEED, auction.pot_id.as_ref()], bump = auction.bump)]
+    pub auction: Box<Account<'info, Auction>>,
+}
+
+/// No signer: the scheduled task (or anyone) runs it.
+#[commit]
+#[derive(Accounts)]
+pub struct EndAuction<'info> {
+    #[account(mut, seeds = [AUCTION_SEED, auction.pot_id.as_ref()], bump = auction.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub auction: Box<Account<'info, Auction>>,
+    /// CHECK: checked by `has_one` and the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: escrow authority of the pot's return action
+    #[account(seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+    /// CHECK: the validator's magic fee vault (checked in the handler)
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct ScheduleAuctionEnd<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [AUCTION_SEED, auction.pot_id.as_ref()], bump = auction.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub auction: Box<Account<'info, Auction>>,
+    /// CHECK: checked by `has_one`
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+    /// CHECK: escrow authority of the pot's return action
+    #[account(seeds = [RENT_VAULT_SEED], bump)]
+    pub rent_vault: UncheckedAccount<'info>,
+    /// CHECK: only named in the scheduled instruction
+    pub magic_fee_vault: UncheckedAccount<'info>,
+}
+
+/// Balances of every seat follow as remaining accounts, in seat order.
+#[derive(Accounts)]
+pub struct CashOutAuction<'info> {
+    /// CHECK: ledger Config; checked by the ledger
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: ledger App; checked by the ledger
+    pub app: UncheckedAccount<'info>,
+    /// CHECK: owner checked here, the rest by the ledger
+    #[account(mut)]
+    pub receipt: UncheckedAccount<'info>,
+    /// CHECK: checked by the ledger
+    pub pot: UncheckedAccount<'info>,
     /// CHECK: the ledger
     #[account(address = zol_ledger::ID)]
     pub ledger_program: UncheckedAccount<'info>,
@@ -1477,6 +2134,33 @@ pub struct TableClosed {
     pub pot_state: u8,
 }
 #[event]
+pub struct AuctionCreated {
+    pub auction: Pubkey,
+    pub deposit: u64,
+    pub register_deadline: i64,
+    pub commit_deadline: i64,
+    pub reveal_deadline: i64,
+}
+#[event]
+pub struct Registered {
+    pub auction: Pubkey,
+    pub bidder: Pubkey,
+    pub seat: u8,
+}
+#[event]
+pub struct AuctionStarted {
+    pub auction: Pubkey,
+    pub bidders: u8,
+}
+#[event]
+pub struct AuctionEnded {
+    pub auction: Pubkey,
+    pub winner: Option<Pubkey>,
+    pub price: u64,
+    pub revealed: u8,
+    pub forfeited: u8,
+}
+#[event]
 pub struct BetPlaced {
     pub table: Pubkey,
     pub up: bool,
@@ -1549,4 +2233,14 @@ pub enum CoinflipError {
     BadOracle,
     #[msg("the oracle price is too old")]
     StalePrice,
+    #[msg("auction terms out of bounds")]
+    BadAuction,
+    #[msg("not this phase of the auction")]
+    AuctionPhase,
+    #[msg("no sealed bid to reveal")]
+    NoCommitment,
+    #[msg("a bid must be positive and at most the deposit")]
+    BadBid,
+    #[msg("the amount and salt do not match the sealed bid")]
+    BadReveal,
 }

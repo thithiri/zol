@@ -48,14 +48,16 @@ export interface HouseConfig {
 
 export type GameState =
   | "awaiting_signature" | "seated" | "started" | "in_rollup" | "landed" | "finishing" | "returned"
-  | "cashed_out" | "settled" | "paid" | "final" | "done" | "expired" | "failed";
+  | "cashed_out" | "settled" | "paid" | "final" | "done" | "expired" | "failed"
+  // auctions (house/auction.ts)
+  | "registering" | "bidding" | "ending" | "cancelled";
 
 export interface GameEvent { step: string; t: string; chain?: "solana" | "rollup" | "zcash"; sig?: string; detail?: string }
 
 export interface Game {
   id: string; // pot id hex (a game) or a random id (a withdrawal)
   /** A coin flip, or a withdrawal of the player's balance to Zcash. */
-  kind?: "game" | "withdraw";
+  kind?: "game" | "withdraw" | "auction" | "auction-register";
   player: string; // session, base58
   stake: string;
   state: GameState;
@@ -90,6 +92,10 @@ export interface Game {
   closerTries?: number;
   /** When the pot was paid out; the table may still be on its way back. */
   cashedOutAt?: number;
+  /** Auctions: the certificate number and deadlines (unix s). */
+  number?: number;
+  registerDeadline?: number;
+  revealDeadline?: number;
   settlement?: string;
   zcash?: { txid: string; height: number };
   error?: string;
@@ -116,7 +122,7 @@ export class MemoryStore implements Store {
   bump(key: string) { this.hits.push({ key, t: Date.now() }); }
 }
 
-export const TERMINAL: GameState[] = ["final", "done", "expired", "failed"];
+export const TERMINAL: GameState[] = ["final", "done", "expired", "failed", "cancelled"];
 /** States in which the player's stake is still committed to the game. */
 const LIVE: GameState[] = ["awaiting_signature", "seated", "started", "in_rollup", "landed", "finishing", "returned", "cashed_out"];
 
@@ -405,7 +411,15 @@ export class House {
     }
   }
 
+  /** Auctions are driven by their own desk (house/auction.ts). */
+  auctions?: { step(g: Game): Promise<void> };
+
   private async step(g: Game) {
+    if (g.kind === "auction") return this.auctions?.step(g);
+    if (g.kind === "auction-register") {
+      if (Date.now() - g.created > 120_000) g.state = "expired";
+      return;
+    }
     const potId = unhex(g.id);
     const table = this.cf.pdas.table(potId);
     const pot = this.cf.pdas.pot(potId);

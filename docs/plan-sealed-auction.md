@@ -1,6 +1,6 @@
 # Plan: a sealed-bid auction paid in shielded ZEC, from MagicBlock's Sealed-Bid Auction template
 
-Status: proposal, 2026-10-12. Template:
+Status: built 2026-10-12 as **commit-reveal** (no TEE), first price, a certificate lot, deposit 0.005 TAZ, 10% non-reveal penalty to those who revealed, 5/5/5-minute phases, up to 8 bidders ([ops/house.md](ops/house.md)). The TEE design below is kept for reference. Template:
 [sealed-auction](https://github.com/magicblock-labs/magicblock-engine-examples/tree/main/sealed-auction)
 ([docs](https://docs.magicblock.gg/pages/templates/sealed-bid-auction)), on a Private Ephemeral
 Rollup ([PER quickstart](https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/how-to-guide/quickstart)).

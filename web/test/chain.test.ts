@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import cfIdl from "../../idl/zol_coinflip.json";
 import ledgerIdl from "../../idl/zol_ledger.json";
-import { allowedStakes, Coinflip, decodeApp, decodeLedgerParams, decodeTable } from "../src/chain";
+import { allowedStakes, Auctions, bidCommitment, Coinflip, decodeApp, decodeLedgerParams, decodeTable } from "../src/chain";
 import { sha256 } from "@noble/hashes/sha256";
 
 const cf = new Coinflip({ ledger: new PublicKey(ledgerIdl.address), app: new PublicKey(cfIdl.address) });
@@ -39,6 +39,15 @@ test("coinflip instruction builders match idl/zol_coinflip.json", () => {
   check(cfIdl, "create_updown_table", cf.createTable(payer, potId, 99_700n, 600n, payer, true));
   check(cfIdl, "bet", cf.bet(payer, potId, true));
   check(cfIdl, "settle_bet", cf.settleBet(potId));
+  const au = new Auctions(cf);
+  check(cfIdl, "create_auction", au.create(payer, session, potId, 500_000n, [300, 300, 300], payer));
+  check(cfIdl, "register_bidder", au.register(session, potId));
+  check(cfIdl, "start_auction", au.start(payer, potId));
+  check(cfIdl, "commit_bid", au.commit(session, potId, new Uint8Array(32)));
+  check(cfIdl, "reveal_bid", au.reveal(session, potId, 1n, new Uint8Array(32)));
+  check(cfIdl, "end_auction", au.end(potId, payer));
+  check(cfIdl, "schedule_auction_end", au.scheduleEnd(payer, potId, payer));
+  check(cfIdl, "cash_out_auction", au.cashOut(potId, [session, payer]));
   check(cfIdl, "close_table", cf.closeTable(potId, payer));
   check(cfIdl, "rescue_table", cf.rescueTable(potId, payer));
 });
@@ -129,4 +138,9 @@ test("decodeApp reads the App account layout", () => {
   const u = [5n, 997000n, 3n, 3000000n, 34982n, 2n, 1n, 0n]; // cap, liability, count, credited, fee_pool, next, paid, unpaid
   for (const v of u) { dv.setBigUint64(o, v, true); o += 8; }
   expect(decodeApp(b)).toEqual({ state: 3, activatesAt: 1234n, liability: 997000n, feePool: 34982n, nextSettlement: 2n, paidCount: 1n, unpaidTotal: 0n });
+});
+
+test("bid commitment matches zol-coinflip's (shared vector)", () => {
+  const c = bidCommitment(new PublicKey(new Uint8Array(32).fill(1)), new PublicKey(new Uint8Array(32).fill(2)), 123_456n, new Uint8Array(32).fill(3));
+  expect(Buffer.from(c).toString("hex")).toBe("400647f86e9f6889193f16e80916a5b7dbd963cfa7a2098267248b94c82dc2fd");
 });

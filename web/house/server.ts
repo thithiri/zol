@@ -13,11 +13,16 @@
 //   POST /house/withdraw/sign {id, tx}     the player's signed withdrawal; co-signed and sent
 //   POST /house/fund   {session, memo?}     one deposit from the house's funding wallet
 //   GET  /house/ztx/:txid                   confirmations of a Zcash transaction
+//   GET  /house/auction                     the current (or latest) sealed-bid auction
+//   POST /house/auction/open                opens one if none is running (the house sells a certificate)
+//   POST /house/auction/register {session} -> {id, tx}: the deposit, for the bidder to sign
+//   POST /house/auction/register/sign {id, tx}  the signed registration; co-signed and sent
 // Build: bun build --compile --target=bun-linux-x64 house/server.ts --outfile dist-house/zol-house
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { Keypair } from "@solana/web3.js";
 import { House, HouseError, TERMINAL, type Game, type HouseConfig, type Store } from "./house";
+import { AuctionDesk } from "./auction";
 
 interface FileConfig extends HouseConfig {
   listen: string; // host:port
@@ -66,6 +71,7 @@ const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as FileConfig;
 const session = House.sessionFromSeedHex(readFileSync(cfg.sessionSeedFile, "utf8").trim());
 const feePayer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(cfg.feePayerFile, "utf8"))));
 const house = new House(cfg, session, feePayer, new SqliteStore(new Database(cfg.db)));
+const desk = new AuctionDesk(house);
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? String(v) : v)), {
@@ -99,6 +105,13 @@ async function route(req: Request): Promise<Response> {
   if (req.method === "POST" && p === "/house/fund") {
     const b = await body();
     return json(200, await house.fund(String(b.session ?? ""), ip, b.memo === undefined ? undefined : String(b.memo)));
+  }
+  if (req.method === "GET" && p === "/house/auction") return json(200, await desk.current());
+  if (req.method === "POST" && p === "/house/auction/open") return json(200, await desk.open());
+  if (req.method === "POST" && p === "/house/auction/register") return json(200, await desk.register(String((await body()).session ?? "")));
+  if (req.method === "POST" && p === "/house/auction/register/sign") {
+    const b = await body();
+    return json(200, await desk.registerSigned(String(b.id ?? ""), String(b.tx ?? "")));
   }
   let m: RegExpMatchArray | null;
   if (req.method === "GET" && (m = p.match(/^\/house\/game\/([0-9a-f]{64})$/))) return json(200, house.game(m[1]));

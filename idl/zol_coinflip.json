@@ -76,6 +76,44 @@
       ]
     },
     {
+      "name": "cash_out_auction",
+      "docs": [
+        "Solana, anyone; also the action `end_auction` attaches to the pot's return. Once the",
+        "pot is back, ledger `cash_out` for every seat (balances in seat order, then anything",
+        "else, which is ignored). A no-op until then."
+      ],
+      "discriminator": [
+        151,
+        173,
+        58,
+        12,
+        218,
+        13,
+        205,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "config"
+        },
+        {
+          "name": "app"
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "pot"
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cash_out_table",
       "docs": [
         "Solana, anyone; also the Magic Action `finish_and_pay` schedules. Once the pot is",
@@ -185,6 +223,65 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "commit_bid",
+      "docs": [
+        "Rollup. A registered bidder posts (or replaces) their sealed bid before the commit",
+        "deadline: `bid_commitment(auction, bidder, amount, salt)`."
+      ],
+      "discriminator": [
+        149,
+        237,
+        198,
+        113,
+        53,
+        66,
+        70,
+        76
+      ],
+      "accounts": [
+        {
+          "name": "bidder",
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.pot_id",
+                "account": "Auction"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "crank_close",
@@ -301,6 +398,140 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "create_auction",
+      "docs": [
+        "Solana. The seller (a session key with a ledger balance) opens an auction: a pot with",
+        "the seller in seat 0 (`SELLER_STAKE`), and the `Auction` with absolute deadlines for the",
+        "register, commit and reveal phases. The lot is a certificate: this account, kept on",
+        "Solana with the winner and price once the auction ends."
+      ],
+      "discriminator": [
+        234,
+        6,
+        201,
+        246,
+        47,
+        219,
+        176,
+        107
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller",
+          "docs": [
+            "The seller's session key (seat 0)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pot_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "app",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "seller_balance",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "deposit",
+          "type": "u64"
+        },
+        {
+          "name": "register_secs",
+          "type": "i64"
+        },
+        {
+          "name": "commit_secs",
+          "type": "i64"
+        },
+        {
+          "name": "reveal_secs",
+          "type": "i64"
+        },
+        {
+          "name": "validator",
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "create_table",
@@ -522,6 +753,119 @@
           "type": "pubkey"
         }
       ]
+    },
+    {
+      "name": "end_auction",
+      "docs": [
+        "Rollup, no signer (the scheduled task, or anyone) after the reveal deadline. The highest",
+        "revealed bid wins (ties: the earlier registration) and pays its bid to the seller.",
+        "Each commitment never revealed pays 1/10 of the deposit, shared by those who revealed.",
+        "Then the pot returns to Solana with `cash_out_auction` attached, and the auction too,",
+        "where it stays as the certificate. Before the deadline it does nothing."
+      ],
+      "discriminator": [
+        252,
+        110,
+        101,
+        234,
+        66,
+        104,
+        28,
+        87
+      ],
+      "accounts": [
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.pot_id",
+                "account": "Auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "rent_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "finish",
@@ -1262,6 +1606,100 @@
       "args": []
     },
     {
+      "name": "register_bidder",
+      "docs": [
+        "Solana. A bidder's session key pays the deposit (the bid cap) into the pot, before the",
+        "register deadline. Every bidder pays the same, so deposits say nothing about bids."
+      ],
+      "discriminator": [
+        135,
+        147,
+        81,
+        90,
+        66,
+        250,
+        217,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "session_key",
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.pot_id",
+                "account": "Auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "app",
+          "writable": true
+        },
+        {
+          "name": "balance",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "rescue_table",
       "docs": [
         "Solana, anyone. Rescues a table stuck in the rollup (the VRF never answered, or",
@@ -1355,6 +1793,181 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "reveal_bid",
+      "docs": [
+        "Rollup. Between the commit and reveal deadlines the bidder reveals: the amount (at most",
+        "the deposit) and salt must match the commitment."
+      ],
+      "discriminator": [
+        48,
+        73,
+        28,
+        255,
+        202,
+        126,
+        236,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "bidder",
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.pot_id",
+                "account": "Auction"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "salt",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "schedule_auction_end",
+      "docs": [
+        "Rollup, anyone: the rollup runs `end_auction` every few seconds until well past the",
+        "reveal deadline, so the auction ends and pays even if every client is gone."
+      ],
+      "discriminator": [
+        194,
+        232,
+        17,
+        93,
+        51,
+        123,
+        241,
+        187
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.pot_id",
+                "account": "Auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "rent_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1803,9 +2416,245 @@
           "type": "i64"
         }
       ]
+    },
+    {
+      "name": "start_auction",
+      "docs": [
+        "Solana, anyone, from the register deadline (or once full) until the pot's open deadline:",
+        "the pot and the auction move into the rollup. Needs at least one bidder; an auction",
+        "nobody joined is refunded by the ledger after its open deadline."
+      ],
+      "discriminator": [
+        255,
+        2,
+        149,
+        136,
+        148,
+        125,
+        65,
+        195
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buffer_auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                92,
+                255,
+                220,
+                250,
+                202,
+                113,
+                29,
+                76,
+                100,
+                112,
+                195,
+                18,
+                77,
+                145,
+                19,
+                231,
+                169,
+                48,
+                44,
+                112,
+                142,
+                227,
+                176,
+                51,
+                93,
+                220,
+                19,
+                199,
+                4,
+                200,
+                42,
+                108
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "app",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "ledger_buffer_pot",
+          "writable": true
+        },
+        {
+          "name": "ledger_delegation_record_pot",
+          "writable": true
+        },
+        {
+          "name": "ledger_delegation_metadata_pot",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "owner_program",
+          "address": "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
+    {
+      "name": "Auction",
+      "discriminator": [
+        218,
+        94,
+        247,
+        242,
+        126,
+        233,
+        131,
+        81
+      ]
+    },
     {
       "name": "Table",
       "discriminator": [
@@ -1821,6 +2670,45 @@
     }
   ],
   "events": [
+    {
+      "name": "AuctionCreated",
+      "discriminator": [
+        133,
+        190,
+        194,
+        65,
+        172,
+        0,
+        70,
+        178
+      ]
+    },
+    {
+      "name": "AuctionEnded",
+      "discriminator": [
+        91,
+        165,
+        139,
+        202,
+        204,
+        215,
+        92,
+        52
+      ]
+    },
+    {
+      "name": "AuctionStarted",
+      "discriminator": [
+        126,
+        97,
+        193,
+        56,
+        72,
+        162,
+        162,
+        64
+      ]
+    },
     {
       "name": "BetPlaced",
       "discriminator": [
@@ -1910,6 +2798,19 @@
         218,
         130,
         103
+      ]
+    },
+    {
+      "name": "Registered",
+      "discriminator": [
+        11,
+        222,
+        10,
+        72,
+        160,
+        110,
+        165,
+        227
       ]
     },
     {
@@ -2093,9 +2994,256 @@
       "code": 6022,
       "name": "StalePrice",
       "msg": "the oracle price is too old"
+    },
+    {
+      "code": 6023,
+      "name": "BadAuction",
+      "msg": "auction terms out of bounds"
+    },
+    {
+      "code": 6024,
+      "name": "AuctionPhase",
+      "msg": "not this phase of the auction"
+    },
+    {
+      "code": 6025,
+      "name": "NoCommitment",
+      "msg": "no sealed bid to reveal"
+    },
+    {
+      "code": 6026,
+      "name": "BadBid",
+      "msg": "a bid must be positive and at most the deposit"
+    },
+    {
+      "code": 6027,
+      "name": "BadReveal",
+      "msg": "the amount and salt do not match the sealed bid"
     }
   ],
   "types": [
+    {
+      "name": "Auction",
+      "docs": [
+        "A sealed-bid auction on a ledger pot. Seat 0 is the seller. Kept on Solana after it ends:",
+        "the certificate (`winner`, `price`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator",
+            "docs": [
+              "Paid the rent; the account stays as the certificate."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "validator",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit",
+            "docs": [
+              "Every bidder's deposit, and the highest allowed bid."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "register_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "commit_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "reveal_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "AuctionState"
+              }
+            }
+          },
+          {
+            "name": "seat_count",
+            "type": "u8"
+          },
+          {
+            "name": "players",
+            "docs": [
+              "The pot's seats in order: the seller, then bidders by registration."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                9
+              ]
+            }
+          },
+          {
+            "name": "commits",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                9
+              ]
+            }
+          },
+          {
+            "name": "bids",
+            "docs": [
+              "Revealed bids."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                9
+              ]
+            }
+          },
+          {
+            "name": "committed",
+            "docs": [
+              "Bit per seat: committed, revealed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "revealed",
+            "type": "u16"
+          },
+          {
+            "name": "winner",
+            "docs": [
+              "The winning seat (`NO_WINNER` if none) and the price paid."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit",
+            "type": "u64"
+          },
+          {
+            "name": "register_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "commit_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "reveal_deadline",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionEnded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "revealed",
+            "type": "u8"
+          },
+          {
+            "name": "forfeited",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidders",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Registering"
+          },
+          {
+            "name": "Bidding"
+          },
+          {
+            "name": "Ended"
+          }
+        ]
+      }
+    },
     {
       "name": "BetPlaced",
       "type": {
@@ -2261,6 +3409,26 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Registered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
           }
         ]
       }

@@ -1415,3 +1415,277 @@ fn rescue_checks_the_receipt_and_validator_accounts() {
     ix.accounts[8].pubkey = stranger.pubkey(); // not the table's validator
     assert_cf_err(&cf.env.send(&[ix], &[&stranger]), CoinflipError::BadAccount);
 }
+
+// ------------------------------------------------------------------ sealed-bid auctions
+
+const D: u64 = 500_000;
+
+fn auction_key() -> Pubkey {
+    zol_coinflip::auction_address(&POT_ID)
+}
+
+impl Cf {
+    /// The seller (seat 0) opens an auction: 300 s for each phase.
+    fn create_auction(&mut self, seller: &Keypair) -> TxResult {
+        let pot = cf_pot();
+        let ix = cf_ix(
+            zol_coinflip::accounts::CreateAuction {
+                payer: self.env.relayer.pubkey(),
+                seller: seller.pubkey(),
+                auction: auction_key(),
+                app_authority: cf_authority(),
+                config: config_pda(),
+                app: cf_app(),
+                pot,
+                receipt: receipt_pda(&pot),
+                seller_balance: balance_pda(&cf_app(), &seller.pubkey()),
+                ledger_program: LEDGER,
+                system_program: SYSTEM,
+            },
+            zol_coinflip::instruction::CreateAuction { pot_id: POT_ID, deposit: D, register_secs: 300, commit_secs: 300, reveal_secs: 300, validator: VALIDATOR },
+        );
+        let r = self.relayer();
+        self.env.send(&[ix], &[&r, seller])
+    }
+
+    fn register_bidder(&mut self, p: &Keypair) -> TxResult {
+        let pot = cf_pot();
+        let ix = cf_ix(
+            zol_coinflip::accounts::RegisterBidder {
+                session_key: p.pubkey(),
+                auction: auction_key(),
+                app_authority: cf_authority(),
+                config: config_pda(),
+                app: cf_app(),
+                balance: balance_pda(&cf_app(), &p.pubkey()),
+                pot,
+                receipt: receipt_pda(&pot),
+                ledger_program: LEDGER,
+            },
+            zol_coinflip::instruction::RegisterBidder {},
+        );
+        let r = self.relayer();
+        self.env.send(&[ix], &[&r, p])
+    }
+
+    fn start_auction(&mut self) -> TxResult {
+        let pot = cf_pot();
+        let a = auction_key();
+        let tag = |t: &[u8], k: &Pubkey| pda(&[t, k.as_ref()], &DLP);
+        let ix = cf_ix(
+            zol_coinflip::accounts::StartAuction {
+                payer: self.env.relayer.pubkey(),
+                buffer_auction: pda(&[b"buffer", a.as_ref()], &COINFLIP),
+                delegation_record_auction: tag(b"delegation", &a),
+                delegation_metadata_auction: tag(b"delegation-metadata", &a),
+                auction: a,
+                app_authority: cf_authority(),
+                config: config_pda(),
+                app: cf_app(),
+                receipt: receipt_pda(&pot),
+                pot,
+                ledger_buffer_pot: pda(&[b"buffer", pot.as_ref()], &LEDGER),
+                ledger_delegation_record_pot: tag(b"delegation", &pot),
+                ledger_delegation_metadata_pot: tag(b"delegation-metadata", &pot),
+                ledger_program: LEDGER,
+                owner_program: COINFLIP,
+                delegation_program: DLP,
+                system_program: SYSTEM,
+            },
+            zol_coinflip::instruction::StartAuction {},
+        );
+        let budget = Instruction {
+            program_id: solana_pubkey::pubkey!("ComputeBudget111111111111111111111111111111"),
+            accounts: vec![],
+            data: [vec![2u8], 400_000u32.to_le_bytes().to_vec()].concat(),
+        };
+        let r = self.relayer();
+        self.env.send(&[budget, ix], &[&r])
+    }
+
+    /// In the rollup: pot and auction owned by their programs again.
+    fn auction_in_rollup(&mut self) {
+        for (k, owner) in [(cf_pot(), LEDGER), (auction_key(), COINFLIP)] {
+            let mut a = self.env.raw(&k).unwrap();
+            assert_eq!(a.owner, DLP, "{k} should be delegated");
+            a.owner = owner;
+            self.env.svm.set_account(k, a).unwrap();
+        }
+    }
+
+    fn salt(p: &Keypair) -> [u8; 32] {
+        let mut s = [0u8; 32];
+        s[..32].copy_from_slice(&p.pubkey().to_bytes());
+        s
+    }
+
+    fn commit_bid(&mut self, p: &Keypair, amount: u64) -> TxResult {
+        let c = zol_coinflip::bid_commitment(&auction_key(), &p.pubkey(), amount, &Self::salt(p));
+        let ix = cf_ix(zol_coinflip::accounts::AuctionBid { bidder: p.pubkey(), auction: auction_key() }, zol_coinflip::instruction::CommitBid { commitment: c });
+        self.env.send(&[ix], &[p])
+    }
+
+    fn reveal_bid(&mut self, p: &Keypair, amount: u64) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::AuctionBid { bidder: p.pubkey(), auction: auction_key() },
+            zol_coinflip::instruction::RevealBid { amount, salt: Self::salt(p) },
+        );
+        self.env.send(&[ix], &[p])
+    }
+
+    fn end_auction(&mut self) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::EndAuction {
+                auction: auction_key(),
+                pot: cf_pot(),
+                app_authority: cf_authority(),
+                ledger_program: LEDGER,
+                rent_vault: rent_vault(),
+                magic_fee_vault: zol_coinflip::magic_fee_vault(&VALIDATOR),
+                magic_program: MAGIC_PROGRAM,
+                magic_context: MAGIC_CONTEXT,
+            },
+            zol_coinflip::instruction::EndAuction {},
+        );
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
+    /// The pot's return action, with its trailing accounts.
+    fn cash_out_auction(&mut self) -> TxResult {
+        let pot = cf_pot();
+        let r: st::PotReceipt = self.env.account(&receipt_pda(&pot));
+        let mut ix = cf_ix(
+            zol_coinflip::accounts::CashOutAuction { config: config_pda(), app: cf_app(), receipt: receipt_pda(&pot), pot, ledger_program: LEDGER },
+            zol_coinflip::instruction::CashOutAuction {},
+        );
+        for p in &r.players[..r.seat_count as usize] {
+            ix.accounts.push(AccountMeta::new(balance_pda(&cf_app(), p), false));
+        }
+        ix.accounts.extend([COINFLIP, rent_vault(), Keypair::new().pubkey()].map(|k| AccountMeta::new_readonly(k, false)));
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
+    }
+
+    fn auction(&self) -> zol_coinflip::Auction {
+        let a = self.env.raw(&auction_key()).unwrap();
+        <zol_coinflip::Auction as AccountDeserialize>::try_deserialize(&mut &a.data[..]).unwrap()
+    }
+}
+
+/// A seller, three bidders registered and the auction in the rollup. Allows 9 seats.
+fn auction_with(bidders: usize) -> (Cf, Keypair, Vec<Keypair>) {
+    let mut cf = Cf::new();
+    let mut p = params();
+    p.max_seats = 16;
+    ok!(cf.env.set_config(zol_ledger::SetConfigArgs { new_admin: None, attestor: None, params: Some(p), paused: None }));
+    let seller = cf.player(1_000_000);
+    let bs: Vec<Keypair> = (0..bidders).map(|_| cf.player(1_000_000)).collect();
+    ok!(cf.create_auction(&seller));
+    for b in &bs {
+        ok!(cf.register_bidder(b));
+    }
+    (cf, seller, bs)
+}
+
+#[test]
+fn auction_first_price_with_a_penalty_for_not_revealing() {
+    let (mut cf, seller, bs) = auction_with(3);
+    assert_eq!(cf.balance(&bs[0].pubkey()), 997_000 - D);
+    assert_cf_err(&cf.start_auction(), CoinflipError::AuctionPhase); // registration still open
+    cf.env.warp(300);
+    ok!(cf.start_auction());
+    cf.auction_in_rollup();
+    ok!(cf.commit_bid(&bs[0], 300_000));
+    ok!(cf.commit_bid(&bs[1], 420_000));
+    ok!(cf.commit_bid(&bs[2], 499_000)); // will not reveal
+    assert_cf_err(&cf.reveal_bid(&bs[1], 420_000), CoinflipError::AuctionPhase); // too early
+    cf.env.warp(300);
+    assert_cf_err(&cf.commit_bid(&bs[0], 1), CoinflipError::AuctionPhase); // too late
+    assert_cf_err(&cf.reveal_bid(&bs[1], 421_000), CoinflipError::BadReveal);
+    ok!(cf.reveal_bid(&bs[0], 300_000));
+    ok!(cf.reveal_bid(&bs[1], 420_000));
+    ok!(cf.end_auction()); // before the reveal deadline: nothing
+    assert_eq!(cf.auction().state, zol_coinflip::AuctionState::Bidding);
+    cf.env.warp(300);
+    ok!(cf.end_auction());
+    let x = cf.auction();
+    assert_eq!((x.state, x.winner, x.price), (zol_coinflip::AuctionState::Ended, 2, 420_000));
+    // Seats: seller 1 + 420,000; bs[0] revealed and lost, D + 25,000; bs[1] won, D − 420,000 + 25,000;
+    // bs[2] never revealed, D − 50,000 (the penalty, shared by the two who revealed).
+    assert_eq!(&cf.pot().amounts[..4], &[1 + 420_000, D + 25_000, D - 420_000 + 25_000, D - 50_000]);
+    ok!(cf.cash_out_auction());
+    assert_eq!(cf.receipt().state, PotState::CashedOut);
+    assert_eq!(cf.balance(&seller.pubkey()), 997_000 + 420_000);
+    assert_eq!(cf.balance(&bs[1].pubkey()), 997_000 - 420_000 + 25_000);
+    assert_eq!(cf.balance(&bs[0].pubkey()), 997_000 + 25_000);
+    assert_eq!(cf.balance(&bs[2].pubkey()), 997_000 - 50_000);
+    assert!(cf.env.raw(&auction_key()).is_some(), "the auction stays as the certificate");
+    cf.env.check_invariants_for(&COINFLIP);
+}
+
+#[test]
+fn auction_rules() {
+    let (mut cf, _seller, bs) = auction_with(2);
+    let late = cf.player(1_000_000);
+    cf.env.warp(300);
+    assert_cf_err(&cf.register_bidder(&late), CoinflipError::AuctionPhase);
+    ok!(cf.start_auction());
+    cf.auction_in_rollup();
+    assert_cf_err(&cf.commit_bid(&late, 1), CoinflipError::NotAtTable);
+    ok!(cf.commit_bid(&bs[0], D + 1));
+    ok!(cf.commit_bid(&bs[1], 200_000));
+    ok!(cf.commit_bid(&bs[1], 250_000)); // replaced
+    cf.env.warp(300);
+    assert_cf_err(&cf.reveal_bid(&bs[0], D + 1), CoinflipError::BadBid);
+    assert_cf_err(&cf.reveal_bid(&bs[1], 200_000), CoinflipError::BadReveal);
+    ok!(cf.reveal_bid(&bs[1], 250_000));
+    cf.env.warp(300);
+    assert_cf_err(&cf.reveal_bid(&bs[0], 1), CoinflipError::AuctionPhase); // window over
+    ok!(cf.end_auction());
+    let x = cf.auction();
+    assert_eq!((x.winner, x.price), (2, 250_000));
+}
+
+#[test]
+fn auction_ties_go_to_the_earlier_registration_and_no_reveals_mean_no_sale() {
+    let (mut cf, _s, bs) = auction_with(2);
+    cf.env.warp(300);
+    ok!(cf.start_auction());
+    cf.auction_in_rollup();
+    ok!(cf.commit_bid(&bs[0], 100_000));
+    ok!(cf.commit_bid(&bs[1], 100_000));
+    cf.env.warp(300);
+    ok!(cf.reveal_bid(&bs[1], 100_000));
+    ok!(cf.reveal_bid(&bs[0], 100_000));
+    cf.env.warp(300);
+    ok!(cf.end_auction());
+    assert_eq!(cf.auction().winner, 1);
+
+    let (mut cf, _s, bs) = auction_with(2);
+    cf.env.warp(300);
+    ok!(cf.start_auction());
+    cf.auction_in_rollup();
+    ok!(cf.commit_bid(&bs[0], 100_000));
+    cf.env.warp(600);
+    ok!(cf.end_auction());
+    let x = cf.auction();
+    assert_eq!((x.winner, x.price), (NO_WINNER, 0));
+    assert_eq!(&cf.pot().amounts[..3], &[1, D, D], "nobody revealed: no sale, no penalty");
+}
+
+#[test]
+fn an_auction_needs_a_bidder_to_start() {
+    let (mut cf, _s, _bs) = auction_with(0);
+    cf.env.warp(300);
+    assert_cf_err(&cf.start_auction(), CoinflipError::NotFull);
+}
+
+#[test]
+fn bid_commitment_vector_shared_with_the_page() {
+    let c = zol_coinflip::bid_commitment(&Pubkey::new_from_array([1; 32]), &Pubkey::new_from_array([2; 32]), 123_456, &[3; 32]);
+    let hexed: String = c.iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(hexed, "400647f86e9f6889193f16e80916a5b7dbd963cfa7a2098267248b94c82dc2fd");
+}

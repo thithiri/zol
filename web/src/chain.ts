@@ -209,6 +209,17 @@ export class Coinflip {
     );
   }
 
+  /** Ledger, anyone: refund every buy-in of a pot that never started (after its open deadline). */
+  refundPot(potId: Uint8Array, players: PublicKey[]) {
+    const d = this.pdas;
+    const pot = d.pot(potId);
+    return this.ix(
+      [m(d.config()), m(d.app()), m(d.receipt(pot), true), m(pot), ...players.map((p) => m(d.balance(p), true))],
+      disc("global", "refund_pot"),
+      this.p.ledger,
+    );
+  }
+
   /** Anyone, once the pot is cashed out or refunded: the table's rent goes to its creator. */
   closeTable(potId: Uint8Array, creator: PublicKey) {
     const d = this.pdas;
@@ -268,6 +279,7 @@ class Reader {
   bytes(n: number) { const x = this.b.slice(this.o, this.o + n); this.o += n; return x; }
   u8() { return this.b[this.o++]; }
   u32() { const v = this.dv.getUint32(this.o, true); this.o += 4; return v; }
+  u16() { const v = this.dv.getUint16(this.o, true); this.o += 2; return v; }
   u64() { const v = this.dv.getBigUint64(this.o, true); this.o += 8; return v; }
   i64() { const v = this.dv.getBigInt64(this.o, true); this.o += 8; return v; }
 }
@@ -416,5 +428,102 @@ export async function sendSigned(conn: Connection, raw: Uint8Array | Buffer, las
     if ((await conn.getBlockHeight("confirmed")) > lastValidBlockHeight) throw new Error(`transaction ${sig.slice(0, 16)}… expired before it landed; try again`);
     await new Promise((r) => setTimeout(r, 2000));
     await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------- sealed-bid auctions
+
+export const AUCTION_STATES = ["Registering", "Bidding", "Ended"] as const;
+export const AUCTION_SEATS = 9;
+
+export interface AuctionAcc {
+  pot: PublicKey; potId: Uint8Array; creator: PublicKey; validator: PublicKey; deposit: bigint;
+  registerDeadline: number; commitDeadline: number; revealDeadline: number;
+  state: (typeof AUCTION_STATES)[number]; seatCount: number; players: PublicKey[];
+  commits: Uint8Array[]; bids: bigint[]; committed: number; revealed: number; winner: number; price: bigint;
+}
+export function decodeAuction(data: Uint8Array): AuctionAcc {
+  checkDisc(data, "Auction");
+  const r = new Reader(data);
+  const pot = r.key(), potId = r.bytes(32), creator = r.key(), validator = r.key(), deposit = r.u64();
+  const registerDeadline = Number(r.i64()), commitDeadline = Number(r.i64()), revealDeadline = Number(r.i64());
+  const state = AUCTION_STATES[r.u8()];
+  const seatCount = r.u8();
+  const players = Array.from({ length: AUCTION_SEATS }, () => r.key());
+  const commits = Array.from({ length: AUCTION_SEATS }, () => r.bytes(32));
+  const bids = Array.from({ length: AUCTION_SEATS }, () => r.u64());
+  const committed = r.u16(), revealed = r.u16(), winner = r.u8(), price = r.u64();
+  return { pot, potId, creator, validator, deposit, registerDeadline, commitDeadline, revealDeadline, state, seatCount, players: players.slice(0, seatCount), commits, bids, committed, revealed, winner, price };
+}
+
+/** `sha256("ZOL/bid/v1" ‖ auction ‖ bidder ‖ amount (u64 LE) ‖ salt)`, as zol-coinflip checks it. */
+export const bidCommitment = (auction: PublicKey, bidder: PublicKey, amount: bigint, salt: Uint8Array) =>
+  sha256(cat(enc.encode("ZOL/bid/v1"), auction.toBytes(), bidder.toBytes(), u64le(amount), salt));
+/** The salt for a bid: from the session secret and the auction, so nothing needs saving. */
+export const bidSalt = (sessionSeed: Uint8Array, auction: PublicKey) =>
+  sha256(cat(enc.encode("ZOL/bid-salt/v1"), sessionSeed, auction.toBytes()));
+
+export class Auctions {
+  constructor(readonly cf: Coinflip) {}
+  private get d() { return this.cf.pdas; }
+  private ix(keys: ReturnType<typeof m>[], data: Uint8Array, program = this.cf.p.app) {
+    return new TransactionInstruction({ programId: program, keys, data: Buffer.from(data) });
+  }
+  auction(potId: Uint8Array) { return this.d.pda([enc.encode("auction"), potId], this.cf.p.app); }
+
+  create(payer: PublicKey, seller: PublicKey, potId: Uint8Array, deposit: bigint, secs: [number, number, number], validator: PublicKey) {
+    const d = this.d, pot = d.pot(potId);
+    return this.ix(
+      [m(payer, true, true), m(seller, false, true), m(this.auction(potId), true), m(d.appAuthority()), m(d.config()), m(d.app(), true),
+        m(pot, true), m(d.receipt(pot), true), m(d.balance(seller), true), m(this.cf.p.ledger), m(SystemProgram.programId)],
+      cat(disc("global", "create_auction"), potId, u64le(deposit), ...secs.map((s) => i64le(BigInt(s))), validator.toBytes()),
+    );
+  }
+  register(session: PublicKey, potId: Uint8Array) {
+    const d = this.d, pot = d.pot(potId);
+    return this.ix(
+      [m(session, false, true), m(this.auction(potId), true), m(d.appAuthority()), m(d.config()), m(d.app(), true),
+        m(d.balance(session), true), m(pot, true), m(d.receipt(pot), true), m(this.cf.p.ledger)],
+      disc("global", "register_bidder"),
+    );
+  }
+  start(payer: PublicKey, potId: Uint8Array) {
+    const d = this.d, pot = d.pot(potId), a = this.auction(potId);
+    return this.ix(
+      [m(payer, true, true), m(d.buffer(a, this.cf.p.app), true), m(d.dlp("delegation", a), true), m(d.dlp("delegation-metadata", a), true),
+        m(a, true), m(d.appAuthority()), m(d.config()), m(d.app(), true), m(d.receipt(pot), true), m(pot, true),
+        m(d.buffer(pot, this.cf.p.ledger), true), m(d.dlp("delegation", pot), true), m(d.dlp("delegation-metadata", pot), true),
+        m(this.cf.p.ledger), m(this.cf.p.app), m(DLP), m(SystemProgram.programId)],
+      disc("global", "start_auction"),
+    );
+  }
+  commit(bidder: PublicKey, potId: Uint8Array, commitment: Uint8Array) {
+    return this.ix([m(bidder, false, true), m(this.auction(potId), true)], cat(disc("global", "commit_bid"), commitment));
+  }
+  reveal(bidder: PublicKey, potId: Uint8Array, amount: bigint, salt: Uint8Array) {
+    return this.ix([m(bidder, false, true), m(this.auction(potId), true)], cat(disc("global", "reveal_bid"), u64le(amount), salt));
+  }
+  end(potId: Uint8Array, validator: PublicKey) {
+    const d = this.d;
+    return this.ix(
+      [m(this.auction(potId), true), m(d.pot(potId), true), m(d.appAuthority()), m(this.cf.p.ledger), m(d.rentVault()),
+        m(magicFeeVault(validator), true), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+      disc("global", "end_auction"),
+    );
+  }
+  scheduleEnd(payer: PublicKey, potId: Uint8Array, validator: PublicKey) {
+    const d = this.d;
+    return this.ix(
+      [m(payer, true, true), m(this.auction(potId)), m(d.pot(potId)), m(d.appAuthority()), m(this.cf.p.ledger), m(d.rentVault()),
+        m(magicFeeVault(validator)), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+      disc("global", "schedule_auction_end"),
+    );
+  }
+  cashOut(potId: Uint8Array, players: PublicKey[]) {
+    const d = this.d, pot = d.pot(potId);
+    return this.ix(
+      [m(d.config()), m(d.app()), m(d.receipt(pot), true), m(pot), m(this.cf.p.ledger), ...players.map((p) => m(d.balance(p), true))],
+      disc("global", "cash_out_auction"),
+    );
   }
 }

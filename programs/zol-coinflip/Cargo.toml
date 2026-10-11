@@ -24,6 +24,7 @@ custom-panic = []
 anchor-lang = { workspace = true }
 ephemeral-rollups-sdk = { workspace = true, features = ["vrf", "crank"] }
 zol-ledger = { path = "../zol-ledger", features = ["cpi"] }
+solana-sha256-hasher = "3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

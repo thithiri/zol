@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sealed-bid auction</title>
+  <style>
+    :root { --fg: #1b1b1b; --bg: #f6f4ee; --muted: #6b6b6b; --line: #e2ded3; --accent: #e8a317; --accent-fg: #1b1b1b; --err: #b42318; --ok: #1a7f37; --card: #fffdf8; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ece9e0; --bg: #121212; --muted: #9a9a9a; --line: #2c2b28; --accent: #f4b400; --accent-fg: #121212; --err: #ff7b72; --ok: #3fb950; --card: #1b1a18; } }
+    * { box-sizing: border-box; }
+    body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+    nav { font-size: 14px; margin-top: 4px; } nav a { color: var(--muted); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
+    .center { text-align: center; }
+    .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
+    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
+    button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    code { word-break: break-all; font-size: 12px; }
+    .balance { font-size: 32px; font-weight: 750; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+    .cert { font-size: 22px; font-weight: 750; margin: 0; }
+    .phase { font-size: 15px; font-weight: 650; margin: 10px 0 2px; }
+    .clock { font-size: 32px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .steps { display: flex; justify-content: center; gap: 6px; margin: 8px 0 4px; font-size: 12px; }
+    .steps span { padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+    .steps span.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    .bidrow { display: flex; gap: 8px; margin-top: 12px; } .bidrow input { flex: 1; }
+    details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header><h1>Sealed-bid auction</h1><span class="pill">testnet · no real money</span></header>
+  <nav><a href="/house.html">← Coin flip and Up/Down</a></nav>
+
+  <section id="nosession" class="card center" hidden>
+    <p style="margin-top:0">Set up your player and deposit on the <a href="/house.html">game page</a> first. This page uses the same player and balance.</p>
+  </section>
+
+  <main id="main" hidden>
+    <section class="card center">
+      <div class="muted small">Your balance</div>
+      <div class="balance" id="balance">…</div>
+      <div class="small muted">Deposit and withdraw on the <a href="/house.html">game page</a>.</div>
+    </section>
+
+    <section class="card center">
+      <p class="cert" id="title">No auction yet</p>
+      <div class="small muted" id="subtitle">The house sells a ZOL testnet certificate, kept on Solana.</div>
+      <div class="steps"><span id="s-reg">1 Register</span><span id="s-bid">2 Seal a bid</span><span id="s-rev">3 Reveal</span><span id="s-end">Result</span></div>
+      <div class="phase" id="phase">&nbsp;</div>
+      <div class="clock" id="clock">&nbsp;</div>
+      <div class="kv"><span>Deposit (the most you can bid)</span><b id="deposit">—</b></div>
+      <div class="kv"><span>Bidders</span><b id="bidders">—</b></div>
+
+      <div class="row"><button id="open-btn" class="primary" hidden>Open an auction</button><button id="register-btn" class="primary" hidden>Register</button></div>
+
+      <div id="bid-box" hidden>
+        <div class="bidrow"><input id="bid-input" inputmode="decimal" placeholder="your bid in TAZ, e.g. 0.0025" /><button id="seal-btn" class="primary">Seal my bid</button></div>
+        <div class="small muted" style="margin-top:6px">Only a fingerprint of your bid goes on-chain until the reveal. You can change it until bidding closes.</div>
+      </div>
+      <div id="reveal-box" hidden>
+        <div class="bidrow"><input id="reveal-input" inputmode="decimal" placeholder="your sealed bid in TAZ" /><button id="reveal-btn" class="primary">Reveal</button></div>
+      </div>
+      <div class="phase" id="mine" style="font-weight:500">&nbsp;</div>
+      <div id="result" class="small"></div>
+    </section>
+
+    <section class="card">
+      <details><summary>How it works, and what you trust</summary>
+        <ul class="small muted">
+          <li><b>Register:</b> everyone pays the same deposit (the bid cap) into the auction's pot on Solana, so deposits say nothing about bids.</li>
+          <li><b>Seal a bid:</b> in the MagicBlock rollup you post only a hash of your bid and a secret salt (derived from your player key, nothing to save). Nobody can read it.</li>
+          <li><b>Reveal:</b> after bidding closes, this page reveals your bid; the program checks it against the hash. A sealed bid never revealed loses 10% of the deposit, shared by those who revealed, so nobody can wait and see others' bids before deciding.</li>
+          <li><b>Result:</b> the highest revealed bid wins and pays its bid (first price; ties go to the earlier registration). The rollup ends the auction and the pot's return pays every seat: the seller the price, everyone else their deposit back. The auction account stays on Solana as the certificate.</li>
+          <li>All bids are public after the reveal. Bidders are player keys, never linked to a Zcash wallet; money comes in and leaves as shielded ZEC.</li>
+        </ul>
+      </details>
+      <div class="small muted" style="margin-top:8px">You: <code id="me"></code></div>
+    </section>
+  </main>
+  <p id="err" class="err small center"></p>
+  <script type="module" src="/src/auction-page.ts"></script>
+</body>
+</html>
