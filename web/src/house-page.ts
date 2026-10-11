@@ -94,6 +94,9 @@ $("deposit-btn").onclick = async () => {
     const d = await prepareDeposit([gw], S.app, session, payout, AMOUNT, true);
     link = d.link;
     sessionUa = d.session.ua;
+    // Deposits from before this link (e.g. from the two-player page, which shares the
+    // session) are not part of this game: list only those from here on.
+    localStorage.setItem(K("since"), String(d.app.tip));
     localStorage.setItem(K("link"), link);
     localStorage.setItem(K("ua"), sessionUa);
     showLink();
@@ -129,12 +132,13 @@ async function pollDeposits() {
       const z = await house(`/ztx/${fundTx}`).catch(() => null);
       items.push(`<li class="wait">the house sent 0.01 TAZ to your session address <span class="badge">zcash</span> <code>${fundTx.slice(0, 16)}…</code> ${z?.height ? `in block ${z.height}` : "waiting for a block"}</li>`);
     }
-    for (const d of deposits.slice(-3)) {
+    const since = Number(localStorage.getItem(K("since")) ?? 0);
+    for (const d of deposits.filter((x) => x.height >= since).slice(-3)) {
       const need = app.early_depth;
       const conf = Math.min(d.confirmations, need);
       items.push(`<li>payment seen: ${zec(d.value)} in block ${d.height} <span class="badge">zcash</span> ${d.txid ? `<code>${d.txid.slice(0, 16)}…</code>` : ""}</li>`);
-      if (d.state === "credited") items.push(`<li>credited to your balance on the Solana ledger (after ${need} blocks)</li>`);
-      else if (d.state === "seen") items.push(`<li class="wait">waiting for confirmations: ${conf} of ${need}</li>`);
+      if (d.state === "credited") items.push(`<li>credited to your balance on the Solana ledger</li>`);
+      else if (d.state === "seen") items.push(`<li class="wait">waiting for confirmations: ${conf} of ${need} (about ${Math.max(1, need - conf) * 25} s)</li>`);
       else items.push(`<li class="err">${d.state}: ${d.state === "held" ? "an operator will look at it" : "it will be refunded to your address"}</li>`);
     }
     $("deposit-timeline").innerHTML = items.join("");
@@ -209,7 +213,7 @@ async function flipIfReady() {
   try {
     const potId = Uint8Array.from(Buffer.from(game.id, "hex"));
     const sig = await sendTx(er, [cf.flip(me, potId, new PublicKey(S.vrfQueue), crypto.getRandomValues(new Uint8Array(32)))], session.keypair);
-    localStorage.setItem(K(`flipped:${game.id}`), sig);
+    localStorage.setItem(K(`flipped:${game.id}`), JSON.stringify({ sig, t: new Date().toISOString().slice(11, 19) }));
   } catch (e) {
     showError(e); // the house flips for you after a minute anyway
   } finally {
@@ -227,10 +231,12 @@ function eventLi(e: any) {
 const PAYOUT_STEPS = /^(settlement|paid on Zcash|final)/;
 function render() {
   if (!game) return renderButtons();
-  const flipSig = localStorage.getItem(K(`flipped:${game.id}`));
+  // Stored as {sig, t}; earlier versions stored the bare signature.
+  const flipRaw = localStorage.getItem(K(`flipped:${game.id}`));
+  const flip: { sig: string; t: string } | null = !flipRaw ? null : flipRaw.startsWith("{") ? JSON.parse(flipRaw) : { sig: flipRaw, t: "" };
   // Retries are the house's business; the player sees the steps.
   const evs = game.events.filter((e: any) => !e.step.startsWith("retrying"));
-  if (flipSig) evs.splice(evs.findIndex((e: any) => e.step.startsWith("table in the")) + 1, 0, { step: "you flipped the coin; the VRF picks heads or tails", t: "", chain: "rollup", sig: flipSig });
+  if (flip) evs.splice(evs.findIndex((e: any) => e.step.startsWith("table in the")) + 1, 0, { step: "you flipped the coin; the VRF picks heads or tails", t: flip.t, chain: "rollup", sig: flip.sig });
   $("game-timeline").innerHTML = evs.filter((e: any) => !PAYOUT_STEPS.test(e.step)).map(eventLi).join("")
     + (game.state === "in_rollup" ? '<li class="wait">flipping…</li>' : LIVE.includes(game.state) ? '<li class="wait">working…</li>' : "");
   $("payout-timeline").innerHTML = evs.filter((e: any) => PAYOUT_STEPS.test(e.step)).map(eventLi).join("")
