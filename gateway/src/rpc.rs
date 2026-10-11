@@ -29,6 +29,10 @@ const SYSTEM: Pubkey = anchor_lang::pubkey!("11111111111111111111111111111111");
 const DEPOSIT_APP_OFFSET: usize = 8 + 32 + 1;
 /// Byte offset of `Settlement.app`.
 const SETTLEMENT_APP_OFFSET: usize = 8;
+/// An answer whose slot is this far behind the newest slot this client has seen comes
+/// from a lagging RPC backend and is refused (about 2 min). Load-balanced providers were
+/// seen serving one backend stuck ~70 min behind (Helius devnet, 2026-10-11).
+pub const MAX_SLOT_LAG: u64 = 300;
 
 pub struct RpcLedger {
     url: String,
@@ -40,6 +44,8 @@ pub struct RpcLedger {
     /// Commitment a sent transaction must reach before `submit_*` returns.
     pub send_commitment: &'static str,
     pub timeout: Duration,
+    /// Newest slot seen in any answer: older answers are refused (`MAX_SLOT_LAG`).
+    seen_slot: std::sync::atomic::AtomicU64,
 }
 
 fn rpc_err(e: impl std::fmt::Display) -> LedgerError {
@@ -56,6 +62,7 @@ impl RpcLedger {
             network,
             send_commitment: "finalized",
             timeout: Duration::from_secs(90),
+            seen_slot: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -88,8 +95,19 @@ impl RpcLedger {
         unreachable!("the last attempt returns")
     }
 
+    /// Refuses an answer from a backend that is behind what this client already saw.
+    fn fresh(&self, method: &str, slot: Option<u64>) -> Result<()> {
+        let Some(slot) = slot else { return Err(rpc_err(format!("{method}: answer has no context slot"))) };
+        let newest = self.seen_slot.fetch_max(slot, std::sync::atomic::Ordering::SeqCst).max(slot);
+        if slot + MAX_SLOT_LAG < newest {
+            return Err(rpc_err(format!("{method}: stale answer from a lagging RPC backend (slot {slot}, {} behind)", newest - slot)));
+        }
+        Ok(())
+    }
+
     fn account_data(&self, key: &Pubkey) -> Result<Option<Vec<u8>>> {
         let r = self.call("getAccountInfo", json!([key.to_string(), {"encoding": "base64", "commitment": "finalized"}]))?;
+        self.fresh("getAccountInfo", r["context"]["slot"].as_u64())?;
         if r["value"].is_null() {
             return Ok(None);
         }
@@ -110,14 +128,16 @@ impl RpcLedger {
             json!([zol_ledger::ID.to_string(), {
                 "encoding": "base64",
                 "commitment": "finalized",
+                "withContext": true,
                 "filters": [
                     {"memcmp": {"offset": 0, "bytes": bs58::encode(T::DISCRIMINATOR).into_string()}},
                     {"memcmp": {"offset": app_offset, "bytes": app.to_string()}}
                 ]
             }]),
         )?;
+        self.fresh("getProgramAccounts", r["context"]["slot"].as_u64())?;
         let mut out = Vec::new();
-        for a in r.as_array().ok_or_else(|| rpc_err("not an array"))? {
+        for a in r["value"].as_array().ok_or_else(|| rpc_err("not an array"))? {
             let d = B64.decode(a["account"]["data"][0].as_str().unwrap_or_default()).map_err(rpc_err)?;
             out.push(T::try_deserialize(&mut &d[..]).map_err(rpc_err)?);
         }
@@ -198,6 +218,7 @@ impl Ledger for RpcLedger {
     }
     fn now(&self) -> Result<i64> {
         let slot = self.call("getSlot", json!([{"commitment": "finalized"}]))?;
+        self.fresh("getSlot", slot.as_u64())?;
         let t = self.call("getBlockTime", json!([slot]))?;
         t.as_i64().ok_or_else(|| rpc_err("no block time"))
     }
@@ -323,5 +344,35 @@ mod rate_limit_tests {
         let l = RpcLedger::new(&url, Keypair::new(), [0; 32], 2);
         let e = l.call("getSlot", json!([])).unwrap_err().to_string();
         assert!(e.contains("429"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod freshness_tests {
+    use super::*;
+
+    /// A stub that answers getAccountInfo from the given context slots in turn.
+    fn stub(slots: Vec<u64>) -> String {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+        std::thread::spawn(move || {
+            for (req, slot) in server.incoming_requests().zip(slots) {
+                let body = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":{slot}}},"value":null}}}}"#);
+                req.respond(tiny_http::Response::from_string(body)).unwrap();
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn answers_from_a_lagging_backend_are_refused() {
+        let l = RpcLedger::new(&stub(vec![1_000, 1_100, 500, 1_200, 1_000]), Keypair::new(), [0; 32], 2);
+        let key = Pubkey::new_unique();
+        assert!(l.account_data(&key).is_ok()); // 1,000
+        assert!(l.account_data(&key).is_ok()); // 1,100
+        let e = l.account_data(&key).unwrap_err().to_string(); // 500: 600 behind
+        assert!(e.contains("stale answer"), "{e}");
+        assert!(l.account_data(&key).is_ok()); // 1,200
+        assert!(l.account_data(&key).is_ok()); // 1,000: 200 behind, within the allowance
     }
 }

@@ -7,6 +7,7 @@
 //!   devnet set-cap  --admin <keypair.json> --cap <zat>
 //!   devnet settle   --payer <keypair.json> <session b58>...   (balances must have requested exit)
 //!   devnet settlement <seq>
+//!   devnet unfreeze --payer <keypair.json> --guardians <g1.json,g2.json>   (a threshold of guardians)
 //!   devnet status
 //!
 //! Testnet parameters: production timings (1 h activation delay, 3,900 s refund grace),
@@ -173,6 +174,17 @@ fn main() {
             let a: st::App = load(&url(), &app_pda());
             println!("{}", json!({"seq": seq, "state": format!("{:?}", s.state), "total": s.total,
                 "app": {"credited_total": a.credited_total, "liability": a.liability, "fee_pool": a.fee_pool, "unpaid_total": a.unpaid_total, "paid_count": a.paid_count}}));
+        }
+        "unfreeze" => {
+            let payer = keypair(&arg("--payer"));
+            let guardians: Vec<Keypair> = arg("--guardians").split(',').map(keypair).collect();
+            let mut ix = ledger_ix(zol_ledger::accounts::UnfreezeApp { config: config_pda(), app: app_pda() }, zol_ledger::instruction::UnfreezeApp {});
+            for g in &guardians {
+                ix.accounts.push(solana_instruction::AccountMeta::new_readonly(g.pubkey(), true));
+            }
+            let mut signers: Vec<&Keypair> = vec![&payer];
+            signers.extend(guardians.iter());
+            run("unfreeze_app", &[ix], &signers);
         }
         "status" => {
             let u = url();
