@@ -301,3 +301,10 @@ Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, fro
   - **A 0.1 TAZ two-player win** (about 19.9M) needs large notes, or consolidation. Otherwise the planner can't fund it and the payout waits.
 - **Consolidation** merges up to 3 notes into the head per transaction, at most once an hour, paid from the fee pool (20,000 zat each). The trial now consolidates at **6** spendable notes (it was 16); it limits itself as the note count drops.
 - **Follow-up (planner):** pick a larger padded size when the head plus `size − 1` notes don't cover the payouts. Every operator must derive the same plan, so it needs tests across operators.
+
+### Testnet depths (2026-10-11): early 3, full 60, payout 60
+
+- **The float caps early credits.** Before full depth, credits must fit the vault's float (the genesis float, 5,000,000 here). At 300 blocks (about 2 h) for full depth, five 0.01 TAZ deposits within two hours (bankroll top-ups plus tests) used the whole float. A player's sixth deposit then waited about 75 minutes.
+- **Full and payout depth are now 60 blocks (about 25 min) on the trial.** Credits stop being "early" sooner, and settlements are marked paid sooner.
+- **Trade-off:** a Zcash reorg deeper than 60 blocks would undo funds already treated as final. That's acceptable on testnet; mainnet keeps 300.
+- **Rate limits:** the guardian's full reconciliation now runs every 4th poll (`guard_every`, `c598a08`), which roughly halved the droplet's rate-limited RPC calls. A dedicated, verified Solana devnet RPC is still the proper fix.
