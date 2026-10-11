@@ -286,7 +286,9 @@ async function deposit(amount: bigint) {
       if (c.bound && !c.matches) throw new Error("This player already cashes out to a different address. Enter the one you used before.");
       localStorage.setItem(payoutKey(), addr);
     }
-    const d = await prepareDeposit([gw], S.app, session!, addr, amount, false);
+    // Register with every operator (the app lists them), not only the one this page talks to.
+    const gws = app.operators?.length ? app.operators.map((u) => new Gateway(u)) : [gw];
+    const d = await prepareDeposit(gws, S.app, session!, addr, amount, false);
     localStorage.setItem(K("since"), String(d.app.tip));
     localStorage.setItem(K("link"), d.link);
     localStorage.setItem(K("ua"), d.session.ua);

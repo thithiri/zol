@@ -10,3 +10,4 @@ spikes/**/*-keypair.json
 web/dist/
 web/dist-house/
 __pycache__/
+web/zol-session.json

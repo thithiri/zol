@@ -22,7 +22,9 @@ export interface PreparedDeposit {
 /**
  * Every operator decides from its own scan, so each needs the registered memo: a deposit
  * whose wallet dropped the memo is credited only if a threshold of operators hold the
- * intent (gateways do not share intents). `gws` is every operator's page API.
+ * intent. An operator passes an accepted intent on to its peers (best effort, in the
+ * background), so registering with every operator directly is the reliable way. `gws` is
+ * every operator's page API.
  */
 export async function prepareDeposit(
   gws: Gateway | Gateway[], appProgram: string, s: Session, payoutInput: string, amountZat: bigint, autoExit = false,

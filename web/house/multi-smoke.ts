@@ -11,10 +11,12 @@ import { prepareDeposit } from "../src/deposit";
 import { hex, sessionFromSeed, type Session } from "../src/session";
 import { Coinflip, decodeBalance, decodePot, decodeTable, sendTx } from "../src/chain";
 
+// The web app's Vite config blanks `process.env` for the browser; read the real one.
+const ENV: Record<string, string | undefined> = (globalThis as any).process.env;
 const root = new URL("../..", import.meta.url).pathname;
-const HOST = process.env.HOST ?? "https://159-223-38-126.sslip.io";
+const HOST = ENV.HOST ?? "https://159-223-38-126.sslip.io";
 const APP = "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo";
-const ZCASHD = process.env.ZCASHD ?? "http://127.0.0.1:28300";
+const ZCASHD = ENV.ZCASHD ?? "http://127.0.0.1:28300";
 const base = new Connection("https://api.devnet.solana.com", "confirmed");
 const er = new Connection("https://devnet-as.magicblock.app", "confirmed");
 const QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
@@ -55,8 +57,8 @@ out({ step: "player", session: me.toBase58() });
 
 // Deposit 0.01 TAZ without auto-exit: the balance stays on the ledger between flips.
 // DEPOSITS deposits of 0.01 TAZ (default 2, so a cash-out remains even if the house wins a round).
-const DEPOSITS = Number(process.env.DEPOSITS ?? 2);
-const FLIPS = Number(process.env.FLIPS ?? 1);
+const DEPOSITS = Number(ENV.DEPOSITS ?? 2);
+const FLIPS = Number(ENV.FLIPS ?? 1);
 const t0 = Date.now();
 for (let i = 0; i < DEPOSITS; i++) {
   const d = await prepareDeposit([new Gateway(`${HOST}/op0`)], APP, p, funding.ua, 1_000_000n, false);

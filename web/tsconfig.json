@@ -22,6 +22,7 @@
     "src",
     "test",
     "house",
+    "examples",
     "vite.config.ts"
   ],
   "exclude": [
