@@ -76,6 +76,11 @@ pub struct ServeConfig {
     pub epoch_secs: i64,
     #[serde(default = "default_poll")]
     pub poll_ms: u64,
+    /// Run the guardian's full reconciliation every this many polls. It makes the heaviest
+    /// ledger reads (every deposit, `getProgramAccounts`); credits and payouts still run
+    /// every poll. A freeze still needs two failing reconciliations in a row.
+    #[serde(default = "default_guard_every")]
+    pub guard_every: u64,
     /// Commitment a relayed transaction must reach ("confirmed" or "finalized").
     #[serde(default = "default_commitment")]
     pub send_commitment: String,
@@ -86,6 +91,9 @@ fn default_epoch() -> i64 {
 }
 fn default_poll() -> u64 {
     1_000
+}
+fn default_guard_every() -> u64 {
+    4
 }
 fn default_commitment() -> String {
     "confirmed".into()
@@ -194,8 +202,11 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
         let mut ledger = ledger(&cfg, attestor)?;
         let seed = *guardian.secret_bytes();
         std::thread::spawn(move || {
+            let mut n: u64 = 0;
             while !stop.load(Ordering::SeqCst) {
-                if let Err(e) = tick(&cfg, &local, &mut ledger, &pubkeys, &seed) {
+                let guard = n.is_multiple_of(cfg.guard_every.max(1));
+                n += 1;
+                if let Err(e) = tick(&cfg, &local, &mut ledger, &pubkeys, &seed, guard) {
                     eprintln!("[{}] tick: {e}", cfg.name);
                 }
                 std::thread::sleep(Duration::from_millis(cfg.poll_ms));
@@ -210,7 +221,7 @@ pub fn coordinator_at(order: &[String], epoch_secs: i64, now: i64) -> usize {
     ((now / epoch_secs.max(1)) as usize) % order.len().max(1)
 }
 
-fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: &PublicKeyPackage, seed: &[u8; 32]) -> Result<(), BoxErr> {
+fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: &PublicKeyPackage, seed: &[u8; 32], guard: bool) -> Result<(), BoxErr> {
     let now = now_secs();
     // Keep this operator current.
     {
@@ -218,8 +229,10 @@ fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: 
         g.pull(now).map_err(|e| e.to_string())?;
         g.node.check_stall(now).map_err(|e| e.to_string())?;
         g.refresh_heads(ledger).map_err(|e| e.to_string())?;
-        for a in g.node.guard(ledger).map_err(|e| e.to_string())? {
-            eprintln!("[{}] guard: {a:?}", cfg.name);
+        if guard {
+            for a in g.node.guard(ledger).map_err(|e| e.to_string())? {
+                eprintln!("[{}] guard: {a:?}", cfg.name);
+            }
         }
     }
     // Peers in rotation order; this host is a SharedPeer, the rest are remote.

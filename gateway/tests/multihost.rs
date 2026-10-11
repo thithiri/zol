@@ -206,6 +206,7 @@ fn three_hosts_over_authenticated_http() {
             order: names.iter().map(|s| s.to_string()).collect(),
             epoch_secs: 8,
             poll_ms: 400,
+            guard_every: 1,
             send_commitment: "confirmed".into(),
         };
         handles.push(Some(serve::start(cfg).unwrap()));
