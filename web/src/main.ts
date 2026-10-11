@@ -34,7 +34,11 @@ const DEFAULTS: Settings = {
   validator: env.VITE_VALIDATOR ?? "",
   feePayer: "",
 };
-const settings: Settings = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("zol:settings") ?? "{}") };
+const stored = JSON.parse(localStorage.getItem("zol:settings") ?? "{}");
+// Saved settings hold every field; drop a base RPC that is only the old public default,
+// so a new default (the operators' rate-limit-free proxy) takes effect.
+if (stored.baseRpc === "https://api.devnet.solana.com") delete stored.baseRpc;
+const settings: Settings = { ...DEFAULTS, ...stored };
 const save = () => localStorage.setItem("zol:settings", JSON.stringify(settings));
 
 // ---------------------------------------------------------------- state
@@ -271,4 +275,5 @@ void loadStakes();
 void refresh();
 void pollDeposits();
 setInterval(pollDeposits, 5000);
-setInterval(refresh, 2000);
+// Solana reads: every 20 s (each action also refreshes at once), to stay inside RPC rate limits.
+setInterval(refresh, 20_000);

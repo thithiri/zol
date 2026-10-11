@@ -271,3 +271,7 @@ $D status
   - the Zakura config, the Caddyfile and the systemd units.
 
   It's encrypted with `age` to the recipient in `/etc/zol/backup-recipient.txt`. **The identity is not on the host:** it's `keys/backup/age-identity.txt` on the developer's Mac. Keep a second copy of it in a password manager. Restore with `age -d -i age-identity.txt zol-….tar.age | tar -x -C /`, then rename each `gateway.db.backup` to `gateway.db`.
+
+### The page's Solana RPC
+
+Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, from two windows on one IP. So Caddy serves `/solana` as a reverse proxy to Helius, adding the API key server-side (`rewrite * /?api-key=…`, both HTTP and WebSocket). The page is built with `VITE_BASE_RPC=https://<host>/solana`, and it now refreshes its Solana reads every 20 s, plus right after each action. The Caddyfile holds the key, so it is `root:caddy 0640`. Anyone can use the proxy to spend the trial's Helius credits; that's acceptable for a trial. Before a public launch it needs method filtering and rate limits.
