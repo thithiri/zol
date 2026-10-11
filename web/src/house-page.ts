@@ -106,7 +106,9 @@ $("fund-btn").onclick = async () => {
   const b = $<HTMLButtonElement>("fund-btn");
   b.disabled = true;
   try {
-    const memo = link ? Buffer.from(new URL(link.replace("zcash:", "zcash://x/")).searchParams.get("memo") ?? "", "base64url").toString("utf8") : undefined;
+    // The browser Buffer polyfill has no "base64url": map it to standard base64 first.
+    const b64url = link ? new URL(link.replace("zcash:", "zcash://x/")).searchParams.get("memo") ?? "" : "";
+    const memo = b64url ? Buffer.from(b64url.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8") : undefined;
     const r = await house<{ txid: string }>("/fund", { session: hex(session.publicKey), ...(memo?.startsWith("ZOL1:") ? { memo } : {}) });
     localStorage.setItem(K("fundtx"), r.txid);
     void pollDeposits();
