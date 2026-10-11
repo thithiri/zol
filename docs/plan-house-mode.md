@@ -88,6 +88,7 @@ and the float can be topped up. Mainnet keeps the full depths.
 
 | # | Task | Where | Size |
 | --- | --- | --- | --- |
+| H0 | **Float accounting:** don't count, as claims, settlements the walked head chain already shows as paid. The head shrinks at payout, but `unpaid_total` drops only at `mark_paid`, about 2 h later, so every payout is counted twice for 2 h and early credits stall. Reorg-consistent: if the payout disappears, the head chain reverts too | `gateway::reconcile::compute_reserve` | S |
 | H1 | House session key, bankroll deposits (20 × 0.01 TAZ from the funding wallet) and bankroll monitoring in `zol-status` | ops, `zol-status` | S |
 | H2 | `zol-house` service: game queue, create, seat, start, finish, cash out, close and settle; limits; restart-safe state (SQLite) | new `house/` (TS, reuses `web/src/chain.ts`) | L |
 | H3 | `POST /house/cosign`: allow-listed fee sponsoring of the player's own transactions | `house/` | M |
@@ -99,7 +100,7 @@ and the float can be topped up. Mainnet keeps the full depths.
 | H9 | Tests: house service against the local stack (the zcash-leg harness), cosign allow-list (rejects anything else), page flow in the e2e script | tests | M |
 | H10 | Docs: player guide (one page), operator notes for the house (bankroll, limits, refills) | docs | S |
 
-**Order:** H6 and H1 first, since they're quick and make today's page faster. Then H2, H3 and H4.
+**Order:** H0, H6 and H1 first, since they're quick and make today's page faster. Then H2, H3 and H4.
 Then H5 and H7, then H9. H8 can run in parallel once H5 is up. **Estimate:** about 2–3 days of
 focused work. H2 and H5 are most of it.
 

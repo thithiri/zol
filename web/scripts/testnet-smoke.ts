@@ -141,10 +141,11 @@ const seq = JSON.parse(s.trim().split("\n").at(-1)!).settlement as number;
 const genesis = JSON.parse(execFileSync(DEVNET, ["status"]).toString().trim().split("\n")[1]).genesis_head as string;
 const appHex = Buffer.from(new PublicKey(APP).toBytes()).toString("hex");
 const t0 = Date.now();
-const head = await until("payout on Zcash (head transition)", 3600, async () => {
+// The head link whose paid_count passes this settlement's sequence is the transition that pays it.
+const head = await until(`payout of settlement ${seq} on Zcash`, 3600, async () => {
   const h = await http(`${ZCASHD}/head?app=${appHex}&genesis=${genesis}`);
-  return h.chain?.length > 1 ? h : null;
+  return h.chain?.some((l: any) => l.paid_count > seq) ? h : null;
 }, 20_000);
-const link = head.chain.at(-1);
+const link = head.chain.find((l: any) => l.paid_count > seq);
 out({ step: "payout mined on Zcash", min: ((Date.now() - t0) / 60000).toFixed(1), height: link.height, head_value: link.value, paid_count: link.paid_count, fault: head.fault ?? null });
 out({ step: "next", note: `mark_paid follows at payout depth (300 blocks, about 2 h): ${DEVNET} settlement ${seq}` });

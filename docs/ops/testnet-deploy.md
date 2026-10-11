@@ -275,3 +275,15 @@ $D status
 ### The page's Solana RPC
 
 Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, from two windows on one IP. So Caddy serves `/solana` as a reverse proxy to Helius, adding the API key server-side (`rewrite * /?api-key=…`, both HTTP and WebSocket). The page is built with `VITE_BASE_RPC=https://<host>/solana`, and it now refreshes its Solana reads every 20 s, plus right after each action. The Caddyfile holds the key, so it is `root:caddy 0640`. Anyone can use the proxy to spend the trial's Helius credits; that's acceptable for a trial. Before a public launch it needs method filtering and rate limits.
+
+### Second and third games (2026-10-11)
+
+- **From the page, two browser sessions (settlement 1).** The game exposed several page problems:
+  - an unfunded session key as the fee payer made joins expire silently;
+  - the creator wasn't seated;
+  - buttons were enabled out of order.
+
+  These are fixed in `312f1d7`: preflight, rebroadcast, a fee-payer check, auto-seat, state-gated buttons, and exit-and-settle in one transaction. The payout was mined about 3 minutes after the settle.
+- **The smoke script, with preflight and rebroadcast (settlement 2).**
+  - **Credit, waiting on the float:** p1's credit waited 56 min. Early credits must fit the remaining float, and a payout still waiting for `mark_paid` is counted twice: out of the head and as an unpaid claim, for about 2 h. That's conservative, but it throttles frequent payouts; see the float fix in [plan-house-mode.md](../plan-house-mode.md).
+  - **Payout from deposit notes:** the head (1,023,964) was below the payout (1,968,018), so the planner added a deposit note as an input. That worked, and the new head is 35,946. Consolidation folds deposit notes back into the head.
