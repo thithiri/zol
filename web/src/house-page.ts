@@ -11,7 +11,7 @@ import { prepareDeposit } from "./deposit";
 import { exportSession, hex, isBackedUp, markBackedUp, readSession, restoreSession, sessionKind, storeSession, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
 import { Coinflip, decodeBalance, sendTx } from "./chain";
-import { createPasskeySeed, passkeysAvailable, seedFromPasskey } from "./passkey";
+import { createPasskeySeed, NO_PRF_HELP, passkeysAvailable, prfSupported, seedFromPasskey } from "./passkey";
 
 const env = (import.meta as any).env ?? {};
 const S = {
@@ -58,7 +58,15 @@ async function begin(f: () => Promise<Session>) {
     session = await f();
     boot();
   } catch (e) {
-    showError(e);
+    const msg = String((e as any)?.message ?? e);
+    if (msg === NO_PRF_HELP) {
+      // Show the advice where the buttons are, and open the backup-key option.
+      $("pk-help").textContent = msg;
+      $("pk-help").hidden = false;
+      (document.querySelector("#start details") as HTMLDetailsElement).open = true;
+    } else {
+      showError(e);
+    }
   }
 }
 $("pk-new").onclick = () => begin(async () => storeSession(S.app, await createPasskeySeed(S.app), localStorage, "passkey"));
@@ -403,9 +411,14 @@ function boot() {
 if (session) boot();
 else {
   $("start").hidden = false;
-  if (!passkeysAvailable()) {
-    $("pk-new").hidden = true;
-    $("pk-login").hidden = true;
-    (document.querySelector("#start details") as HTMLDetailsElement).open = true;
-  }
+  void prfSupported().then((ok) => {
+    if (!passkeysAvailable() || ok === false) {
+      // This browser says its passkeys can't hold a player key: lead with the backup key.
+      $("pk-help").textContent = passkeysAvailable()
+        ? "This browser's passkeys can't hold a player key. Use a backup key, or open this page in Safari, or in Chrome signed in to Google Password Manager."
+        : "This browser has no passkeys. Use a backup key.";
+      $("pk-help").hidden = false;
+      (document.querySelector("#start details") as HTMLDetailsElement).open = true;
+    }
+  });
 }

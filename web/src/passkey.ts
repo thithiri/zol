@@ -30,6 +30,26 @@ export function passkeysAvailable(): boolean {
   return typeof window !== "undefined" && !!window.PublicKeyCredential && !!navigator.credentials;
 }
 
+/**
+ * Whether this browser says its passkeys can derive keys (PRF). `null` when it can't tell
+ * (older browsers): only trying shows it. Support depends on where the passkey is saved:
+ * Google Password Manager (Chrome 132+, signed in), iCloud Keychain (Safari 18+, iOS 18+),
+ * Android, a phone via QR code, 1Password. Chrome's local profile and some managers don't.
+ */
+export async function prfSupported(): Promise<boolean | null> {
+  try {
+    const caps = await (PublicKeyCredential as any).getClientCapabilities?.();
+    if (!caps || !("extension:prf" in caps)) return null;
+    return !!caps["extension:prf"];
+  } catch {
+    return null;
+  }
+}
+
+/** Plain advice when a passkey can't derive the player key. */
+export const NO_PRF_HELP =
+  "Your passkey was saved where it can't hold a player key (no PRF support). Try saving it to Google Password Manager (Chrome, signed in), iCloud Keychain (Safari), or your phone (choose \"use a phone or tablet\" and scan the QR code). Or use a backup key below. You can delete the passkey just created in your password manager.";
+
 const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b as ArrayBuffer)));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -52,7 +72,7 @@ export async function seedFromPasskey(app: string, credentialId?: string): Promi
   })) as PublicKeyCredential | null;
   if (!cred) throw new Error("no passkey chosen");
   const prf = prfFirst(cred);
-  if (!prf) throw new Error("this passkey or browser does not support the PRF extension; use a backup key instead");
+  if (!prf) throw new Error(NO_PRF_HELP);
   localStorage.setItem(CRED_KEY(app), b64(cred.rawId));
   return seedFromPrf(app, prf);
 }
@@ -71,7 +91,7 @@ export async function createPasskeySeed(app: string): Promise<Uint8Array> {
   })) as PublicKeyCredential | null;
   if (!cred) throw new Error("passkey not created");
   const ext: any = cred.getClientExtensionResults();
-  if (ext?.prf?.enabled === false) throw new Error("this browser or password manager can't derive keys from passkeys (no PRF); use a backup key instead");
+  if (ext?.prf?.enabled === false) throw new Error(NO_PRF_HELP);
   localStorage.setItem(CRED_KEY(app), b64(cred.rawId));
   // Some platforms return the PRF output at creation; most need one more prompt.
   const prf = prfFirst(cred);
