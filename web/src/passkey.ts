@@ -48,7 +48,7 @@ export async function prfSupported(): Promise<boolean | null> {
 
 /** Plain advice when a passkey can't derive the player key. */
 export const NO_PRF_HELP =
-  "Your passkey was saved where it can't hold a player key (no PRF support). Try saving it to Google Password Manager (Chrome, signed in), iCloud Keychain (Safari), or your phone (choose \"use a phone or tablet\" and scan the QR code). Or use a backup key below. You can delete the passkey just created in your password manager.";
+  "Your passkey was saved where it can't hold a player key (no PRF support). Try saving it to Google Password Manager (Chrome, signed in), iCloud Keychain (Safari), or your phone (choose \"use a phone or tablet\" and scan the QR code). Or use a session key below. You can delete the passkey just created in your password manager.";
 
 const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b as ArrayBuffer)));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

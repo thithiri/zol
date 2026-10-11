@@ -14,7 +14,6 @@
     .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
     .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 22px; line-height: 1; padding: 4px 8px; color: var(--muted); }
     .panel-title { font-weight: 650; margin: 0 0 8px; }
-    .coin svg { width: 104px; height: 104px; }
     button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 6px; }
     .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
     .center { text-align: center; }
@@ -27,8 +26,9 @@
     code { word-break: break-all; font-size: 12px; }
     .balance { font-size: 40px; font-weight: 750; letter-spacing: -0.5px; margin: 4px 0 0; }
     .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    .coin { width: 150px; height: 150px; margin: 10px auto 6px; border-radius: 50%; display: grid; place-items: center; font-size: 46px; font-weight: 800;
-      background: radial-gradient(circle at 35% 30%, #ffe7a3, #e8a317 60%, #a86d05); color: #6d4300; box-shadow: inset 0 -6px 0 rgba(0,0,0,.15), 0 6px 18px rgba(0,0,0,.18); user-select: none; }
+    /* The coin is drawn as one SVG (milled edge, rim, engraved ring, struck face). */
+    .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
+    .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
     .coin.spin { animation: spin .6s linear infinite; }
     @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
     .status { min-height: 26px; font-weight: 600; }
@@ -52,8 +52,8 @@
     <p id="pk-help" class="small err" hidden></p>
     <p class="small muted">Your passkey (Face ID, Touch ID, your password manager) holds your player key, on every device it syncs to. Nothing to write down.</p>
     <details><summary>No passkey?</summary>
-      <p class="small muted">Use a player key kept in this browser, with a backup string you must save.</p>
-      <button id="nopk-new">Use a backup key</button>
+      <p class="small muted">Use a session key kept in this browser. You must save it.</p>
+      <button id="nopk-new">Use a session key</button>
       <p class="small muted">Or restore one:</p>
       <input id="restore-text" placeholder="zolsess1:…" /><button id="restore-go">Restore</button>
     </details>
@@ -127,7 +127,7 @@
           <li>Cash-outs go only to the address you gave at your first deposit: the ledger fixes it, and the operators can't send it elsewhere.</li>
         </ul>
       </details>
-      <div class="small muted" style="margin-top:8px">Player key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show backup</button> <button id="logout-btn" class="link">switch player</button></div>
+      <div class="small muted" style="margin-top:8px">Session key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show session key</button> <button id="logout-btn" class="link">switch player</button></div>
       <div id="backup-out" class="small" hidden><code id="backup-text"></code><br /><button id="backup-done" class="link">I saved it</button></div>
     </section>
 

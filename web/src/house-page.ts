@@ -61,10 +61,26 @@ const flowerSvg = (petal: string, heart: string) =>
   `<svg viewBox="0 0 100 100" aria-label="Zakura flower tails"><g transform="translate(50 50)">
     ${[0, 72, 144, 216, 288].map((a) => `<path transform="rotate(${a})" d="M0 -6 C-14 -14 -16 -32 -6 -40 L0 -34 L6 -40 C16 -32 14 -14 0 -6Z" fill="${petal}"/>`).join("")}
     <circle r="8" fill="${heart}"/></g></svg>`;
-const FACE = { H: zSvg("#6d4300"), T: flowerSvg("#f7b6cf", "#c2185b") };
+const FACE = { H: zSvg("#5c3900"), T: flowerSvg("#1b1b1b", "#e8a317") };
 const ICON = { H: zSvg("currentColor"), T: flowerSvg("currentColor", "currentColor") };
+/** A whole coin around a face: milled edge, raised rim, engraved ring, a struck look. */
+function coinSvg(inner: string) {
+  const notches = Array.from({ length: 90 }, (_, i) => `<rect x="-1.3" y="-80" width="2.6" height="7" rx="1" transform="rotate(${i * 4})" fill="#e7b04a"/>`).join("");
+  return `<svg viewBox="-80 -80 160 160" aria-hidden="true">
+    <defs>
+      <radialGradient id="cf" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff0c0"/><stop offset=".35" stop-color="#f0bd45"/><stop offset=".75" stop-color="#d2901a"/><stop offset="1" stop-color="#a86a08"/></radialGradient>
+      <linearGradient id="cr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbe08f"/><stop offset=".5" stop-color="#cf8d16"/><stop offset="1" stop-color="#8f5a05"/></linearGradient>
+    </defs>
+    <circle r="80" fill="#8e5905"/>${notches}
+    <circle r="72" fill="url(#cr)"/>
+    <circle r="64" fill="url(#cf)"/>
+    <circle r="59" fill="none" stroke="#9a6206" stroke-opacity=".55" stroke-width="1.6"/>
+    <circle r="57.5" fill="none" stroke="#fff3c9" stroke-opacity=".55" stroke-width="1"/>
+    <g transform="translate(-44 -44) scale(.88)">${inner}</g>
+  </svg>`;
+}
 function face(f: "H" | "T") {
-  $("coin").innerHTML = FACE[f];
+  $("coin").innerHTML = coinSvg(FACE[f].replace("<svg ", '<svg width="100" height="100" '));
 }
 $("ico-heads").innerHTML = ICON.H.replace("<svg ", '<svg class="ico" ');
 $("ico-tails").innerHTML = ICON.T.replace("<svg ", '<svg class="ico" ');
@@ -98,7 +114,7 @@ $("pk-login").onclick = () => begin(async () => storeSession(S.app, await seedFr
 $("nopk-new").onclick = () => begin(async () => storeSession(S.app, crypto.getRandomValues(new Uint8Array(32)), localStorage, "backup"));
 $("restore-go").onclick = () => begin(async () => restoreSession(S.app, $<HTMLInputElement>("restore-text").value, localStorage));
 $("logout-btn").onclick = () => {
-  if (!confirm("Switch player? You can come back with your passkey, or with this player's backup string.")) return;
+  if (!confirm("Switch player? You can come back with your passkey, or with this player's session key.")) return;
   localStorage.removeItem(`zol:session:${S.app}`);
   location.reload();
 };
@@ -114,7 +130,7 @@ $("backup-done").onclick = () => {
 function renderKey() {
   const kind = sessionKind(S.app, localStorage);
   const ok = isBackedUp(S.app, session!, localStorage);
-  $("key-kind").innerHTML = kind === "passkey" ? "held by your passkey" : ok ? "backup string (saved)" : '<span class="err">backup string NOT saved yet</span>';
+  $("key-kind").innerHTML = kind === "passkey" ? "held by your passkey" : ok ? "saved" : '<span class="err">NOT saved yet</span>';
   $("backup-btn").hidden = kind === "passkey";
 }
 
@@ -193,7 +209,7 @@ async function deposit(amount: bigint) {
   try {
     if (sessionKind(S.app, localStorage) === "backup" && !isBackedUp(S.app, session!, localStorage)) {
       $("backup-btn").click();
-      throw new Error("Save your backup string first (below), then add funds");
+      throw new Error("Save your session key first (below), then deposit");
     }
     app ??= await gw.app(S.app);
     let addr = localStorage.getItem(payoutKey());
@@ -466,8 +482,8 @@ else {
     if (!passkeysAvailable() || ok === false) {
       // This browser says its passkeys can't hold a player key: lead with the backup key.
       $("pk-help").textContent = passkeysAvailable()
-        ? "This browser's passkeys can't hold a player key. Use a backup key, or open this page in Safari, or in Chrome signed in to Google Password Manager."
-        : "This browser has no passkeys. Use a backup key.";
+        ? "This browser's passkeys can't hold a player key. Use a session key, or open this page in Safari, or in Chrome signed in to Google Password Manager."
+        : "This browser has no passkeys. Use a session key.";
       $("pk-help").hidden = false;
       (document.querySelector("#start details") as HTMLDetailsElement).open = true;
     }
