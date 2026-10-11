@@ -10,7 +10,7 @@ import { Gateway, type AppInfo, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
 import { exportSession, hex, isBackedUp, markBackedUp, readSession, restoreSession, sessionKind, storeSession, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
-import { Coinflip, decodeBalance, decodePot, decodeTable, sendTx } from "./chain";
+import { Coinflip, decodeBalance, decodePot, decodePrice, decodeTable, sendTx, UPDOWN, ZEC_USD_FEED, type TableAcc } from "./chain";
 import { createPasskeySeed, NO_PRF_HELP, passkeysAvailable, prfSupported, seedFromPasskey } from "./passkey";
 
 const env = (import.meta as any).env ?? {};
@@ -152,6 +152,14 @@ let tableState = "";
 /** After a session closes, its seat until the ledger balance shows it (reads can lag). */
 let pending: { seat: bigint; before: bigint; t: number } | null = null;
 let busy = false;
+/** The game shown: a coin flip or ZEC Up/Down (remembered in this browser). */
+type Mode = "coinflip" | "updown";
+let mode: Mode = (() => { try { return localStorage.getItem("zol:house:mode") === "updown" ? "updown" : "coinflip"; } catch { return "coinflip"; } })();
+/** The table as the rollup last showed it, and the latest ZEC/USD price (8 decimals). */
+let lastTable: TableAcc | null = null;
+let price: bigint | null = null;
+const tableGame = (): Mode => (liveSession()?.game === "updown" ? "updown" : "coinflip");
+const usd = (p: bigint) => `$${(Number(p) / 1e8).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const SESSION_LIVE = ["awaiting_signature", "seated", "started", "in_rollup", "landed", "finishing", "returned", "cashed_out"];
 const liveSession = () => game && game.kind !== "withdraw" && SESSION_LIVE.includes(game.state) ? game : null;
@@ -172,16 +180,17 @@ async function pollBalance() {
   }
   render();
 }
+let houseNote = "";
 async function pollHouse() {
   try {
     const i = await house("/info");
     stake = BigInt(i.stake);
     minExit = BigInt(i.min_exit ?? 0);
     // A stake is a tenth of a 0.01 TAZ deposit after the entry fee: 0.000997, shown as 0.001.
-    $("stake-note").textContent = i.can_play || inRollup() ? `${(Number(stake) / 1e8).toFixed(3)} TAZ per flip` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
+    houseNote = i.can_play || inRollup() ? "" : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
   } catch {
     // Usually a rate-limited RPC on the operators' side: keep the last note, retry soon.
-    if (!stake) $("stake-note").textContent = "Connecting to the house…";
+    if (!stake) houseNote = "Connecting to the house…";
     setTimeout(() => void pollHouse(), 5_000);
   }
   render();
@@ -193,17 +202,31 @@ function render() {
   const n = stake > 0n ? total() / stake : 0n;
   $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} flip${n === 1n ? "" : "s"}' worth` : "deposit to play";
   const f = s?.flips ?? 0;
-  $("table-note").textContent = s && f > 0 ? `This table: ${s.wins ?? 0} won · ${f - (s.wins ?? 0)} lost${lastResults ? `  ${lastResults}` : ""}` : "";
-  // Heads and tails once the table is in the rollup; before that, one button that starts it.
-  const ready = inRollup();
-  for (const id of ["heads", "tails"]) $(id).hidden = !ready;
+  const won = s?.wins ?? 0, tied = s?.ties ?? 0;
+  $("table-note").textContent = s && f > 0
+    ? `This table: ${won} won · ${f - won - tied} lost${tied ? ` · ${tied} tied` : ""}${lastResults ? `  ${lastResults}` : ""}`
+    : "";
+  const perStake = `${(Number(stake) / 1e8).toFixed(3)} TAZ`;
+  $("stake-note").textContent = houseNote || (stake === 0n ? " " : mode === "updown" ? `${perStake} per bet · a right call pays 1.9×` : `${perStake} per flip`);
+  // The game's buttons once its table is in the rollup; before that, one button that starts it.
+  $("coin").hidden = mode !== "coinflip";
+  $("updown").hidden = mode !== "updown";
+  $("tab-coinflip").classList.toggle("on", mode === "coinflip");
+  $("tab-updown").classList.toggle("on", mode === "updown");
+  const ready = inRollup() && tableGame() === mode;
+  for (const id of ["heads", "tails"]) $(id).hidden = !(ready && mode === "coinflip");
+  for (const id of ["up-btn", "down-btn"]) $(id).hidden = !(ready && mode === "updown");
   const start = $<HTMLButtonElement>("start-table");
   start.hidden = ready;
   const closing = s && ["finishing", "returned", "cashed_out"].includes(s.state);
-  start.textContent = closing ? "Closing table…" : s || busy ? "Starting table…" : "Start table";
-  start.disabled = busy || !!s || stake === 0n || balance < stake || exiting;
+  const other = s && !closing && tableGame() !== mode;
+  start.textContent = closing ? "Closing table…" : other ? `Close your ${tableGame() === "updown" ? "Up/Down" : "coin-flip"} table` : s || busy ? "Starting table…" : "Start table";
+  start.disabled = busy || (!!s && !other) || stake === 0n || (!other && balance < stake) || exiting;
   const canFlip = ready && !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
   for (const id of ["heads", "tails"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !canFlip;
+  const win = (stake * (UPDOWN.payoutBps - 10_000n)) / 10_000n;
+  const canBet = ready && !s.stop && !lastTable?.bet.open && price !== null && seats![1] >= stake && seats![0] >= win;
+  for (const id of ["up-btn", "down-btn"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !canBet;
   $<HTMLButtonElement>("cashout-btn").disabled = busy || total() === 0n || !!localStorage.getItem(K("withdraw-live"));
 }
 
@@ -327,6 +350,7 @@ async function readRollup(id: string) {
   if (!ti || !pi) return null;
   const t = decodeTable(ti.data);
   const a = decodePot(pi.data).amounts;
+  lastTable = t;
   return { t, seats: [a[0], a[1]] as [bigint, bigint] };
 }
 
@@ -349,7 +373,7 @@ const sideName = (c: "H" | "T") => (c === "H" ? "Z heads" : "Zakura flower tails
 /** Opens a table for this session: one signature, then it moves into the rollup (once). */
 async function setupTable(): Promise<string> {
   $("status").textContent = "Setting up your table…";
-  const p = await house<{ game: string; tx?: string; resume?: boolean }>("/play", { session: session!.keypair.publicKey.toBase58() });
+  const p = await house<{ game: string; tx?: string; resume?: boolean }>("/play", { session: session!.keypair.publicKey.toBase58(), game: mode });
   const id = p.game;
   localStorage.setItem(K("game"), id);
   if (!p.resume) game = await house("/join", { game: id, tx: signB64(p.tx!, session!) });
@@ -369,11 +393,16 @@ async function setupTable(): Promise<string> {
 }
 
 $("start-table").onclick = async () => {
+  if (liveSession() && tableGame() !== mode) {
+    await house("/stop", { session: session!.keypair.publicKey.toBase58() }).catch(showError);
+    $("status").textContent = "Closing your table…";
+    return;
+  }
   busy = true;
   render();
   try {
     await setupTable();
-    $("status").textContent = "Table ready: call it.";
+    $("status").textContent = mode === "updown" ? "Table ready: will ZEC go up or down in the next minute?" : "Table ready: call it.";
   } catch (e) {
     $("status").textContent = " ";
     showError(e);
@@ -440,6 +469,108 @@ async function flipNow(id: string) {
   }
 }
 
+// ---------------------------------------------------------------- ZEC Up/Down
+
+$("tab-coinflip").onclick = () => setMode("coinflip");
+$("tab-updown").onclick = () => setMode("updown");
+function setMode(m: Mode) {
+  mode = m;
+  try { localStorage.setItem("zol:house:mode", m); } catch { /* per-browser convenience only */ }
+  $("status").textContent = " ";
+  if (m === "updown") void pollPrice();
+  render();
+}
+
+/** ZEC/USD as the rollup has it (the program bets and settles on this account). */
+async function pollPrice() {
+  if (mode !== "updown") return;
+  try {
+    const a = await er.getAccountInfo(ZEC_USD_FEED);
+    if (!a) return;
+    price = decodePrice(a.data).price;
+    $("price").textContent = usd(price);
+  } catch {
+    /* keep the last price */
+  }
+  if (!busy) render();
+}
+
+$("up-btn").onclick = () => placeBet(true);
+$("down-btn").onclick = () => placeBet(false);
+
+async function placeBet(up: boolean) {
+  const id = liveSession()?.id as string | undefined;
+  if (!id) return;
+  busy = true;
+  render();
+  try {
+    $("status").textContent = "Placing your bet…";
+    await sendTx(er, [cf.bet(session!.keypair.publicKey, potIdOf(id), up)], session!.keypair);
+    await readRollup(id);
+  } catch (e) {
+    showError(e);
+    busy = false;
+    render();
+    return;
+  }
+  await watchBet(id);
+}
+
+/** Counts the open bet down, settles it at expiry (the rollup's closer would too), shows the result. */
+let watching = false;
+async function watchBet(id: string) {
+  if (watching) return;
+  watching = true;
+  busy = true;
+  try {
+    const b = lastTable!.bet;
+    const winsBefore = lastTable!.wins, tiesBefore = lastTable!.ties, flipsBefore = lastTable!.flips;
+    const arrow = b.up ? "▲ Up" : "▼ Down";
+    for (;;) {
+      const left = b.expiry - Math.floor(Date.now() / 1000);
+      $("betline").textContent = `${arrow} from ${usd(b.openPrice)} · ${left > 0 ? `${left} s left` : "settling…"}`;
+      $("status").textContent = left > 0 ? "Your bet is in." : "Settling at the next price…";
+      render();
+      if (left <= 0) break;
+      await sleep(1_000);
+    }
+    // Settle: a price published after expiry arrives within a second or two.
+    for (let i = 0; i < 12; i++) {
+      const r = await readRollup(id).catch(() => null);
+      if (r && !r.t.bet.open) break;
+      await sendTx(er, [cf.settleBet(potIdOf(id))], session!.keypair).catch(() => {});
+      await sleep(1_000);
+    }
+    const r = await readRollup(id);
+    if (!r) throw new Error("could not read your table");
+    seats = r.seats;
+    lastResults = resultDots(r.t);
+    const t = r.t;
+    const end = t.bet.settlePrice;
+    if (t.flips === flipsBefore) {
+      $("status").textContent = "No price in time: the bet is void, your stake stays.";
+    } else if (t.wins > winsBefore) {
+      $("status").innerHTML = `<span class="ok">${arrow}! ${usd(b.openPrice)} → ${usd(end)} · you win +${taz((stake * (UPDOWN.payoutBps - 10_000n)) / 10_000n)}</span>`;
+    } else if (t.ties > tiesBefore) {
+      $("status").textContent = `Unchanged at ${usd(end)}: your stake is refunded.`;
+    } else {
+      $("status").textContent = `${b.up ? "Down" : "Up"}: ${usd(b.openPrice)} → ${usd(end)}. The house wins this one.`;
+    }
+    $("betline").textContent = " ";
+    if (game) {
+      game.flips = t.flips;
+      game.wins = t.wins;
+      game.ties = t.ties;
+    }
+  } catch (e) {
+    showError(e);
+  } finally {
+    watching = false;
+    busy = false;
+    render();
+  }
+}
+
 /** Follows the house's record of the session: setup, the rollup seats, closing. */
 async function pollGame() {
   const id = localStorage.getItem(K("game"));
@@ -456,6 +587,8 @@ async function pollGame() {
       seats = r.seats;
       tableState = r.t.state;
       lastResults = resultDots(r.t);
+      // A bet left open (the page was reloaded): follow it to its result.
+      if (r.t.game === 1 && r.t.bet.open && !watching) void watchBet(id);
     }
   }
   const s = liveSession();
@@ -577,7 +710,7 @@ async function pollHistory() {
       const head = g.kind === "withdraw"
         ? `Cash out ${taz(BigInt(g.stake))} · ${g.state === "paid" || g.state === "final" ? '<span class="ok">paid</span>' : g.state}`
         : g.rounds
-          ? `Table · ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}, won ${g.wins ?? 0}${g.amounts ? ` · ${netOf(g)}` : ""}${SESSION_LIVE.includes(g.state) ? " · open" : ""}`
+          ? `${g.game === "updown" ? "Up/Down" : "Coin flip"} · ${g.flips ?? 0} ${g.game === "updown" ? "bet" : "flip"}${g.flips === 1 ? "" : "s"}, won ${g.wins ?? 0}${g.amounts ? ` · ${netOf(g)}` : ""}${SESSION_LIVE.includes(g.state) ? " · open" : ""}`
           : `Flip · ${g.playerWon === true ? '<span class="ok">won</span>' : g.playerWon === false ? "lost" : g.state}`;
       const evs = g.events.filter((e: any) => !e.step.startsWith("retrying"));
       return `<li><details><summary>${head} <span class="muted">· ${t}</span></summary><ol class="tl">${evs.map(tlItem).join("")}</ol></details></li>`;
@@ -615,6 +748,7 @@ function boot() {
   setInterval(pollHouse, 30_000);
   setInterval(pollHistory, 30_000);
   setInterval(pollZcashConfs, 20_000);
+  setInterval(pollPrice, 1_000);
 }
 
 if (session) boot();

@@ -165,6 +165,10 @@ impl Cf {
     }
 
     fn create_table_at(&mut self, pot_id: [u8; 32], stake: u64, validator: Pubkey) -> TxResult {
+        self.create_game_at(pot_id, stake, validator, false)
+    }
+
+    fn create_game_at(&mut self, pot_id: [u8; 32], stake: u64, validator: Pubkey, updown: bool) -> TxResult {
         let pot = pot_pda(&cf_app(), &pot_id);
         let ix = cf_ix(
             zol_coinflip::accounts::CreateTable {
@@ -180,8 +184,51 @@ impl Cf {
             },
             zol_coinflip::instruction::CreateTable { pot_id, stake, open_secs: 600, validator },
         );
+        let mut ix = ix;
+        if updown {
+            ix.data = zol_coinflip::instruction::CreateUpdownTable { pot_id, stake, open_secs: 600, validator }.data();
+        }
         let r = self.relayer();
         self.env.send(&[ix], &[&r])
+    }
+
+    /// MagicBlock's ZEC/USD account as the rollup has it: a Pyth PriceUpdateV2 body.
+    fn set_price(&mut self, price: i64, published: i64) {
+        let mut d = vec![0u8; 134];
+        d[40] = 1; // full verification
+        d[41..73].copy_from_slice(&zol_coinflip::ZEC_USD_FEED_ID);
+        d[73..81].copy_from_slice(&price.to_le_bytes());
+        d[93..101].copy_from_slice(&published.to_le_bytes());
+        let acc = Account { lamports: 10_000_000, data: d, owner: zol_coinflip::PRICE_PROGRAM, executable: false, rent_epoch: 0 };
+        self.env.svm.set_account(zol_coinflip::ZEC_USD_FEED, acc).unwrap();
+    }
+
+    fn now(&self) -> i64 {
+        self.env.svm.get_sysvar::<solana_clock::Clock>().unix_timestamp
+    }
+
+    fn bet_by(&mut self, who: &Keypair, up: bool) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::Bet { payer: who.pubkey(), table: cf_table(), pot: cf_pot(), oracle: zol_coinflip::ZEC_USD_FEED },
+            zol_coinflip::instruction::Bet { up },
+        );
+        self.env.send(&[ix], &[who])
+    }
+
+    fn settle_bet(&mut self) -> TxResult {
+        let ix = cf_ix(
+            zol_coinflip::accounts::SettleBet {
+                table: cf_table(),
+                pot: cf_pot(),
+                oracle: zol_coinflip::ZEC_USD_FEED,
+                app_authority: cf_authority(),
+                ledger_program: LEDGER,
+            },
+            zol_coinflip::instruction::SettleBet {},
+        );
+        let stranger = Keypair::new();
+        self.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+        self.env.send(&[ix], &[&stranger])
     }
 
     fn join_ix(&self, session: &Pubkey) -> Instruction {
@@ -379,6 +426,7 @@ impl Cf {
                 ledger_program: LEDGER,
                 rent_vault: rent_vault(),
                 magic_fee_vault: zol_coinflip::magic_fee_vault(&VALIDATOR),
+                oracle: zol_coinflip::ZEC_USD_FEED,
                 magic_program: MAGIC_PROGRAM,
                 magic_context: MAGIC_CONTEXT,
             },
@@ -399,6 +447,7 @@ impl Cf {
                 ledger_program: LEDGER,
                 rent_vault: rent_vault(),
                 magic_fee_vault: zol_coinflip::magic_fee_vault(&VALIDATOR),
+                oracle: zol_coinflip::ZEC_USD_FEED,
                 magic_program: MAGIC_PROGRAM,
                 magic_context: MAGIC_CONTEXT,
             },
@@ -977,6 +1026,134 @@ fn crank_close_leaves_a_flip_in_the_air() {
     ok!(cf.crank_close());
     assert_eq!(cf.table().state, TableState::Flipping);
     cf.env.warp(10); // the VRF never answered: abandoned, stakes where they were
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Finished);
+}
+
+// ------------------------------------------------------------------ ZEC Up/Down
+
+/// Up/Down: house (seat 0) and player (seat 1), `rounds` small stakes each, in the rollup.
+fn updown(rounds: u16) -> (Cf, Keypair, Keypair) {
+    let mut cf = Cf::new();
+    let house = cf.player(1_000_000);
+    let p = cf.player(1_000_000);
+    ok!(cf.create_game_at(POT_ID, SMALL, VALIDATOR, true));
+    ok!(cf.join_rounds(&house, rounds));
+    ok!(cf.join_rounds(&p, rounds));
+    ok!(cf.start());
+    cf.enter_rollup();
+    (cf, house, p)
+}
+
+const WIN: u64 = SMALL * 9 / 10;
+
+#[test]
+fn updown_right_wrong_and_tie() {
+    let (mut cf, house, p) = updown(10);
+    for (up, end, player_delta, outcome) in [(true, 110, WIN as i64, "won"), (false, 120, -(SMALL as i64), "lost"), (true, 100, 0, "tie")] {
+        let now = cf.now();
+        cf.set_price(100, now);
+        ok!(cf.bet_by(&p, up));
+        let t = cf.table();
+        assert!(t.bet.open && t.bet.open_price == 100 && t.bet.seat == 1);
+        let before = cf.pot().amounts;
+        cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS);
+        let now = cf.now();
+        cf.set_price(end, now);
+        ok!(cf.settle_bet());
+        let after = cf.pot().amounts;
+        assert_eq!(after[1] as i64 - before[1] as i64, player_delta, "{outcome}");
+        assert_eq!(after[0] as i64 - before[0] as i64, -player_delta, "{outcome}: zero-sum");
+        assert!(!cf.table().bet.open);
+        cf.env.warp(1);
+        let _ = &house;
+    }
+    let t = cf.table();
+    assert_eq!((t.flips, t.wins, t.ties), (3, 1, 1));
+    cf.env.check_invariants_for(&COINFLIP);
+}
+
+#[test]
+fn updown_settles_only_with_a_price_from_after_expiry_inside_the_window() {
+    let (mut cf, _house, p) = updown(10);
+    let now = cf.now();
+    cf.set_price(100, now);
+    ok!(cf.bet_by(&p, true));
+    assert_cf_err(&cf.settle_bet(), CoinflipError::BetNotExpired);
+    cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS);
+    let now = cf.now();
+    cf.set_price(150, now - 3); // fresh, but published before the expiry
+    assert_cf_err(&cf.settle_bet(), CoinflipError::PriceNotYet);
+    // Nobody settles in time: void, nothing moves, whatever the price did.
+    cf.env.warp(zol_coinflip::SETTLE_WINDOW_SECS + 1);
+    let now = cf.now();
+    cf.set_price(150, now);
+    let before = cf.pot().amounts;
+    ok!(cf.settle_bet());
+    assert_eq!(cf.pot().amounts, before);
+    assert!(!cf.table().bet.open);
+    assert_eq!(cf.table().flips, 0);
+}
+
+#[test]
+fn updown_bet_rules() {
+    let (mut cf, house, p) = updown(1);
+    let now = cf.now();
+    cf.set_price(100, now - zol_coinflip::MAX_PRICE_AGE_SECS - 1);
+    assert_cf_err(&cf.bet_by(&p, true), CoinflipError::StalePrice);
+    cf.set_price(100, now);
+    assert_cf_err(&cf.flip_by(&p, VRF_QUEUE), CoinflipError::WrongGame);
+    let stranger = Keypair::new();
+    cf.env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    assert_cf_err(&cf.bet_by(&stranger, true), CoinflipError::NotAtTable);
+    ok!(cf.bet_by(&p, true));
+    assert_cf_err(&cf.bet_by(&p, false), CoinflipError::BetOpen);
+    // No finishing while the bet can still settle.
+    let r = cf.relayer();
+    assert_cf_err(&cf.finish_and_pay_by(&r), CoinflipError::BetOpen);
+    cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS);
+    let now = cf.now();
+    cf.set_price(101, now);
+    ok!(cf.settle_bet()); // player wins 0.9 stake: the house has 0.1 stake left
+    cf.set_price(101, now);
+    assert_cf_err(&cf.bet_by(&p, true), CoinflipError::SeatShort);
+    let _ = house;
+}
+
+#[test]
+fn updown_a_wrong_oracle_account_is_refused() {
+    let (mut cf, _house, p) = updown(3);
+    let now = cf.now();
+    cf.set_price(100, now);
+    let mut ix = cf_ix(
+        zol_coinflip::accounts::Bet { payer: p.pubkey(), table: cf_table(), pot: cf_pot(), oracle: Keypair::new().pubkey() },
+        zol_coinflip::instruction::Bet { up: true },
+    );
+    assert_cf_err(&cf.env.send(&[ix.clone()], &[&p]), CoinflipError::BadOracle);
+    // The right address but a forged owner.
+    let mut acc = cf.env.raw(&zol_coinflip::ZEC_USD_FEED).unwrap();
+    acc.owner = Keypair::new().pubkey();
+    cf.env.svm.set_account(zol_coinflip::ZEC_USD_FEED, acc).unwrap();
+    ix.accounts[3].pubkey = zol_coinflip::ZEC_USD_FEED;
+    assert_cf_err(&cf.env.send(&[ix], &[&p]), CoinflipError::BadOracle);
+}
+
+#[test]
+fn crank_close_settles_an_expired_bet_then_closes_when_idle() {
+    let (mut cf, _house, p) = updown(3);
+    let now = cf.now();
+    cf.set_price(100, now);
+    ok!(cf.bet_by(&p, false));
+    ok!(cf.crank_close()); // not expired: nothing
+    assert!(cf.table().bet.open);
+    cf.env.warp(zol_coinflip::UPDOWN_ROUND_SECS);
+    let now = cf.now();
+    cf.set_price(90, now);
+    ok!(cf.crank_close()); // settles (Down was right), does not close yet
+    let t = cf.table();
+    assert!(!t.bet.open && t.wins == 1 && t.state == TableState::Landed);
+    assert_eq!(cf.pot().amounts[1], 3 * SMALL + WIN);
+    cf.env.warp(zol_coinflip::IDLE_SECS);
     ok!(cf.crank_close());
     assert_eq!(cf.table().state, TableState::Finished);
 }

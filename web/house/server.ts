@@ -4,7 +4,7 @@
 //
 // Routes (behind Caddy at /house/*; the page is /house.html):
 //   GET  /house/info                        bankroll, stake, whether a game can start
-//   POST /house/play   {session}            -> {game, tx}: create+join for the player to sign
+//   POST /house/play   {session, game?}     -> {game, tx}: create+join (coinflip or updown) for the player to sign
 //   POST /house/join   {game, tx}           the player's signed tx; the house co-signs and sends
 //   POST /house/stop   {session}            the house finishes the player's session table now
 //   GET  /house/game/:id                    timeline of one game
@@ -82,7 +82,10 @@ async function route(req: Request): Promise<Response> {
     try { return (await req.json()) as any; } catch { throw new HouseError(400, "body must be JSON"); }
   };
   if (req.method === "GET" && p === "/house/info") return json(200, await house.info());
-  if (req.method === "POST" && p === "/house/play") return json(200, await house.play(String((await body()).session ?? ""), ip));
+  if (req.method === "POST" && p === "/house/play") {
+    const b = await body();
+    return json(200, await house.play(String(b.session ?? ""), ip, String(b.game ?? "coinflip")));
+  }
   if (req.method === "POST" && p === "/house/join") {
     const b = await body();
     return json(200, await house.join(String(b.game ?? ""), String(b.tx ?? "")));

@@ -8,6 +8,74 @@
   },
   "instructions": [
     {
+      "name": "bet",
+      "docs": [
+        "Rollup. The table's creator or a seated player, between flips (or before the first):",
+        "returns the pot (ledger `close_pot`) and the table to Solana. Anyone may once the",
+        "session deadline has passed, so the pot comes home with its result before the ledger",
+        "would refund the buy-ins. A flip whose VRF answer has not landed after",
+        "`FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.",
+        "Rollup, Up/Down. The seated player bets the price goes Up (or Down) over the next",
+        "`UPDOWN_ROUND_SECS`, one stake, at the oracle's current price. The other seat must",
+        "cover the 0.9-stake win, and there is one open bet at a time."
+      ],
+      "discriminator": [
+        94,
+        203,
+        166,
+        126,
+        20,
+        243,
+        169,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "up",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "cash_out_table",
       "docs": [
         "Solana, anyone; also the Magic Action `finish_and_pay` schedules. Once the pot is",
@@ -220,6 +288,9 @@
           "writable": true
         },
         {
+          "name": "oracle"
+        },
+        {
           "name": "magic_program",
           "address": "Magic11111111111111111111111111111111111111"
         },
@@ -343,14 +414,117 @@
       ]
     },
     {
-      "name": "finish",
+      "name": "create_updown_table",
       "docs": [
-        "Rollup. The table's creator or a seated player, between flips (or before the first):",
-        "returns the pot (ledger `close_pot`) and the table to Solana. Anyone may once the",
-        "session deadline has passed, so the pot comes home with its result before the ledger",
-        "would refund the buy-ins. A flip whose VRF answer has not landed after",
-        "`FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were."
+        "`create_table` for ZEC Up/Down: the seats bet on the price (`bet`, `settle_bet`)."
       ],
+      "discriminator": [
+        118,
+        60,
+        205,
+        212,
+        165,
+        196,
+        211,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pot_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "app",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "type": "u64"
+        },
+        {
+          "name": "open_secs",
+          "type": "i64"
+        },
+        {
+          "name": "validator",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "finish",
       "discriminator": [
         67,
         74,
@@ -1287,6 +1461,10 @@
           ]
         },
         {
+          "name": "oracle",
+          "address": "6XWQr2Y1XEpJrCdVbYGupnDeb3wkR4YXazVXdgn2Lwpg"
+        },
+        {
           "name": "magic_program",
           "address": "Magic11111111111111111111111111111111111111"
         },
@@ -1294,6 +1472,84 @@
           "name": "magic_context",
           "writable": true,
           "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settle_bet",
+      "docs": [
+        "Rollup, anyone (the page at expiry, `crank_close` every few seconds). Settles the open",
+        "bet with a price published at or after its expiry: a tie moves nothing, a right call",
+        "is paid 0.9 stake by the other seat, a wrong one pays its stake to it. Past",
+        "`SETTLE_WINDOW_SECS` the bet is void instead."
+      ],
+      "discriminator": [
+        115,
+        55,
+        234,
+        177,
+        227,
+        4,
+        10,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "oracle"
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
         }
       ],
       "args": []
@@ -1566,6 +1822,32 @@
   ],
   "events": [
     {
+      "name": "BetPlaced",
+      "discriminator": [
+        88,
+        88,
+        145,
+        226,
+        126,
+        206,
+        32,
+        0
+      ]
+    },
+    {
+      "name": "BetSettled",
+      "discriminator": [
+        57,
+        145,
+        224,
+        160,
+        62,
+        119,
+        227,
+        206
+      ]
+    },
+    {
       "name": "CloserScheduled",
       "discriminator": [
         208,
@@ -1776,9 +2058,129 @@
       "code": 6015,
       "name": "NotAtTable",
       "msg": "only a seated player (or, to finish, the table's creator) may do that"
+    },
+    {
+      "code": 6016,
+      "name": "WrongGame",
+      "msg": "not this table's game"
+    },
+    {
+      "code": 6017,
+      "name": "BetOpen",
+      "msg": "a bet is open"
+    },
+    {
+      "code": 6018,
+      "name": "NoBet",
+      "msg": "no open bet"
+    },
+    {
+      "code": 6019,
+      "name": "BetNotExpired",
+      "msg": "the bet has not expired yet"
+    },
+    {
+      "code": 6020,
+      "name": "PriceNotYet",
+      "msg": "no price published since the bet expired yet; try again in a second"
+    },
+    {
+      "code": 6021,
+      "name": "BadOracle",
+      "msg": "not the ZEC/USD oracle account"
+    },
+    {
+      "code": 6022,
+      "name": "StalePrice",
+      "msg": "the oracle price is too old"
     }
   ],
   "types": [
+    {
+      "name": "BetPlaced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "up",
+            "type": "bool"
+          },
+          {
+            "name": "open_price",
+            "type": "i64"
+          },
+          {
+            "name": "expiry",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BetSettled",
+      "docs": [
+        "`outcome`: 0 the bettor lost, 1 won, 2 tie, 3 void (not settled within the window)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "settle_price",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BetSlot",
+      "docs": [
+        "An Up/Down bet: the bettor's seat, their call, the price at the bet and when it expires."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "open",
+            "type": "bool"
+          },
+          {
+            "name": "up",
+            "type": "bool"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "open_price",
+            "type": "i64"
+          },
+          {
+            "name": "expiry",
+            "type": "i64"
+          },
+          {
+            "name": "settle_price",
+            "docs": [
+              "The price it settled at (0 before, or when void)."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "CloserScheduled",
       "type": {
@@ -1999,9 +2401,38 @@
           {
             "name": "results",
             "docs": [
-              "Winning seats, newest in bit 0 (the last 64 flips)."
+              "Winning seats, newest in bit 0 (the last 64 flips). Up/Down: 1 when the bettor won."
             ],
             "type": "u64"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "`GAME_COINFLIP` or `GAME_UPDOWN`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bet",
+            "docs": [
+              "Up/Down: the open bet, if any."
+            ],
+            "type": {
+              "defined": {
+                "name": "BetSlot"
+              }
+            }
+          },
+          {
+            "name": "wins",
+            "docs": [
+              "Rounds won by seat 1 (coin flip) or by the bettor (Up/Down), and Up/Down ties."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "ties",
+            "type": "u32"
           }
         ]
       }

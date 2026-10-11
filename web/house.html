@@ -34,6 +34,11 @@
     .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
     .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
     .coin.spin { animation: spin .6s linear infinite; }
+    .tabs { display: flex; gap: 6px; justify-content: center; margin: -4px 0 6px; }
+    .tab { border-radius: 99px; padding: 5px 14px; font-size: 14px; }
+    .tab.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .price { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
+    .betline { min-height: 22px; font-size: 14px; margin-top: 6px; font-variant-numeric: tabular-nums; }
     @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
     .status { min-height: 26px; font-weight: 600; }
     .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; border-radius: 10px; }
@@ -111,14 +116,25 @@
       <ol class="tl" id="deposit-tl"></ol>
     </section>
 
-    <!-- The coin -->
+    <!-- The game: a coin flip or ZEC Up/Down -->
     <section class="card center">
+      <div class="tabs">
+        <button id="tab-coinflip" class="tab on">Coin flip</button>
+        <button id="tab-updown" class="tab">ZEC Up/Down</button>
+      </div>
       <div class="coin" id="coin"></div>
+      <div id="updown" hidden>
+        <div class="price" id="price">$—</div>
+        <div class="small muted">ZEC/USD · Pyth, live in the MagicBlock rollup</div>
+        <div class="betline" id="betline"></div>
+      </div>
       <div class="status" id="status">&nbsp;</div>
       <div class="row">
         <button id="start-table" class="primary" hidden>Start table</button>
         <button id="heads" class="primary" hidden><span id="ico-heads"></span>Heads</button>
         <button id="tails" class="primary" hidden><span id="ico-tails"></span>Tails</button>
+        <button id="up-btn" class="primary" hidden>▲ Up</button>
+        <button id="down-btn" class="primary" hidden>▼ Down</button>
       </div>
       <div class="small" id="table-note" style="margin-top:12px"></div>
       <div class="small muted" id="stake-note">&nbsp;</div>

@@ -22,6 +22,12 @@ Every step appears in the timeline:
 - **Solana and rollup steps** link to the Solana explorer.
 - **Zcash transactions** show their confirmations from the operators' own node. No public Zcash testnet explorer showed our transactions.
 
+### ZEC Up/Down (the second tab)
+
+- Same table, same balance: "Start table" on the Up/Down tab opens an Up/Down table (`create_updown_table`).
+- **Bet** Up or Down, one stake (0.001 TAZ), at the ZEC/USD price the rollup has (MagicBlock's Pyth Lazer feed, id 66). After 60 s it settles at a price published after expiry: a right call pays 1.9× (0.9 stake from the house's seat), a tie refunds. The page settles at expiry; the rollup's closer settles it too if the page is gone.
+- Not settled within 10 s of expiry → void (nothing moves), so waiting for a better price never pays. The template this follows (MagicBlock's binary-prediction) settles at whatever price is current whenever someone calls it; this is the one fix.
+
 ## For operators
 
 - **Service:** `zol-house` is a Bun binary built from `web/house/server.ts`:

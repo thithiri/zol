@@ -36,6 +36,9 @@ test("coinflip instruction builders match idl/zol_coinflip.json", () => {
   check(cfIdl, "finish_and_pay", cf.finishAndPay(payer, potId));
   check(cfIdl, "schedule_closer", cf.scheduleCloser(payer, potId, payer));
   check(cfIdl, "cash_out_table", cf.cashOutTable(potId, payer, [session, payer]));
+  check(cfIdl, "create_updown_table", cf.createTable(payer, potId, 99_700n, 600n, payer, true));
+  check(cfIdl, "bet", cf.bet(payer, potId, true));
+  check(cfIdl, "settle_bet", cf.settleBet(potId));
   check(cfIdl, "close_table", cf.closeTable(potId, payer));
   check(cfIdl, "rescue_table", cf.rescueTable(potId, payer));
 });
@@ -47,7 +50,7 @@ test("ledger calls the page makes match idl/zol_ledger.json", () => {
 
 test("Table decoder reads the Anchor layout", () => {
   const disc = cfIdl.accounts.find((a: any) => a.name === "Table")!.discriminator;
-  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1 + 4 + 8 + 64 + 8 + 8);
+  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1 + 4 + 8 + 64 + 8 + 8 + 1 + 27 + 8);
   data.set(disc, 0);
   data.fill(7, 8, 40);
   data.set(potId, 40);
@@ -66,6 +69,17 @@ test("Table decoder reads the Anchor layout", () => {
   expect(t.sessionDeadline).toBe(1_791_001_800n);
   expect(t.results).toBe(0b101n);
   expect(decodeTable(data.subarray(0, 191)).players).toEqual([]);
+  data[271] = 1; // Up/Down
+  data[272] = 1; // bet open
+  data[273] = 1; // Up
+  data[274] = 1; // seat 1
+  new DataView(data.buffer).setBigInt64(275, 128_012_327_406n, true); // open price
+  new DataView(data.buffer).setBigInt64(283, 1_791_000_060n, true); // expiry
+  new DataView(data.buffer).setUint32(299, 4, true); // wins
+  new DataView(data.buffer).setUint32(303, 1, true); // ties
+  const u = decodeTable(data);
+  expect([u.game, u.bet.open, u.bet.up, u.bet.seat, u.bet.openPrice, u.bet.expiry, u.wins, u.ties]).toEqual([1, true, true, 1, 128_012_327_406n, 1_791_000_060, 4, 1]);
+  expect(decodeTable(data.subarray(0, 271)).game).toBe(0);
   expect(t.flips).toBe(7);
   expect(t.flipRequestedAt).toBe(1_791_000_000n);
   // A table from before sessions (no flips fields) still decodes.

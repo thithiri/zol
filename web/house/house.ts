@@ -13,7 +13,7 @@
 // rollup transactions are free. To the ledger and the VRF the house is an ordinary player.
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
-  allowedStakes, Coinflip, decodeApp, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendSigned, sendTx,
+  allowedStakes, Coinflip, UPDOWN, decodeApp, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendSigned, sendTx,
 } from "../src/chain";
 import { hex, sessionFromSeed, unhex, type Session } from "../src/session";
 
@@ -71,8 +71,12 @@ export interface Game {
   /** Seat 0 is the house, seat 1 the player. The last flip's winner. */
   winner?: number;
   playerWon?: boolean;
+  /** The table's game. */
+  game?: "coinflip" | "updown";
   /** A session: stakes each seat bought, flips so far, the player's wins, seat amounts [house, player]. */
   rounds?: number;
+  /** Up/Down ties. */
+  ties?: number;
   flips?: number;
   wins?: number;
   amounts?: [string, string];
@@ -225,7 +229,9 @@ export class House {
    * and returns it through `join`. The house only checks what it can: the player's balance
    * covers the stake and the player has no other live game.
    */
-  async play(player: string, ip: string) {
+  async play(player: string, ip: string, gameName = "coinflip") {
+    const updown = gameName === "updown";
+    if (!["coinflip", "updown"].includes(gameName)) throw new HouseError(400, "game must be coinflip or updown");
     if (this.store.count(`play:${ip}`, Date.now() - 3_600_000) >= this.cfg.playsPerIpPerHour) throw new HouseError(429, "too many games from this address; try again later");
     let who: PublicKey;
     try { who = new PublicKey(player); } catch { throw new HouseError(400, "session must be a base58 public key"); }
@@ -233,7 +239,10 @@ export class House {
     const live = this.store.byPlayer(player).find((g) => LIVE.includes(g.state) && !(g.state === "awaiting_signature" && this.expired(g)));
     // A session already on its way or in the rollup: flip there.
     if (live && live.kind !== "withdraw" && ["seated", "started", "in_rollup"].includes(live.state) && !live.stop) {
-      return { game: live.id, resume: true, stake: live.stake, rounds: live.rounds ?? 1 };
+      if ((live.game ?? "coinflip") === gameName) return { game: live.id, resume: true, stake: live.stake, rounds: live.rounds ?? 1 };
+      // A table of the other game: close it first.
+      this.stop(player);
+      throw new HouseError(409, `closing your ${live.game === "updown" ? "Up/Down" : "coin-flip"} table first; try again in a few seconds`);
     }
     if (live) throw new HouseError(409, live.kind === "withdraw" ? "a withdrawal is in progress" : "your last table is still closing; try again in a few seconds");
     const stake = await this.stake();
@@ -249,7 +258,7 @@ export class House {
     const rounds = [bal.amount / stake, houseStakes, max].reduce((a, b) => (b < a ? b : a));
     const potId = crypto.getRandomValues(new Uint8Array(32));
     const seat = [
-      this.cf.createTable(this.feePayer.publicKey, potId, stake, 600n, new PublicKey(this.cfg.validator)),
+      this.cf.createTable(this.feePayer.publicKey, potId, stake, 600n, new PublicKey(this.cfg.validator), updown),
       this.cf.join(this.session.keypair.publicKey, potId, Number(rounds)), // seat 0: the house
       this.cf.join(who, potId, Number(rounds)), // seat 1: the player
     ];
@@ -272,8 +281,10 @@ export class House {
     }
     const g: Game = {
       id: hex(potId), player, stake: String(stake), state: "awaiting_signature", created: Date.now(), updated: Date.now(),
-      rounds: Number(rounds), flips: 0, wins: 0, startsInJoin: started,
-      events: [{ step: `table prepared: you and the house each put in ${rounds} stake${rounds === 1n ? "" : "s"} (${rounds} flip${rounds === 1n ? "" : "s"} at most)`, t: now() }],
+      rounds: Number(rounds), flips: 0, wins: 0, startsInJoin: started, game: updown ? "updown" : "coinflip",
+      events: [{ step: updown
+        ? `Up/Down table prepared: you and the house each put in ${rounds} stake${rounds === 1n ? "" : "s"}`
+        : `table prepared: you and the house each put in ${rounds} stake${rounds === 1n ? "" : "s"} (${rounds} flip${rounds === 1n ? "" : "s"} at most)`, t: now() }],
       tx: Buffer.from(unsigned).toString("base64"), lastValid: bh.lastValidBlockHeight,
     };
     this.store.put(g);
@@ -443,17 +454,19 @@ export class House {
         const amounts = decodePot(pi.data).amounts;
         const stake = BigInt(g.stake);
         if (t.flips !== (g.flips ?? 0)) {
-          // Wins follow from the player's seat: rounds stakes, plus one per win, minus one per loss.
-          const net = Number((amounts[1] - BigInt(g.rounds ?? 1) * stake) / stake);
           g.flips = t.flips;
-          g.wins = (t.flips + net) / 2;
+          // The table counts wins now; older tables: from the player's seat (one stake a flip).
+          g.wins = t.game === 1 || t.wins > 0 ? t.wins : (t.flips + Number((amounts[1] - BigInt(g.rounds ?? 1) * stake) / stake)) / 2;
+          g.ties = t.ties;
           g.winner = t.winner;
           g.playerWon = t.winner === 1;
           g.lastFlipAt = Date.now();
         }
         g.amounts = [String(amounts[0]), String(amounts[1])];
         const flipStuck = t.state === "Flipping" && Date.now() / 1000 > Number(t.flipRequestedAt) + 65;
-        const between = t.state === "Started" || t.state === "Landed" || flipStuck;
+        // An Up/Down bet blocks closing until settled, or void after its window.
+        const betLive = t.bet.open && Date.now() / 1000 <= t.bet.expiry + UPDOWN.settleWindowSecs;
+        const between = (t.state === "Started" || t.state === "Landed" || flipStuck) && !betLive;
         // The rollup's own closer ends an idle table at 120 s; the house steps in only later.
         const idle = Date.now() - (g.lastFlipAt ?? g.inRollupAt ?? Date.now()) > (this.cfg.idleSecs ?? 180) * 1000;
         const late = Date.now() > (g.deadline ?? Infinity) - 300_000;

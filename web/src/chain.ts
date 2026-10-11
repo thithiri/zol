@@ -12,6 +12,16 @@ export const MAGIC_PROGRAM = new PublicKey("Magic1111111111111111111111111111111
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 export const MAX_SEATS = 16;
+/** MagicBlock's price oracle and its ZEC/USD feed (Pyth Lazer id 66), live in the rollup only. */
+export const PRICE_PROGRAM = new PublicKey("PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd");
+export const ZEC_USD_FEED = new PublicKey("6XWQr2Y1XEpJrCdVbYGupnDeb3wkR4YXazVXdgn2Lwpg");
+/** Up/Down terms (zol-coinflip constants). */
+export const UPDOWN = { payoutBps: 19_000n, roundSecs: 60, settleWindowSecs: 10 } as const;
+/** The oracle account: price (8 decimals) and publish time (unix s). */
+export function decodePrice(data: Uint8Array) {
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return { price: dv.getBigInt64(73, true), published: Number(dv.getBigInt64(93, true)) };
+}
 /** MagicBlock's fee vault for a validator: a delegated payer's commit fees go there. */
 export const magicFeeVault = (validator: PublicKey) =>
   PublicKey.findProgramAddressSync([new TextEncoder().encode("magic-fee-vault"), validator.toBytes()], DLP)[0];
@@ -81,13 +91,32 @@ export class Coinflip {
     return new TransactionInstruction({ programId: program, keys, data: Buffer.from(data) });
   }
 
-  createTable(payer: PublicKey, potId: Uint8Array, stake: bigint, openSecs: bigint, validator: PublicKey) {
+  /** A coin-flip table, or (`updown`) a ZEC Up/Down table. */
+  createTable(payer: PublicKey, potId: Uint8Array, stake: bigint, openSecs: bigint, validator: PublicKey, updown = false) {
     const d = this.pdas;
     const pot = d.pot(potId);
     return this.ix(
       [m(payer, true, true), m(d.table(potId), true), m(d.appAuthority()), m(d.config()), m(d.app(), true), m(pot, true),
         m(d.receipt(pot), true), m(this.p.ledger), m(SystemProgram.programId)],
-      cat(disc("global", "create_table"), potId, u64le(stake), i64le(openSecs), validator.toBytes()),
+      cat(disc("global", updown ? "create_updown_table" : "create_table"), potId, u64le(stake), i64le(openSecs), validator.toBytes()),
+    );
+  }
+
+  /** Up/Down, rollup: the seated player bets Up (or Down) for one round. */
+  bet(payer: PublicKey, potId: Uint8Array, up: boolean) {
+    const d = this.pdas;
+    return this.ix(
+      [m(payer, true, true), m(d.table(potId), true), m(d.pot(potId)), m(ZEC_USD_FEED)],
+      cat(disc("global", "bet"), Uint8Array.of(up ? 1 : 0)),
+    );
+  }
+
+  /** Up/Down, rollup, anyone: settle the open bet once its round is over. */
+  settleBet(potId: Uint8Array) {
+    const d = this.pdas;
+    return this.ix(
+      [m(d.table(potId), true), m(d.pot(potId), true), m(ZEC_USD_FEED), m(d.appAuthority()), m(this.p.ledger)],
+      disc("global", "settle_bet"),
     );
   }
 
@@ -150,7 +179,7 @@ export class Coinflip {
     const d = this.pdas;
     return this.ix(
       [m(payer, true, true), m(d.table(potId)), m(d.pot(potId)), m(d.appAuthority()), m(this.p.ledger),
-        m(d.rentVault()), m(magicFeeVault(validator)), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
+        m(d.rentVault()), m(magicFeeVault(validator)), m(ZEC_USD_FEED), m(MAGIC_PROGRAM), m(MAGIC_CONTEXT, true)],
       disc("global", "schedule_closer"),
     );
   }
@@ -257,6 +286,10 @@ export interface TableAcc {
   flips: number; flipRequestedAt: bigint;
   /** Seated keys and session deadline (set by `start`); winning seats, newest in bit 0. */
   players: PublicKey[]; sessionDeadline: bigint; results: bigint;
+  /** 0 coin flip, 1 Up/Down; the open bet; rounds won and Up/Down ties. */
+  game: number;
+  bet: { open: boolean; up: boolean; seat: number; openPrice: bigint; expiry: number; settlePrice: bigint };
+  wins: number; ties: number;
 }
 export function decodeTable(data: Uint8Array): TableAcc {
   checkDisc(data, "Table");
@@ -269,10 +302,16 @@ export function decodeTable(data: Uint8Array): TableAcc {
   const flips = sessions ? r.u32() : 0;
   const flipRequestedAt = sessions ? r.i64() : 0n;
   const seated = data.length >= r.o + 80;
-  return {
-    ...t, flips, flipRequestedAt,
-    players: seated ? [r.key(), r.key()] : [], sessionDeadline: seated ? r.i64() : 0n, results: seated ? r.u64() : 0n,
-  };
+  const players = seated ? [r.key(), r.key()] : [];
+  const sessionDeadline = seated ? r.i64() : 0n;
+  const results = seated ? r.u64() : 0n;
+  // Up/Down fields: game, the bet slot (3 bytes + 3 × i64), wins, ties.
+  const games = data.length >= r.o + 1 + 27 + 8;
+  const game = games ? r.u8() : 0;
+  const bet = games
+    ? { open: r.u8() === 1, up: r.u8() === 1, seat: r.u8(), openPrice: r.i64(), expiry: Number(r.i64()), settlePrice: r.i64() }
+    : { open: false, up: false, seat: 0, openPrice: 0n, expiry: 0, settlePrice: 0n };
+  return { ...t, flips, flipRequestedAt, players, sessionDeadline, results, game, bet, wins: games ? r.u32() : 0, ties: games ? r.u32() : 0 };
 }
 
 export interface ReceiptAcc { state: (typeof POT_STATES)[number]; players: PublicKey[]; buyIns: bigint[]; total: bigint; validator: PublicKey }

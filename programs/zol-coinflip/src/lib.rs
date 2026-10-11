@@ -9,6 +9,9 @@
 //! | `start`        | Solana  | CPI `delegate_pot` with the receipt's stakes, and delegates the table, both to the table's validator |
 //! | `flip`         | Rollup  | A seated player requests MagicBlock VRF randomness; the callback is `land`. Again after each landing while both seats cover a stake |
 //! | `land`         | Rollup  | VRF callback only: CPI `move_seat` of one stake from the loser's seat to the winner's |
+//! | `create_updown_table` | Solana | `create_table` for ZEC Up/Down: bets on the price instead of coin flips |
+//! | `bet`          | Rollup  | Up/Down: a seated player bets Up or Down at the oracle's price, for `UPDOWN_ROUND_SECS` |
+//! | `settle_bet`   | Rollup  | Anyone (and `crank_close`), within `SETTLE_WINDOW_SECS` of expiry: pays 1.9× on a right call, refunds a tie |
 //! | `finish`       | Rollup  | The creator or a seated player (anyone after the session deadline): CPI `close_pot`, commits and undelegates the table |
 //! | `finish_and_pay` | Rollup | `finish`, and the table's return schedules `cash_out_table` on Solana (a Magic Action) |
 //! | `crank_close`  | Rollup  | No signer (a scheduled task): finishes and pays a table that is idle, short or near its deadline |
@@ -32,8 +35,8 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::program::invoke_signed;
 #[allow(deprecated)]
 use ephemeral_rollups_sdk::crank::{ScheduleCrankCpi, ScheduleTaskArgs};
-use ephemeral_rollups_sdk::ephem::{CallHandler, FoldableIntentBuilder, MagicIntentBundleBuilder};
-use ephemeral_rollups_sdk::{ActionArgs, ShortAccountMeta};
+use ephemeral_rollups_sdk::ephem::{FoldableIntentBuilder, MagicIntentBundleBuilder};
+use ephemeral_rollups_sdk::ShortAccountMeta;
 use ephemeral_rollups_sdk::vrf::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use ephemeral_rollups_sdk::vrf::types::SerializableAccountMeta;
 use zol_ledger::state::{bps, Config, Pot, PotReceipt, PotState, SeatStake};
@@ -55,6 +58,26 @@ pub const FLIP_TIMEOUT_SECS: i64 = 60;
 pub const IDLE_SECS: i64 = 120;
 /// `crank_close` closes a table this long before its session deadline.
 pub const DEADLINE_MARGIN_SECS: i64 = 300;
+/// Table games: coin flips (VRF) or ZEC Up/Down (price oracle).
+pub const GAME_COINFLIP: u8 = 0;
+pub const GAME_UPDOWN: u8 = 1;
+/// Up/Down: a right call is paid 1.9× its stake (0.9 stake from the other seat); a tie refunds.
+pub const UPDOWN_PAYOUT_BPS: u64 = 19_000;
+pub const UPDOWN_ROUND_SECS: i64 = 60;
+/// A bet settles at a price published at or after its expiry, within this window; after it
+/// the bet is void (nothing moves), so waiting for a better price never pays.
+pub const SETTLE_WINDOW_SECS: i64 = 10;
+/// The oldest price `bet` and `settle_bet` accept.
+pub const MAX_PRICE_AGE_SECS: i64 = 5;
+/// MagicBlock's price oracle program and its ZEC/USD feed (Pyth Lazer id 66): a Pyth
+/// `PriceUpdateV2` body with full verification; live in the rollup only.
+pub const PRICE_PROGRAM: Pubkey = pubkey!("PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd");
+pub const ZEC_USD_FEED: Pubkey = pubkey!("6XWQr2Y1XEpJrCdVbYGupnDeb3wkR4YXazVXdgn2Lwpg");
+pub const ZEC_USD_FEED_ID: [u8; 32] = [
+    0x52, 0x1b, 0x1d, 0x3a, 0x3a, 0x32, 0xdb, 0xf1, 0xf9, 0x1f, 0xc6, 0x02, 0xf6, 0x3f, 0xde, 0x2b,
+    0x8e, 0x43, 0x53, 0xa7, 0x94, 0xb1, 0xa0, 0x34, 0x84, 0xb7, 0x19, 0x19, 0xe7, 0x68, 0x2b, 0x4d,
+];
+
 /// Lamports `start` adds to a table above its rent, for the fees it pays as a delegated
 /// payer in `crank_close` (returned to the creator on close).
 pub const TABLE_FEE_BUFFER: u64 = 1_000_000;
@@ -121,55 +144,12 @@ pub mod zol_coinflip {
     /// The validator is fixed here, so players see which rollup will decide their pot
     /// before they join, and nobody can later start the table towards another one.
     pub fn create_table(ctx: Context<CreateTable>, pot_id: [u8; 32], stake: u64, open_secs: i64, validator: Pubkey) -> Result<()> {
-        require!(stake > 0, CoinflipError::ZeroStake);
-        require_keys_neq!(validator, Pubkey::default(), CoinflipError::BadValidator);
-        let params = {
-            let info = &ctx.accounts.config;
-            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
-            let (expected, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::CONFIG], &zol_ledger::ID);
-            require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
-            let data = info.try_borrow_data()?;
-            Config::try_deserialize(&mut &data[..])?.params
-        };
-        require!(allowed_stakes(&params).contains(&stake), CoinflipError::BadStake);
-        let now = Clock::get()?.unix_timestamp;
-        let open_deadline = now.checked_add(open_secs).ok_or(CoinflipError::Overflow)?;
-        let a = &ctx.accounts;
-        let bump = ctx.bumps.app_authority;
-        zol_ledger::cpi::open_pot(
-            CpiContext::new_with_signer(
-                zol_ledger::ID,
-                zol_ledger::cpi::accounts::OpenPot {
-                    payer: a.payer.to_account_info(),
-                    config: a.config.to_account_info(),
-                    app: a.app.to_account_info(),
-                    authority: a.app_authority.to_account_info(),
-                    pot: a.pot.to_account_info(),
-                    receipt: a.receipt.to_account_info(),
-                    system_program: a.system_program.to_account_info(),
-                },
-                &[&[APP_AUTHORITY_SEED, &[bump]]],
-            ),
-            pot_id,
-            open_deadline,
-        )?;
-        let t = &mut ctx.accounts.table;
-        t.pot = ctx.accounts.pot.key();
-        t.pot_id = pot_id;
-        t.stake = stake;
-        t.validator = validator;
-        t.creator = ctx.accounts.payer.key();
-        t.state = TableState::Open;
-        t.winner = NO_WINNER;
-        t.randomness = [0; 32];
-        t.bump = ctx.bumps.table;
-        t.flips = 0;
-        t.flip_requested_at = 0;
-        t.players = [Pubkey::default(); 2];
-        t.session_deadline = 0;
-        t.results = 0;
-        emit!(TableCreated { table: t.key(), pot: t.pot, stake, validator });
-        Ok(())
+        create_table_for(ctx, pot_id, stake, open_secs, validator, GAME_COINFLIP)
+    }
+
+    /// `create_table` for ZEC Up/Down: the seats bet on the price (`bet`, `settle_bet`).
+    pub fn create_updown_table(ctx: Context<CreateTable>, pot_id: [u8; 32], stake: u64, open_secs: i64, validator: Pubkey) -> Result<()> {
+        create_table_for(ctx, pot_id, stake, open_secs, validator, GAME_UPDOWN)
     }
 
     /// The player's session key signs; the ledger moves the stake from their balance.
@@ -194,6 +174,7 @@ pub mod zol_coinflip {
     pub fn flip(ctx: Context<Flip>, caller_seed: [u8; 32]) -> Result<()> {
         require!(matches!(ctx.accounts.table.state, TableState::Started | TableState::Landed), CoinflipError::BadTableState);
         require!(ctx.accounts.table.players.contains(&ctx.accounts.payer.key()), CoinflipError::NotAtTable);
+        require!(ctx.accounts.table.game == GAME_COINFLIP, CoinflipError::WrongGame);
         require!(ALLOWED_QUEUES.contains(&ctx.accounts.oracle_queue.key()), CoinflipError::BadQueue);
         {
             let info = ctx.accounts.pot.to_account_info();
@@ -263,6 +244,9 @@ pub mod zol_coinflip {
         t.randomness = randomness;
         t.flips = t.flips.saturating_add(1);
         t.results = (t.results << 1) | winner as u64;
+        if winner == 1 {
+            t.wins = t.wins.saturating_add(1);
+        }
         emit!(Landed { table: t.key(), winner, amount });
         Ok(())
     }
@@ -272,6 +256,38 @@ pub mod zol_coinflip {
     /// session deadline has passed, so the pot comes home with its result before the ledger
     /// would refund the buy-ins. A flip whose VRF answer has not landed after
     /// `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.
+    /// Rollup, Up/Down. The seated player bets the price goes Up (or Down) over the next
+    /// `UPDOWN_ROUND_SECS`, one stake, at the oracle's current price. The other seat must
+    /// cover the 0.9-stake win, and there is one open bet at a time.
+    pub fn bet(ctx: Context<Bet>, up: bool) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let who = ctx.accounts.payer.key();
+        let t = &ctx.accounts.table;
+        require!(t.game == GAME_UPDOWN, CoinflipError::WrongGame);
+        require!(matches!(t.state, TableState::Started | TableState::Landed), CoinflipError::BadTableState);
+        let seat = t.players.iter().position(|p| *p == who).ok_or(CoinflipError::NotAtTable)? as u8;
+        require!(!t.bet.open, CoinflipError::BetOpen);
+        let amounts = pot_amounts(&ctx.accounts.pot)?;
+        let win = updown_win(t.stake);
+        require!(amounts[seat as usize] >= t.stake && amounts[1 - seat as usize] >= win, CoinflipError::SeatShort);
+        let (price, _) = read_price(&ctx.accounts.oracle, now)?;
+        let t = &mut ctx.accounts.table;
+        t.bet = BetSlot { open: true, up, seat, open_price: price, expiry: now + UPDOWN_ROUND_SECS, settle_price: 0 };
+        t.flip_requested_at = now; // activity, for `crank_close`
+        emit!(BetPlaced { table: t.key(), up, open_price: price, expiry: t.bet.expiry });
+        Ok(())
+    }
+
+    /// Rollup, anyone (the page at expiry, `crank_close` every few seconds). Settles the open
+    /// bet with a price published at or after its expiry: a tie moves nothing, a right call
+    /// is paid 0.9 stake by the other seat, a wrong one pays its stake to it. Past
+    /// `SETTLE_WINDOW_SECS` the bet is void instead.
+    pub fn settle_bet(ctx: Context<SettleBet>) -> Result<()> {
+        let bump = ctx.bumps.app_authority;
+        let a = ctx.accounts;
+        settle_open_bet(&mut a.table, &a.pot, &a.oracle, &a.app_authority, bump, Clock::get()?.unix_timestamp, true)
+    }
+
     pub fn finish(ctx: Context<Finish>) -> Result<()> {
         check_finish(&ctx.accounts.table, ctx.accounts.payer.key(), Clock::get()?.unix_timestamp)?;
         let bump = ctx.bumps.app_authority;
@@ -293,8 +309,18 @@ pub mod zol_coinflip {
     /// table nobody can or will play any more: no flip for `IDLE_SECS`, a seat that cannot
     /// cover a stake, or within `DEADLINE_MARGIN_SECS` of the session deadline. Otherwise it
     /// does nothing, so repeated runs are harmless. The table signs as the commit's payer.
-    pub fn crank_close(ctx: Context<CrankClose>) -> Result<()> {
+    pub fn crank_close(mut ctx: Context<CrankClose>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
+        if ctx.accounts.table.bet.open {
+            // An Up/Down bet first: settle it once its price is in, or void it past the window;
+            // the table may close on a later run.
+            if now >= ctx.accounts.table.bet.expiry {
+                let bump = ctx.bumps.app_authority;
+                let a = &mut ctx.accounts;
+                settle_open_bet(&mut a.table, &a.pot, &a.oracle, &a.app_authority, bump, now, false)?;
+            }
+            return Ok(());
+        }
         let t = &ctx.accounts.table;
         let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
         if !(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip) {
@@ -342,6 +368,7 @@ pub mod zol_coinflip {
                 ledger_program: a.ledger_program.key(),
                 rent_vault: a.rent_vault.key(),
                 magic_fee_vault: magic_fee_vault(&t.validator),
+                oracle: ZEC_USD_FEED,
                 magic_program: a.magic_program.key(),
                 magic_context: a.magic_context.key(),
             }
@@ -359,6 +386,7 @@ pub mod zol_coinflip {
                 a.ledger_program.to_account_info(),
                 a.rent_vault.to_account_info(),
                 a.magic_fee_vault.to_account_info(),
+                a.oracle.to_account_info(),
                 a.magic_context.to_account_info(),
             ],
             args: ScheduleTaskArgs { task_id, execution_interval_millis: CLOSER_INTERVAL_MS, iterations, instructions: vec![ix] },
@@ -658,10 +686,165 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     Ok(())
 }
 
+fn create_table_for(ctx: Context<CreateTable>, pot_id: [u8; 32], stake: u64, open_secs: i64, validator: Pubkey, game: u8) -> Result<()> {
+    require!(stake > 0, CoinflipError::ZeroStake);
+    require_keys_neq!(validator, Pubkey::default(), CoinflipError::BadValidator);
+    let params = {
+        let info = &ctx.accounts.config;
+        require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+        let (expected, _) = Pubkey::find_program_address(&[zol_ledger::state::seeds::CONFIG], &zol_ledger::ID);
+        require_keys_eq!(info.key(), expected, CoinflipError::BadAccount);
+        let data = info.try_borrow_data()?;
+        Config::try_deserialize(&mut &data[..])?.params
+    };
+    require!(allowed_stakes(&params).contains(&stake), CoinflipError::BadStake);
+    let now = Clock::get()?.unix_timestamp;
+    let open_deadline = now.checked_add(open_secs).ok_or(CoinflipError::Overflow)?;
+    let a = &ctx.accounts;
+    let bump = ctx.bumps.app_authority;
+    zol_ledger::cpi::open_pot(
+        CpiContext::new_with_signer(
+            zol_ledger::ID,
+            zol_ledger::cpi::accounts::OpenPot {
+                payer: a.payer.to_account_info(),
+                config: a.config.to_account_info(),
+                app: a.app.to_account_info(),
+                authority: a.app_authority.to_account_info(),
+                pot: a.pot.to_account_info(),
+                receipt: a.receipt.to_account_info(),
+                system_program: a.system_program.to_account_info(),
+            },
+            &[&[APP_AUTHORITY_SEED, &[bump]]],
+        ),
+        pot_id,
+        open_deadline,
+    )?;
+    let t = &mut ctx.accounts.table;
+    t.pot = ctx.accounts.pot.key();
+    t.pot_id = pot_id;
+    t.stake = stake;
+    t.validator = validator;
+    t.creator = ctx.accounts.payer.key();
+    t.state = TableState::Open;
+    t.winner = NO_WINNER;
+    t.randomness = [0; 32];
+    t.bump = ctx.bumps.table;
+    t.flips = 0;
+    t.flip_requested_at = 0;
+    t.players = [Pubkey::default(); 2];
+    t.session_deadline = 0;
+    t.results = 0;
+    t.game = game;
+    t.bet = BetSlot::default();
+    t.wins = 0;
+    t.ties = 0;
+    emit!(TableCreated { table: t.key(), pot: t.pot, stake, validator });
+    Ok(())
+}
+
+/// The other seat's payment on a right Up/Down call: 0.9 stake at 1.9×.
+pub fn updown_win(stake: u64) -> u64 {
+    stake.saturating_mul(UPDOWN_PAYOUT_BPS - 10_000) / 10_000
+}
+
+fn pot_amounts(pot: &UncheckedAccount) -> Result<[u64; zol_ledger::state::limits::MAX_SEATS]> {
+    let info = pot.to_account_info();
+    require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+    let data = info.try_borrow_data()?;
+    Ok(Pot::try_deserialize(&mut &data[..])?.amounts)
+}
+
+/// ZEC/USD from MagicBlock's oracle account: (price, publish time). Only the configured feed,
+/// fully verified, published at most `MAX_PRICE_AGE_SECS` before `now`.
+pub fn read_price(oracle: &UncheckedAccount, now: i64) -> Result<(i64, i64)> {
+    require_keys_eq!(oracle.key(), ZEC_USD_FEED, CoinflipError::BadOracle);
+    require_keys_eq!(*oracle.owner, PRICE_PROGRAM, CoinflipError::BadOracle);
+    let data = oracle.try_borrow_data()?;
+    // Pyth PriceUpdateV2 body: write authority (8..40), verification level (40, 1 = full),
+    // feed id (41..73), price (73), conf, exponent, publish time (93).
+    require!(data.len() >= 101 && data[40] == 1 && data[41..73] == ZEC_USD_FEED_ID, CoinflipError::BadOracle);
+    let price = i64::from_le_bytes(data[73..81].try_into().unwrap());
+    let published = i64::from_le_bytes(data[93..101].try_into().unwrap());
+    require!(price > 0 && now.saturating_sub(published) <= MAX_PRICE_AGE_SECS, CoinflipError::StalePrice);
+    Ok((price, published))
+}
+
+/// Settles the table's open bet (see `settle_bet`). `strict`: refuse a price from before the
+/// expiry (a caller retries); otherwise (the scheduled closer) just wait for a later run.
+fn settle_open_bet<'info>(
+    table: &mut Account<'info, Table>,
+    pot: &UncheckedAccount<'info>,
+    oracle: &UncheckedAccount<'info>,
+    app_authority: &UncheckedAccount<'info>,
+    app_authority_bump: u8,
+    now: i64,
+    strict: bool,
+) -> Result<()> {
+    let b = table.bet;
+    require!(b.open, CoinflipError::NoBet);
+    require!(now >= b.expiry, CoinflipError::BetNotExpired);
+    if now > b.expiry.saturating_add(SETTLE_WINDOW_SECS) {
+        table.bet.open = false; // void: nothing moves
+        emit!(BetSettled { table: table.key(), outcome: 3, settle_price: 0 });
+        return Ok(());
+    }
+    let (price, published) = read_price(oracle, now)?;
+    if published < b.expiry {
+        if strict {
+            return err!(CoinflipError::PriceNotYet);
+        }
+        return Ok(());
+    }
+    let (from, to, amount, outcome) = if price == b.open_price {
+        (0, 0, 0, 2u8) // tie: the stake stays
+    } else if (price > b.open_price) == b.up {
+        (1 - b.seat, b.seat, updown_win(table.stake), 1) // right call
+    } else {
+        (b.seat, 1 - b.seat, table.stake, 0) // wrong call
+    };
+    if amount > 0 {
+        zol_ledger::cpi::move_seat(
+            CpiContext::new_with_signer(
+                zol_ledger::ID,
+                zol_ledger::cpi::accounts::MoveSeat {
+                    authority: app_authority.to_account_info(),
+                    pot: pot.to_account_info(),
+                    app_authority: app_authority.to_account_info(),
+                },
+                &[&[APP_AUTHORITY_SEED, &[app_authority_bump]]],
+            ),
+            from,
+            to,
+            amount,
+        )?;
+    }
+    let t = table;
+    t.bet.open = false;
+    t.bet.settle_price = price;
+    t.flips = t.flips.saturating_add(1);
+    let bettor_won = outcome == 1;
+    t.results = (t.results << 1) | bettor_won as u64;
+    match outcome {
+        1 => t.wins = t.wins.saturating_add(1),
+        2 => t.ties = t.ties.saturating_add(1),
+        _ => {}
+    }
+    t.winner = match outcome {
+        1 => b.seat,
+        0 => 1 - b.seat,
+        _ => NO_WINNER,
+    };
+    t.state = TableState::Landed;
+    emit!(BetSettled { table: t.key(), outcome, settle_price: price });
+    Ok(())
+}
+
 /// Who may finish and when: the creator or a seated player (anyone after the session
 /// deadline), between flips, before the first, or after a flip the VRF never answered.
 fn check_finish(t: &Table, who: Pubkey, now: i64) -> Result<()> {
     require!(who == t.creator || t.players.contains(&who) || now >= t.session_deadline, CoinflipError::NotAtTable);
+    // An open bet is settled or void first (void once its window has passed: nothing moved).
+    require!(!t.bet.open || now > t.bet.expiry.saturating_add(SETTLE_WINDOW_SECS), CoinflipError::BetOpen);
     let stale_flip = t.state == TableState::Flipping && now >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
     require!(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip, CoinflipError::BadTableState);
     Ok(())
@@ -882,8 +1065,27 @@ pub struct Table {
     pub players: [Pubkey; 2],
     /// The ledger session deadline `start` asked for (unix seconds).
     pub session_deadline: i64,
-    /// Winning seats, newest in bit 0 (the last 64 flips).
+    /// Winning seats, newest in bit 0 (the last 64 flips). Up/Down: 1 when the bettor won.
     pub results: u64,
+    /// `GAME_COINFLIP` or `GAME_UPDOWN`.
+    pub game: u8,
+    /// Up/Down: the open bet, if any.
+    pub bet: BetSlot,
+    /// Rounds won by seat 1 (coin flip) or by the bettor (Up/Down), and Up/Down ties.
+    pub wins: u32,
+    pub ties: u32,
+}
+
+/// An Up/Down bet: the bettor's seat, their call, the price at the bet and when it expires.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
+pub struct BetSlot {
+    pub open: bool,
+    pub up: bool,
+    pub seat: u8,
+    pub open_price: i64,
+    pub expiry: i64,
+    /// The price it settled at (0 before, or when void).
+    pub settle_price: i64,
 }
 
 // ---------------------------------------------------------------- accounts
@@ -1050,6 +1252,36 @@ pub struct Finish<'info> {
     pub ledger_program: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct Bet<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub table: Account<'info, Table>,
+    /// CHECK: the table's pot (`has_one`); owner checked when read
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: the ZEC/USD oracle account; address, owner and contents checked in `read_price`
+    pub oracle: UncheckedAccount<'info>,
+}
+
+/// No signer: anyone may settle (the page, the house, the scheduled closer).
+#[derive(Accounts)]
+pub struct SettleBet<'info> {
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
+    pub table: Account<'info, Table>,
+    /// CHECK: checked by `has_one` and the ledger
+    #[account(mut)]
+    pub pot: UncheckedAccount<'info>,
+    /// CHECK: the ZEC/USD oracle account; checked in `read_price`
+    pub oracle: UncheckedAccount<'info>,
+    /// CHECK: this program's signing address
+    #[account(seeds = [APP_AUTHORITY_SEED], bump)]
+    pub app_authority: UncheckedAccount<'info>,
+    /// CHECK: the ledger
+    #[account(address = zol_ledger::ID)]
+    pub ledger_program: UncheckedAccount<'info>,
+}
+
 #[commit]
 #[derive(Accounts)]
 pub struct FinishAndPay<'info> {
@@ -1093,6 +1325,8 @@ pub struct CrankClose<'info> {
     /// a delegated account, and those pay commit fees there
     #[account(mut)]
     pub magic_fee_vault: UncheckedAccount<'info>,
+    /// CHECK: the ZEC/USD oracle account, to settle an Up/Down bet; checked when read
+    pub oracle: UncheckedAccount<'info>,
 }
 
 #[commit]
@@ -1116,6 +1350,9 @@ pub struct ScheduleCloser<'info> {
     /// CHECK: must be `magic_fee_vault(table.validator)` (checked in the handler); only named
     /// in the scheduled instruction
     pub magic_fee_vault: UncheckedAccount<'info>,
+    /// CHECK: the ZEC/USD oracle account; only named in the scheduled instruction
+    #[account(address = ZEC_USD_FEED)]
+    pub oracle: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1240,6 +1477,20 @@ pub struct TableClosed {
     pub pot_state: u8,
 }
 #[event]
+pub struct BetPlaced {
+    pub table: Pubkey,
+    pub up: bool,
+    pub open_price: i64,
+    pub expiry: i64,
+}
+/// `outcome`: 0 the bettor lost, 1 won, 2 tie, 3 void (not settled within the window).
+#[event]
+pub struct BetSettled {
+    pub table: Pubkey,
+    pub outcome: u8,
+    pub settle_price: i64,
+}
+#[event]
 pub struct CloserScheduled {
     pub table: Pubkey,
     pub iterations: i64,
@@ -1284,4 +1535,18 @@ pub enum CoinflipError {
     BadRounds,
     #[msg("only a seated player (or, to finish, the table's creator) may do that")]
     NotAtTable,
+    #[msg("not this table's game")]
+    WrongGame,
+    #[msg("a bet is open")]
+    BetOpen,
+    #[msg("no open bet")]
+    NoBet,
+    #[msg("the bet has not expired yet")]
+    BetNotExpired,
+    #[msg("no price published since the bet expired yet; try again in a second")]
+    PriceNotYet,
+    #[msg("not the ZEC/USD oracle account")]
+    BadOracle,
+    #[msg("the oracle price is too old")]
+    StalePrice,
 }
