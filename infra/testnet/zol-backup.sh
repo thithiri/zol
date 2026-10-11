@@ -4,20 +4,23 @@
 #   /var/backups/zol/zol-<UTC timestamp>.tar.age   (last 14 kept)
 # Restore (on the machine holding the identity):
 #   age -d -i age-identity.txt zol-....tar.age | tar -x -C /
-#   then rename each op*/gateway.db.backup to gateway.db (a consistent SQLite copy).
+#   then rename each op*/gateway.db.backup and house/house.db.backup (consistent SQLite copies).
 set -euo pipefail
 RECIPIENT_FILE=/etc/zol/backup-recipient.txt
 OUT=/var/backups/zol
 mkdir -p "$OUT"; chmod 700 "$OUT"
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 # Consistent copies of the SQLite stores (WAL mode, written while running).
-for db in /home/zol/ops/op*/gateway.db; do
+for db in /home/zol/ops/op*/gateway.db /home/zol/ops/house/house.db; do
+  [ -f "$db" ] || continue
   mkdir -p "$work$(dirname "$db")"
   sqlite3 "$db" ".backup '$work$db.backup'"   # restore: rename to gateway.db
 done
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 tar -C / -c \
   --exclude='home/zol/ops/op*/gateway.db' --exclude='home/zol/ops/op*/gateway.db-*' \
+  --exclude='home/zol/ops/house/house.db' --exclude='home/zol/ops/house/house.db-*' \
+  etc/systemd/system/zol-house.service \
   home/zol/ops home/zol/zakura-testnet/zakura.toml etc/caddy/Caddyfile \
   etc/systemd/system/zol-zcashd@.service etc/systemd/system/zol-gateway@.service \
   -C "$work" home \

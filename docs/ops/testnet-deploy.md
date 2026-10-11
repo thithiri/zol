@@ -287,3 +287,17 @@ Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, fro
 - **The smoke script, with preflight and rebroadcast (settlement 2).**
   - **Credit, waiting on the float:** p1's credit waited 56 min. Early credits must fit the remaining float, and a payout still waiting for `mark_paid` is counted twice: out of the head and as an unpaid claim, for about 2 h. That's conservative, but it throttles frequent payouts; see the float fix in [plan-house-mode.md](../plan-house-mode.md).
   - **Payout from deposit notes:** the head (1,023,964) was below the payout (1,968,018), so the planner added a deposit note as an input. That worked, and the new head is 35,946. Consolidation folds deposit notes back into the head.
+
+### Alerts
+
+- **What it does:** `zol-alert` (`infra/testnet/zol-alert.sh`) runs from cron every 5 minutes. It writes the `zol-status` JSON line to the log and notifies **ntfy.sh** when the set of problems changes, including recovery.
+- **Topic:** `/etc/zol/ntfy-topic`, a long random name; a copy is in `keys/ntfy-topic.txt`. Anyone with the name can read the alerts, so treat it as a password. Subscribe in the ntfy app.
+- **Debouncing:** a problem must show in two checks in a row before it alerts, because a gateway that is proving or restarting can miss one 15 s health check. A **freeze or halt alerts at once**. Test with `zol-alert --test`.
+
+### Vault notes and consolidation
+
+- **Payouts can be short of inputs.** A payout transaction is padded to the smallest fixed size that fits its outputs: 4 actions for one payout, so the head plus **at most 3 notes**.
+  - **House games are safe:** they pay 1,968,018, which the head plus two 1,000,000 deposit notes always cover.
+  - **A 0.1 TAZ two-player win** (about 19.9M) needs large notes, or consolidation. Otherwise the planner can't fund it and the payout waits.
+- **Consolidation** merges up to 3 notes into the head per transaction, at most once an hour, paid from the fee pool (20,000 zat each). The trial now consolidates at **6** spendable notes (it was 16); it limits itself as the note count drops.
+- **Follow-up (planner):** pick a larger padded size when the head plus `size − 1` notes don't cover the payouts. Every operator must derive the same plan, so it needs tests across operators.
