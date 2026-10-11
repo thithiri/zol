@@ -153,3 +153,45 @@ fn head_chain_fault_halts() {
     assert!(w.nodes[1].halted().unwrap().unwrap().contains("HeadChainFault"));
     assert!(plan(&w.nodes[1], &w.ledger, &app_id(), w.ledger.env.now).is_err());
 }
+
+/// A settlement paid on Zcash (in the walked head chain) but not yet marked paid on the
+/// ledger is not a claim: the head already shrank by it. Counting it twice made early
+/// credits stall for the ~2 h until payout depth on testnet, and could fake a shortfall.
+#[test]
+fn a_paid_but_unmarked_settlement_is_not_counted_twice() {
+    use zol_gateway::ledger::Ledger;
+    use zol_gateway::reconcile::{compute_reserve, has_paid_unmarked, paid_unmarked};
+    let (w, genesis, _) = settled();
+    let program = w.nodes[0].apps[&app_id()].program;
+    let acc = w.ledger.app(&program).unwrap().unwrap();
+    let s = &w.ledger.settlements(&program).unwrap()[0];
+    let notes = w.nodes[0].store.notes(&app_id()).unwrap();
+    let tip = w.height;
+    let rule = w.nodes[0].cfg.rule();
+
+    // Before the payout: the settlement is a claim.
+    let before = genesis_only(app_id(), genesis, 5_000_000, 2);
+    assert!(!has_paid_unmarked(&acc, Some(&before)));
+    let r0 = compute_reserve(&acc, &notes, tip, &rule, Some(&before), 0);
+    assert_eq!(r0.claims, acc.liability as u128 + acc.unpaid_total as u128);
+
+    // The payout is mined: the head shrinks by the settlement (plus a fee) and the chain
+    // shows paid_count 1, while the ledger still has it unpaid.
+    let mut after = before.clone();
+    after.chain.push(HeadLink { paid_count: 1, position: 1, value: 5_000_000 - s.total - 20_000, network_fees_spent: 20_000, txid: [0xAB; 32], height: tip, ..before.chain[0].clone() });
+    assert!(has_paid_unmarked(&acc, Some(&after)));
+    let pu = paid_unmarked(&acc, Some(&after), &w.ledger.settlements(&program).unwrap());
+    assert_eq!(pu, s.total as u128);
+    let r1 = compute_reserve(&acc, &notes, tip, &rule, Some(&after), pu);
+    assert_eq!(r1.claims, r0.claims - s.total as u128);
+    // The float is exactly what it was before the payout: the network fee comes out of
+    // the fee pool (network_fees_spent), not the float.
+    assert_eq!(r1.remaining_float(), r0.remaining_float());
+    // Without the fix the payout would be counted twice.
+    let double = compute_reserve(&acc, &notes, tip, &rule, Some(&after), 0);
+    assert_eq!(double.remaining_float() + s.total as u128, r1.remaining_float());
+    // The planner and guardian paths see it too: reconciliation stays clean.
+    set_heads(&w, &after);
+    let mut l = w.ledger;
+    assert!(w.nodes[0].guard(&mut l).unwrap().is_empty());
+}

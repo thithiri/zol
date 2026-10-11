@@ -112,12 +112,18 @@ pub fn plan(node: &Node, ledger: &dyn Ledger, app: &AppId, now: i64) -> Result<s
     let tip = node.store.tip()?.unwrap_or(0);
     let notes = node.store.notes(app)?;
     let deposits = ledger.deposits(&rt.program)?;
+    let paid_unmarked = if crate::reconcile::has_paid_unmarked(&acc, Some(&head)) {
+        crate::reconcile::paid_unmarked(&acc, Some(&head), &ledger.settlements(&rt.program)?)
+    } else {
+        0
+    };
     let ctx = ReconcileCtx {
         network: node.cfg.network(),
         vault_address: rt.vault_address,
         secrets: &rt.secrets,
         tip,
         depths: &node.cfg.rule(),
+        paid_unmarked,
     };
     let intents = |_idx: u128| None;
     if !reconcile(&acc, &deposits, &notes, &intents, &ctx, Some(&head)).is_empty() {

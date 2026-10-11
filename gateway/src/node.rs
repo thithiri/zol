@@ -339,7 +339,8 @@ impl Node {
         let status = app_status(&app_acc, &cfg, ledger.now()?);
         let denominations: Vec<u64> = cfg.params.denominations.iter().copied().filter(|d| *d > 0).collect();
         let notes = self.store.notes(app)?;
-        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref());
+        let paid_unmarked = self.paid_unmarked(ledger, &app_acc, &rt.program)?;
+        let reserve = compute_reserve(&app_acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref(), paid_unmarked);
         let mut pending = pending_early(&notes, tip, &self.cfg.rule());
         let mut out = Vec::new();
         for n in notes {
@@ -427,15 +428,17 @@ impl Node {
                 AppState::Active | AppState::Activating => {
                     let Some((acc, deposits)) = consistent_view(ledger, &rt.program)? else { continue };
                     let intents = |idx: u128| self.intent(app, idx);
+                    let paid_unmarked = self.paid_unmarked(ledger, &acc, &rt.program)?;
                     let ctx = ReconcileCtx {
                         network: self.network(),
                         vault_address: rt.vault_address,
                         secrets: &rt.secrets,
                         tip,
                         depths: &self.cfg.rule(),
+                        paid_unmarked,
                     };
                     let mismatches = reconcile(&acc, &deposits, &notes, &intents, &ctx, self.head(app).as_ref());
-                    if compute_reserve(&acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref()).is_short() {
+                    if compute_reserve(&acc, &notes, tip, &self.cfg.rule(), self.head(app).as_ref(), paid_unmarked).is_short() {
                         self.halt(HaltReason::ReserveShort { app: *app })?;
                     }
                     if mismatches.is_empty() {
@@ -449,6 +452,17 @@ impl Node {
             }
         }
         Ok(actions)
+    }
+
+    /// Settlements this node's head chain shows paid on Zcash but the ledger has not
+    /// marked yet (see `reconcile::paid_unmarked`). Reads settlements only when some exist.
+    fn paid_unmarked(&self, ledger: &dyn Ledger, acc: &App, program: &Pubkey) -> Result<u128> {
+        let app_id = program.to_bytes();
+        let head = self.head(&app_id);
+        if !crate::reconcile::has_paid_unmarked(acc, head.as_ref()) {
+            return Ok(0);
+        }
+        Ok(crate::reconcile::paid_unmarked(acc, head.as_ref(), &ledger.settlements(program)?))
     }
 
     /// Voided deposits whose refund is due: the void is on the ledger and the

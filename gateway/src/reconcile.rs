@@ -38,6 +38,8 @@ pub struct ReconcileCtx<'a> {
     pub secrets: &'a AppSecrets,
     pub tip: u32,
     pub depths: &'a DepthRule,
+    /// `paid_unmarked` for this app and head chain.
+    pub paid_unmarked: u128,
 }
 
 /// Value of credits not yet at full depth (rolled-back ones count as lost, not pending).
@@ -63,7 +65,33 @@ pub fn current_head(notes: &[NoteRecord]) -> Option<(&NoteRecord, HeadMemo)> {
 /// Reserve position from this operator's scan and the finalized ledger. The
 /// head comes from the nullifier-chain walk when one is known (`chain`), else
 /// from the latest unspent head note in the scan.
-pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &DepthRule, chain: Option<&zol_types::api::HeadChain>) -> Reserve {
+/// Settlements the vault has already paid on Zcash (by the walked head chain) but the
+/// ledger has not yet marked paid: `[app.paid_count, head.paid_count)`. The payout left the
+/// head when it was mined, while `unpaid_total` drops only at `mark_paid` (payout depth), so
+/// they must not also count as claims in between. If the paying transition is reorged away,
+/// the walked chain loses it too, and they count as claims again.
+pub fn paid_unmarked(app: &App, chain: Option<&zol_types::api::HeadChain>, settlements: &[zol_ledger::state::Settlement]) -> u128 {
+    let Some(paid) = chain.and_then(|c| c.chain.last()).map(|l| l.paid_count) else { return 0 };
+    settlements
+        .iter()
+        .filter(|s| s.sequence >= app.paid_count && s.sequence < paid && s.state == zol_ledger::state::SettlementState::Unpaid)
+        .map(|s| s.total as u128)
+        .sum()
+}
+
+/// Whether `paid_unmarked` can be non-zero, so callers read settlements only then.
+pub fn has_paid_unmarked(app: &App, chain: Option<&zol_types::api::HeadChain>) -> bool {
+    chain.and_then(|c| c.chain.last()).is_some_and(|l| l.paid_count > app.paid_count)
+}
+
+pub fn compute_reserve(
+    app: &App,
+    notes: &[NoteRecord],
+    tip: u32,
+    depths: &DepthRule,
+    chain: Option<&zol_types::api::HeadChain>,
+    paid_unmarked: u128,
+) -> Reserve {
     let live = |n: &&NoteRecord| !n.rolled_back && n.spent.is_none();
     let walked = chain.and_then(|c| c.chain.last());
     let scanned = current_head(notes);
@@ -91,7 +119,7 @@ pub fn compute_reserve(app: &App, notes: &[NoteRecord], tip: u32, depths: &Depth
     };
     Reserve {
         reserve: head_value + credited + topups,
-        claims: app.liability as u128 + app.unpaid_total as u128,
+        claims: (app.liability as u128 + app.unpaid_total as u128).saturating_sub(paid_unmarked),
         fee_pool_left: (app.fee_pool as u128 + swept).saturating_sub(spent),
     }
 }
@@ -144,7 +172,7 @@ pub fn reconcile(
     if total != app.credited_total as u128 {
         out.push(Mismatch::CreditedTotal { ledger: app.credited_total, notes: total });
     }
-    let reserve = compute_reserve(app, notes, ctx.tip, ctx.depths, chain);
+    let reserve = compute_reserve(app, notes, ctx.tip, ctx.depths, chain, ctx.paid_unmarked);
     let pending = pending_early(notes, ctx.tip, ctx.depths);
     if pending > reserve.remaining_float() {
         out.push(Mismatch::EarlyOverFloat { pending, float: reserve.remaining_float() });
