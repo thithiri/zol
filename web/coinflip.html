@@ -72,13 +72,11 @@
   <!-- First visit: a player key held by a passkey -->
   <section id="start" class="card center" hidden>
     <p style="margin-top:0">Play against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the games run on Solana and a MagicBlock rollup.</p>
-    <div class="row">
-      <button id="pk-new" class="primary">Start with a passkey</button>
-      <button id="nopk-new">Start with a session key</button>
-    </div>
+    <button id="pk-new" class="primary">Start with a passkey</button>
     <div><button id="pk-login" class="link">I already have a passkey</button></div>
     <p id="pk-help" class="small err" hidden></p>
     <p class="small muted">A passkey (Face ID, Touch ID, your password manager) holds your player key on every device it syncs to: nothing to write down. A session key stays in this browser: save it when the page shows it.</p>
+    <button id="nopk-new">Start with a session key</button>
     <div class="restore">
       <label class="small muted" for="restore-text">Have a saved session key? Restore it:</label>
       <input id="restore-text" placeholder="zolsess1:…" />
