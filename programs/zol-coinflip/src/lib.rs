@@ -55,6 +55,9 @@ pub const FLIP_TIMEOUT_SECS: i64 = 60;
 pub const IDLE_SECS: i64 = 120;
 /// `crank_close` closes a table this long before its session deadline.
 pub const DEADLINE_MARGIN_SECS: i64 = 300;
+/// Lamports `start` adds to a table above its rent, for the fees it pays as a delegated
+/// payer in `crank_close` (returned to the creator on close).
+pub const TABLE_FEE_BUFFER: u64 = 1_000_000;
 /// How often the scheduled `crank_close` looks at a table (devnet ran it about every 5 s
 /// when 20 s was asked, so iterations are sized for the faster pace).
 pub const CLOSER_INTERVAL_MS: i64 = 5_000;
@@ -640,6 +643,16 @@ fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
     // The table is delegated with the rent vault as its delegation rent payer, so a
     // stuck table can be rescued by anyone through this program (`rescue_table`).
     top_up_vault(a, ctx.bumps.rent_vault)?;
+    // A table that pays its own commits (`crank_close`) is charged MagicBlock's action fee
+    // from its lamports; at exactly rent-exempt it would drop below and be refused. The
+    // buffer goes back to the creator with the rest of the rent when the table closes.
+    anchor_lang::system_program::transfer(
+        CpiContext::new(
+            anchor_lang::system_program::ID,
+            anchor_lang::system_program::Transfer { from: a.payer.to_account_info(), to: a.table.to_account_info() },
+        ),
+        TABLE_FEE_BUFFER,
+    )?;
     delegate_table_via_vault(a, &table.pot_id, validator, ctx.bumps.rent_vault)?;
     emit!(Started { table: table_info.key(), validator, session_deadline });
     Ok(())

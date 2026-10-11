@@ -940,6 +940,27 @@ fn crank_close_waits_for_idleness_then_closes() {
 }
 
 #[test]
+fn start_leaves_a_fee_buffer_in_the_table_that_returns_on_close() {
+    let mut cf = Cf::new();
+    let a = cf.player(1_000_000);
+    let b = cf.player(1_000_000);
+    ok!(cf.create_table(SMALL));
+    let rent = cf.lamports(&cf_table());
+    ok!(cf.join_rounds(&a, 1));
+    ok!(cf.join_rounds(&b, 1));
+    ok!(cf.start());
+    assert_eq!(cf.lamports(&cf_table()), rent + zol_coinflip::TABLE_FEE_BUFFER);
+    cf.enter_rollup();
+    ok!(cf.flip_by(&a, VRF_QUEUE));
+    ok!(cf.vrf_callback(randomness_for(0)));
+    let r = cf.relayer();
+    ok!(cf.finish_and_pay_by(&r));
+    let before = cf.lamports(&cf.env.relayer.pubkey());
+    ok!(cf.cash_out_table(&[]));
+    assert_eq!(cf.lamports(&cf.env.relayer.pubkey()), before + rent + zol_coinflip::TABLE_FEE_BUFFER, "rent and buffer back to the creator");
+}
+
+#[test]
 fn crank_close_closes_a_table_a_seat_cannot_play() {
     let (mut cf, _a, b) = session(1);
     ok!(cf.flip_by(&b, VRF_QUEUE));
