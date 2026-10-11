@@ -226,7 +226,8 @@ const PAYOUT_STEPS = /^(settlement|paid on Zcash|final)/;
 function render() {
   if (!game) return renderButtons();
   const flipSig = localStorage.getItem(K(`flipped:${game.id}`));
-  const evs = [...game.events];
+  // Retries are the house's business; the player sees the steps.
+  const evs = game.events.filter((e: any) => !e.step.startsWith("retrying"));
   if (flipSig) evs.splice(evs.findIndex((e: any) => e.step.startsWith("table in the")) + 1, 0, { step: "you flipped the coin; the VRF picks heads or tails", t: "", chain: "rollup", sig: flipSig });
   $("game-timeline").innerHTML = evs.filter((e: any) => !PAYOUT_STEPS.test(e.step)).map(eventLi).join("")
     + (game.state === "in_rollup" ? '<li class="wait">flipping…</li>' : LIVE.includes(game.state) ? '<li class="wait">working…</li>' : "");

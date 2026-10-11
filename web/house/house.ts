@@ -252,7 +252,11 @@ export class House {
       try {
         await this.step(g);
       } catch (e: any) {
-        g.error = String(e?.message ?? e).slice(0, 400);
+        const msg = String(e?.message ?? e);
+        // Rate limiting (one IP shared with the gateways) is not the game's fault: retry
+        // quietly on the next tick without counting it toward giving up.
+        if (/429|Too Many Requests|rate limit/i.test(msg)) continue;
+        g.error = msg.slice(0, 400);
         g.events.push({ step: `retrying: ${g.error.split("\n")[0].slice(0, 120)}`, t: now() });
         if (g.events.filter((x) => x.step.startsWith("retrying")).length > 8) {
           g.state = "failed";
