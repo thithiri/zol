@@ -303,6 +303,11 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
                     value: n.note.value,
                     height: n.note.height,
                     confirmations: crate::policy::confirmations(n.note.height, tip),
+                    txid: {
+                        let mut t = n.note.txid;
+                        t.reverse();
+                        hex::encode(t)
+                    },
                     state: match (n.state, n.spent.is_some()) {
                         (NoteState::Voided, true) => "refunded",
                         (NoteState::Voided, false) => "voided",

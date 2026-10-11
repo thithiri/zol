@@ -28,6 +28,8 @@ export interface DepositStatus {
   height: number;
   confirmations: number;
   state: "seen" | "held" | "credited" | "voided" | "refunded";
+  /** Transaction that paid the deposit, as wallets show it. */
+  txid?: string;
 }
 
 export class GatewayError extends Error {

@@ -281,7 +281,11 @@ export async function sendTx(conn: Connection, ixs: TransactionInstruction[], fe
   tx.recentBlockhash = bh.blockhash;
   const all = [feePayer, ...signers.filter((s) => !s.publicKey.equals(feePayer.publicKey))];
   tx.sign(...all);
-  const raw = tx.serialize();
+  return sendSigned(conn, tx.serialize(), bh.lastValidBlockHeight);
+}
+
+/** Sends a fully signed transaction and rebroadcasts until confirmed or expired (see sendTx). */
+export async function sendSigned(conn: Connection, raw: Uint8Array | Buffer, lastValidBlockHeight: number): Promise<string> {
   let sig: string;
   try {
     sig = await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 0 });
@@ -296,7 +300,7 @@ export async function sendTx(conn: Connection, ixs: TransactionInstruction[], fe
       throw new Error(`${JSON.stringify(st.err)}\n${(t?.meta?.logMessages ?? []).slice(-8).join("\n")}`);
     }
     if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return sig;
-    if ((await conn.getBlockHeight("confirmed")) > bh.lastValidBlockHeight) throw new Error(`transaction ${sig.slice(0, 16)}… expired before it landed; try again`);
+    if ((await conn.getBlockHeight("confirmed")) > lastValidBlockHeight) throw new Error(`transaction ${sig.slice(0, 16)}… expired before it landed; try again`);
     await new Promise((r) => setTimeout(r, 2000));
     await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
   }

@@ -465,6 +465,9 @@ pub mod page {
         pub confirmations: u32,
         /// "seen" | "held" | "credited" | "voided" | "refunded"
         pub state: String,
+        /// Transaction that paid the deposit, hex in display order (as wallets show it).
+        #[serde(default)]
+        pub txid: String,
     }
 }
 

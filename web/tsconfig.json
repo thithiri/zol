@@ -3,15 +3,28 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "strict": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "preserveSymlinks": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["src", "test", "vite.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "house",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "house/server.ts"
+  ]
 }
