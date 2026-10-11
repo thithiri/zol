@@ -1,0 +1,186 @@
+<!-- Generated from house.html by scripts/pages.py; edit house.html. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZEC Up/Down</title>
+  <style>
+    :root { --fg: #1b1b1b; --bg: #f6f4ee; --muted: #6b6b6b; --line: #e2ded3; --accent: #e8a317; --accent-fg: #1b1b1b; --err: #b42318; --ok: #1a7f37; --card: #fffdf8; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ece9e0; --bg: #121212; --muted: #9a9a9a; --line: #2c2b28; --accent: #f4b400; --accent-fg: #121212; --err: #ff7b72; --ok: #3fb950; --card: #1b1a18; } }
+    * { box-sizing: border-box; }
+    body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; }
+    h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+    .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
+    .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 22px; line-height: 1; padding: 4px 8px; color: var(--muted); }
+    .panel-title { font-weight: 650; margin: 0 0 8px; }
+    button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 6px; }
+    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
+    .center { text-align: center; }
+    .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
+    button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    /* Your call: ringed and kept bright while the coin is in the air; the other side fades. */
+    button.chosen { box-shadow: 0 0 0 3px var(--card), 0 0 0 6px var(--fg); }
+    button.chosen:disabled { opacity: 1; }
+    button.unchosen:disabled { opacity: .25; }
+    button.link { border: 0; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font-size: 13px; }
+    input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    code { word-break: break-all; font-size: 12px; }
+    .balance { font-size: 40px; font-weight: 750; letter-spacing: -0.5px; margin: 4px 0 0; }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    /* The coin is drawn as one SVG (milled edge, rim, engraved ring, struck face). */
+    .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
+    .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
+    .coin.spin { animation: spin .6s linear infinite; }
+    nav.games { margin-top: 4px; color: var(--muted); } nav.games a { color: var(--muted); }
+    a.game { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; color: var(--fg); text-decoration: none; }
+    a.game:hover { border-color: var(--accent); } a.game b { display: block; } a.game span { display: block; }
+    .spark { width: 100%; height: 96px; display: block; margin: 6px 0 0; }
+    .spark .line { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .spark .entry { stroke: var(--fg); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .7; }
+    .spark.win .line { stroke: var(--ok); } .spark.lose .line { stroke: var(--err); }
+    .spark .area { opacity: .12; } .spark.win .area { fill: var(--ok); } .spark.lose .area { fill: var(--err); }
+    .lead { font-weight: 700; min-height: 24px; font-variant-numeric: tabular-nums; }
+    .lead.win { color: var(--ok); } .lead.lose { color: var(--err); }
+    .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
+    .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+    .bar.final > div { animation: pulse .5s ease-in-out infinite alternate; }
+    @keyframes pulse { from { opacity: 1 } to { opacity: .35 } }
+    .price { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
+    .betline { min-height: 22px; font-size: 14px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
+    .status { min-height: 26px; font-weight: 600; }
+    .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; border-radius: 10px; }
+    ol.tl { list-style: none; padding: 0; margin: 6px 0; font-size: 13px; }
+    ol.tl li { padding: 2px 0 2px 18px; position: relative; } ol.tl li::before { content: "●"; position: absolute; left: 2px; color: var(--ok); font-size: 9px; top: 6px; }
+    ol.tl li.wait::before { content: "○"; color: var(--muted); }
+    details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    .hist li { list-style: none; border-top: 1px solid var(--line); padding: 6px 0; font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body data-page="updown">
+  <header><h1>ZEC Up/Down</h1><span class="pill">testnet · no real money</span></header>
+  <nav class="small games"><a href="/">Home</a> · <a href="/house.html">Coin flip</a> · <b>ZEC Up/Down</b> · <a href="/auction.html">Sealed-bid auction</a></nav>
+
+  <!-- First visit: a player key held by a passkey -->
+  <section id="start" class="card center" hidden>
+    <p style="margin-top:0">Flip a coin against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the game runs on Solana and a MagicBlock rollup.</p>
+    <button id="pk-new" class="primary">Start with a passkey</button>
+    <div><button id="pk-login" class="link">I already have one (passkey)</button></div>
+    <p id="pk-help" class="small err" hidden></p>
+    <p class="small muted">Your passkey (Face ID, Touch ID, your password manager) holds your player key, on every device it syncs to. Nothing to write down.</p>
+    <details><summary>No passkey?</summary>
+      <p class="small muted">Use a session key kept in this browser. You must save it.</p>
+      <button id="nopk-new">Use a session key</button>
+      <p class="small muted">Or restore one:</p>
+      <input id="restore-text" placeholder="zolsess1:…" /><button id="restore-go">Restore</button>
+    </details>
+  </section>
+
+  <main id="main" hidden>
+    <!-- Balance -->
+    <section class="card center">
+      <div class="muted small">Game balance</div>
+      <div class="balance" id="balance">…</div>
+      <div class="muted small" id="flips">&nbsp;</div>
+      <div class="row" style="margin-top:10px" id="funds-buttons">
+        <button id="add-btn">Deposit Zcash</button>
+        <button id="cashout-btn">Withdraw Zcash</button>
+      </div>
+      <div class="small muted" id="funds-link" hidden style="margin-top:6px"><a href="/">Deposit or withdraw on the home page</a></div>
+    </section>
+
+    <!-- Home: the games -->
+    <section class="card" id="games" hidden>
+      <div class="panel-title">Games</div>
+      <a class="game" href="/house.html"><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></a>
+      <a class="game" href="/updown.html"><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></a>
+      <a class="game" href="/auction.html"><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></a>
+      <div class="small muted" style="margin-top:8px">Also: the <a href="/two-player.html">two-player table</a>, the original developer page.</div>
+    </section>
+
+    <!-- Withdraw -->
+    <section id="withdraw" class="card" hidden>
+      <button class="close" data-close="withdraw" aria-label="Close">×</button>
+      <div class="panel-title">Withdraw Zcash</div>
+      <div id="withdraw-form">
+        <div class="kv"><span>Your balance</span><b id="w-balance"></b></div>
+        <div class="kv muted"><span>Exit fee (0.3%)</span><b id="w-fee"></b></div>
+        <div class="kv muted"><span>Zcash network fee</span><b>0.0002 TAZ</b></div>
+        <div class="kv"><span>You receive</span><b id="w-net"></b></div>
+        <div class="small muted" style="margin:6px 0">To <code id="w-addr"></code>, the address fixed at your first deposit.</div>
+        <div class="center"><button id="withdraw-go" class="primary">Withdraw</button></div>
+      </div>
+      <ol class="tl" id="cashout-tl"></ol>
+    </section>
+
+    <!-- Add funds -->
+    <section id="add" class="card" hidden>
+      <button class="close" data-close="add" aria-label="Close">×</button>
+      <div class="panel-title">Deposit Zcash</div>
+      <div id="addr-step">
+        <label class="small">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
+          <input id="payout" placeholder="utest1…" autocomplete="off" /></label>
+        <p class="small muted" style="margin:6px 0 0">Asked once. It is fixed to your player, so even someone with your key could only pay you.</p>
+      </div>
+      <div id="addr-known" class="small muted" hidden>Withdrawals go to <code id="addr-short"></code></div>
+      <div class="row" style="margin-top:10px" id="amounts"></div>
+      <div id="pay" class="center" style="margin-top:18px" hidden>
+        <div class="qr" id="qr"></div>
+        <p style="margin:6px 0">Scan with your Zcash wallet or <a id="link">open the payment link</a>. Pay <b id="pay-amount"></b> exactly.</p>
+        <code id="session-ua" hidden></code>
+        <button id="fund-btn" class="link" hidden>No wallet? The house funds 0.01 TAZ once</button>
+        <div id="fund-msg" class="small" hidden></div>
+      </div>
+      <ol class="tl" id="deposit-tl"></ol>
+    </section>
+
+    <!-- The game: a coin flip or ZEC Up/Down -->
+    <section class="card center" id="game-card">
+      <div class="coin" id="coin"></div>
+      <div id="updown" hidden>
+        <div class="price" id="price">$—</div>
+        <div class="small muted">ZEC/USD · Pyth, live in the MagicBlock rollup</div>
+        <svg id="spark" class="spark" viewBox="0 0 300 96" preserveAspectRatio="none" aria-hidden="true">
+          <path class="area" id="spark-area" d="" />
+          <line class="entry" id="spark-entry" x1="0" x2="300" y1="-10" y2="-10" />
+          <polyline class="line" id="spark-line" points="" />
+        </svg>
+        <div class="bar" id="bar" hidden><div id="bar-fill"></div></div>
+        <div class="lead" id="lead"></div>
+        <div class="betline" id="betline"></div>
+      </div>
+      <div class="status" id="status">&nbsp;</div>
+      <div class="row">
+        <button id="start-table" class="primary" hidden>Start table</button>
+        <button id="heads" class="primary" hidden><span id="ico-heads"></span>Heads</button>
+        <button id="tails" class="primary" hidden><span id="ico-tails"></span>Tails</button>
+        <button id="up-btn" class="primary" hidden>▲ Up</button>
+        <button id="down-btn" class="primary" hidden>▼ Down</button>
+      </div>
+      <div class="small" id="table-note" style="margin-top:12px"></div>
+      <div class="small muted" id="stake-note">&nbsp;</div>
+    </section>
+
+    <section class="card">
+      <details id="hist-d"><summary>Your rounds and their proof</summary><ul class="hist" id="hist" style="padding:0"></ul></details>
+      <details><summary>How it works, and what you trust</summary>
+        <ul class="small muted">
+          <li>Start a table: you and the house each put in up to 10 stakes, and the table moves into a MagicBlock rollup once. Each bet is one stake (0.001 TAZ) on ZEC/USD going up or down over the next 30 s.</li>
+          <li>The price is Pyth's, live in the rollup. A bet settles at the first price published after its 30 s: a right call pays 1.9× (the house's seat pays 0.9 stake), a wrong one pays its stake to the house, an unchanged price refunds it. Not settled within 10 s of expiry: void, nothing moves.</li>
+          <li>The table returns to Solana when you stop, run out, or leave it idle; the payout to your balance happens as it returns.</li>
+        </ul>
+      </details>
+      <div class="small muted" style="margin-top:8px">Session key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show session key</button> <button id="logout-btn" class="link">switch player</button></div>
+      <div id="backup-out" class="small" hidden><code id="backup-text"></code><br /><span class="muted">Keep it somewhere safe: it is the only way back to this balance without a passkey.</span></div>
+    </section>
+
+  </main>
+  <p id="err" class="err small center"></p>
+  <script type="module" src="/src/house-page.ts"></script>
+</body>
+</html>

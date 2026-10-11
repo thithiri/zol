@@ -4,7 +4,8 @@ export default defineConfig({
   // src/wire.ts is a symlink to crates/zol-wire/ts/wire.ts.
   server: { fs: { allow: [".."] } },
   define: { "process.env": {} },
-  // Pages: the two-player table, the single-player games against the house, the auction.
-  build: { rollupOptions: { input: { main: "index.html", house: "house.html", auction: "auction.html" } } },
+  // Pages: home (deposit, withdraw, the games), the coin flip and Up/Down (both from
+  // house.html, see scripts/pages.py), the auction, and the original two-player table.
+  build: { rollupOptions: { input: { main: "index.html", house: "house.html", updown: "updown.html", auction: "auction.html", twoplayer: "two-player.html" } } },
   test: { include: ["test/**/*.test.ts"] },
 } as any);

@@ -34,9 +34,20 @@
     .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
     .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
     .coin.spin { animation: spin .6s linear infinite; }
-    .tabs { display: flex; gap: 6px; justify-content: center; margin: -4px 0 6px; }
-    .tab { border-radius: 99px; padding: 5px 14px; font-size: 14px; }
-    .tab.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    nav.games { margin-top: 4px; color: var(--muted); } nav.games a { color: var(--muted); }
+    a.game { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; color: var(--fg); text-decoration: none; }
+    a.game:hover { border-color: var(--accent); } a.game b { display: block; } a.game span { display: block; }
+    .spark { width: 100%; height: 96px; display: block; margin: 6px 0 0; }
+    .spark .line { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .spark .entry { stroke: var(--fg); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .7; }
+    .spark.win .line { stroke: var(--ok); } .spark.lose .line { stroke: var(--err); }
+    .spark .area { opacity: .12; } .spark.win .area { fill: var(--ok); } .spark.lose .area { fill: var(--err); }
+    .lead { font-weight: 700; min-height: 24px; font-variant-numeric: tabular-nums; }
+    .lead.win { color: var(--ok); } .lead.lose { color: var(--err); }
+    .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
+    .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+    .bar.final > div { animation: pulse .5s ease-in-out infinite alternate; }
+    @keyframes pulse { from { opacity: 1 } to { opacity: .35 } }
     .price { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
     .betline { min-height: 22px; font-size: 14px; margin-top: 6px; font-variant-numeric: tabular-nums; }
     @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
@@ -50,9 +61,9 @@
     [hidden] { display: none !important; }
   </style>
 </head>
-<body>
+<body data-page="coinflip">
   <header><h1>Zcash coin flip</h1><span class="pill">testnet · no real money</span></header>
-  <nav class="small" style="margin-top:4px"><a href="/auction.html" style="color:var(--muted)">Sealed-bid auction →</a></nav>
+  <nav class="small games"><a href="/">Home</a> · <b>Coin flip</b> · <a href="/updown.html">ZEC Up/Down</a> · <a href="/auction.html">Sealed-bid auction</a></nav>
 
   <!-- First visit: a player key held by a passkey -->
   <section id="start" class="card center" hidden>
@@ -75,10 +86,20 @@
       <div class="muted small">Game balance</div>
       <div class="balance" id="balance">…</div>
       <div class="muted small" id="flips">&nbsp;</div>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:10px" id="funds-buttons">
         <button id="add-btn">Deposit Zcash</button>
         <button id="cashout-btn">Withdraw Zcash</button>
       </div>
+      <div class="small muted" id="funds-link" hidden style="margin-top:6px"><a href="/">Deposit or withdraw on the home page</a></div>
+    </section>
+
+    <!-- Home: the games -->
+    <section class="card" id="games" hidden>
+      <div class="panel-title">Games</div>
+      <a class="game" href="/house.html"><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></a>
+      <a class="game" href="/updown.html"><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></a>
+      <a class="game" href="/auction.html"><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></a>
+      <div class="small muted" style="margin-top:8px">Also: the <a href="/two-player.html">two-player table</a>, the original developer page.</div>
     </section>
 
     <!-- Withdraw -->
@@ -118,15 +139,18 @@
     </section>
 
     <!-- The game: a coin flip or ZEC Up/Down -->
-    <section class="card center">
-      <div class="tabs">
-        <button id="tab-coinflip" class="tab on">Coin flip</button>
-        <button id="tab-updown" class="tab">ZEC Up/Down</button>
-      </div>
+    <section class="card center" id="game-card">
       <div class="coin" id="coin"></div>
       <div id="updown" hidden>
         <div class="price" id="price">$—</div>
         <div class="small muted">ZEC/USD · Pyth, live in the MagicBlock rollup</div>
+        <svg id="spark" class="spark" viewBox="0 0 300 96" preserveAspectRatio="none" aria-hidden="true">
+          <path class="area" id="spark-area" d="" />
+          <line class="entry" id="spark-entry" x1="0" x2="300" y1="-10" y2="-10" />
+          <polyline class="line" id="spark-line" points="" />
+        </svg>
+        <div class="bar" id="bar" hidden><div id="bar-fill"></div></div>
+        <div class="lead" id="lead"></div>
         <div class="betline" id="betline"></div>
       </div>
       <div class="status" id="status">&nbsp;</div>

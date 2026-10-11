@@ -152,9 +152,12 @@ let tableState = "";
 /** After a session closes, its seat until the ledger balance shows it (reads can lag). */
 let pending: { seat: bigint; before: bigint; t: number } | null = null;
 let busy = false;
-/** The game shown: a coin flip or ZEC Up/Down (remembered in this browser). */
+/** Which page this is (the `data-page` of index.html, house.html, updown.html), and its game. */
 type Mode = "coinflip" | "updown";
-let mode: Mode = (() => { try { return localStorage.getItem("zol:house:mode") === "updown" ? "updown" : "coinflip"; } catch { return "coinflip"; } })();
+const PAGE = (document.body.dataset.page ?? "coinflip") as "home" | Mode;
+const mode: Mode = PAGE === "updown" ? "updown" : "coinflip";
+/** ZEC/USD samples for the chart (the last 90 s). */
+const samples: { t: number; p: bigint }[] = [];
 /** The table as the rollup last showed it, and the latest ZEC/USD price (8 decimals). */
 let lastTable: TableAcc | null = null;
 let price: bigint | null = null;
@@ -200,7 +203,8 @@ function render() {
   $("balance").textContent = taz(total());
   const s = liveSession();
   const n = stake > 0n ? total() / stake : 0n;
-  $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} flip${n === 1n ? "" : "s"}' worth` : "deposit to play";
+  const unit = mode === "updown" ? "bet" : "flip";
+  $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} ${unit}${n === 1n ? "" : "s"}' worth` : "deposit to play";
   const f = s?.flips ?? 0;
   const won = s?.wins ?? 0, tied = s?.ties ?? 0;
   $("table-note").textContent = s && f > 0
@@ -211,8 +215,6 @@ function render() {
   // The game's buttons once its table is in the rollup; before that, one button that starts it.
   $("coin").hidden = mode !== "coinflip";
   $("updown").hidden = mode !== "updown";
-  $("tab-coinflip").classList.toggle("on", mode === "coinflip");
-  $("tab-updown").classList.toggle("on", mode === "updown");
   const ready = inRollup() && tableGame() === mode;
   for (const id of ["heads", "tails"]) $(id).hidden = !(ready && mode === "coinflip");
   for (const id of ["up-btn", "down-btn"]) $(id).hidden = !(ready && mode === "updown");
@@ -402,7 +404,7 @@ $("start-table").onclick = async () => {
   render();
   try {
     await setupTable();
-    $("status").textContent = mode === "updown" ? "Table ready: will ZEC go up or down in the next minute?" : "Table ready: call it.";
+    $("status").textContent = mode === "updown" ? "Table ready: will ZEC go up or down in the next 30 seconds?" : "Table ready: call it.";
   } catch (e) {
     $("status").textContent = " ";
     showError(e);
@@ -471,28 +473,71 @@ async function flipNow(id: string) {
 
 // ---------------------------------------------------------------- ZEC Up/Down
 
-$("tab-coinflip").onclick = () => setMode("coinflip");
-$("tab-updown").onclick = () => setMode("updown");
-function setMode(m: Mode) {
-  mode = m;
-  try { localStorage.setItem("zol:house:mode", m); } catch { /* per-browser convenience only */ }
-  $("status").textContent = " ";
-  if (m === "updown") void pollPrice();
-  render();
-}
-
 /** ZEC/USD as the rollup has it (the program bets and settles on this account). */
 async function pollPrice() {
-  if (mode !== "updown") return;
   try {
     const a = await er.getAccountInfo(ZEC_USD_FEED);
     if (!a) return;
     price = decodePrice(a.data).price;
     $("price").textContent = usd(price);
+    samples.push({ t: Date.now(), p: price });
+    while (samples.length && samples[0].t < Date.now() - 90_000) samples.shift();
   } catch {
     /* keep the last price */
   }
+  drawChart();
   if (!busy) render();
+}
+
+/**
+ * The last minute of ZEC/USD; while a bet is open, its entry price as a dashed line, the
+ * line green when the call is winning and red when losing, the lead in dollars, and a bar
+ * counting down the round (pulsing in its last 5 s).
+ */
+function drawChart() {
+  const W = 300, H = 96, span = 60_000, now = Date.now();
+  const pts = samples.filter((x) => x.t >= now - span);
+  const bet = lastTable?.bet.open ? lastTable.bet : null;
+  const spark = $("spark");
+  if (pts.length < 2) return;
+  const vals = pts.map((x) => Number(x.p)).concat(bet ? [Number(bet.openPrice)] : []);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max((hi - lo) * 0.15, 1e6); // at least $0.01 of headroom
+  lo -= pad;
+  hi += pad;
+  const x = (t: number) => ((t - (now - span)) / span) * W;
+  const y = (p: number) => H - ((p - lo) / (hi - lo)) * H;
+  const line = pts.map((q) => `${x(q.t).toFixed(1)},${y(Number(q.p)).toFixed(1)}`).join(" ");
+  $("spark-line").setAttribute("points", line);
+  const entry = $("spark-entry");
+  const lead = $("lead");
+  spark.classList.remove("win", "lose");
+  lead.classList.remove("win", "lose");
+  if (bet && price !== null) {
+    const ey = y(Number(bet.openPrice)).toFixed(1);
+    entry.setAttribute("y1", ey);
+    entry.setAttribute("y2", ey);
+    $("spark-area").setAttribute("d", `M0,${ey} L${line.split(" ").join(" L")} L${x(now).toFixed(1)},${ey} Z`);
+    const diff = price - bet.openPrice;
+    const winning = diff !== 0n && (diff > 0n) === bet.up;
+    const by = usd(diff < 0n ? -diff : diff);
+    if (diff === 0n) lead.textContent = "Even with your entry";
+    else {
+      spark.classList.add(winning ? "win" : "lose");
+      lead.classList.add(winning ? "win" : "lose");
+      lead.textContent = `${winning ? "Winning" : "Losing"} by ${by}`;
+    }
+    const left = bet.expiry - now / 1000;
+    $("bar").hidden = false;
+    $("bar").classList.toggle("final", left <= 5);
+    $("bar-fill").style.width = `${Math.min(100, Math.max(0, (1 - left / UPDOWN.roundSecs) * 100))}%`;
+  } else {
+    entry.setAttribute("y1", "-10");
+    entry.setAttribute("y2", "-10");
+    $("spark-area").setAttribute("d", "");
+    lead.textContent = " ";
+    $("bar").hidden = true;
+  }
 }
 
 $("up-btn").onclick = () => placeBet(true);
@@ -677,7 +722,7 @@ async function pollWithdraw() {
   try {
     const w = await house(`/game/${id}`);
     // A withdrawal in progress keeps its panel open with the status.
-    if (localStorage.getItem(K("withdraw-live"))) {
+    if (localStorage.getItem(K("withdraw-live")) && PAGE === "home") {
       $("withdraw").hidden = false;
       $("withdraw-form").hidden = true;
     }
@@ -732,6 +777,11 @@ async function pollZcashConfs() {
 function boot() {
   $("start").hidden = true;
   $("main").hidden = false;
+  // Home: deposit, withdraw and the games. A game page: its game, the balance, a link home.
+  $("games").hidden = PAGE !== "home";
+  $("game-card").hidden = PAGE === "home";
+  $("funds-buttons").hidden = PAGE !== "home";
+  $("funds-link").hidden = PAGE === "home";
   renderKey();
   renderAddress();
   const link = localStorage.getItem(K("link"));
@@ -748,7 +798,10 @@ function boot() {
   setInterval(pollHouse, 30_000);
   setInterval(pollHistory, 30_000);
   setInterval(pollZcashConfs, 20_000);
-  setInterval(pollPrice, 1_000);
+  if (PAGE === "updown") {
+    void pollPrice();
+    setInterval(pollPrice, 500);
+  }
 }
 
 if (session) boot();

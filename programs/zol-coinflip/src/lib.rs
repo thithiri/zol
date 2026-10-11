@@ -77,7 +77,7 @@ pub const GAME_COINFLIP: u8 = 0;
 pub const GAME_UPDOWN: u8 = 1;
 /// Up/Down: a right call is paid 1.9× its stake (0.9 stake from the other seat); a tie refunds.
 pub const UPDOWN_PAYOUT_BPS: u64 = 19_000;
-pub const UPDOWN_ROUND_SECS: i64 = 60;
+pub const UPDOWN_ROUND_SECS: i64 = 30;
 /// A bet settles at a price published at or after its expiry, within this window; after it
 /// the bet is void (nothing moves), so waiting for a better price never pays.
 pub const SETTLE_WINDOW_SECS: i64 = 10;
