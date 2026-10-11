@@ -98,6 +98,15 @@ impl RpcLedger {
     /// Refuses an answer from a backend that is behind what this client already saw.
     fn fresh(&self, method: &str, slot: Option<u64>) -> Result<()> {
         let Some(slot) = slot else { return Err(rpc_err(format!("{method}: answer has no context slot"))) };
+        // The first answer has nothing to be compared with: take a baseline first, the
+        // newest of a few finalized slots (a lagging backend served stale accounts, not slots).
+        if self.seen_slot.load(std::sync::atomic::Ordering::SeqCst) == 0 && method != "getSlot" {
+            for _ in 0..3 {
+                if let Some(s) = self.call("getSlot", json!([{"commitment": "finalized"}])).ok().and_then(|v| v.as_u64()) {
+                    self.seen_slot.fetch_max(s, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        }
         let newest = self.seen_slot.fetch_max(slot, std::sync::atomic::Ordering::SeqCst).max(slot);
         if slot + MAX_SLOT_LAG < newest {
             return Err(rpc_err(format!("{method}: stale answer from a lagging RPC backend (slot {slot}, {} behind)", newest - slot)));
@@ -356,12 +365,47 @@ mod freshness_tests {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let url = format!("http://{}", server.server_addr().to_ip().unwrap());
         std::thread::spawn(move || {
-            for (req, slot) in server.incoming_requests().zip(slots) {
-                let body = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":{slot}}},"value":null}}}}"#);
-                req.respond(tiny_http::Response::from_string(body)).unwrap();
+            let mut slots = slots.into_iter();
+            for mut req in server.incoming_requests() {
+                let mut body = String::new();
+                let _ = std::io::Read::read_to_string(req.as_reader(), &mut body);
+                // The baseline getSlot calls answer 0 (no baseline); account reads follow the script.
+                let out = if body.contains("getSlot") {
+                    r#"{"jsonrpc":"2.0","id":1,"result":0}"#.to_string()
+                } else {
+                    let Some(slot) = slots.next() else { break };
+                    format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":{slot}}},"value":null}}}}"#)
+                };
+                req.respond(tiny_http::Response::from_string(out)).unwrap();
             }
         });
         url
+    }
+
+    /// A stub answering getSlot with `slot` and getAccountInfo with `stale` (context slot).
+    fn stub_baseline(slot: u64, stale: u64) -> String {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+        std::thread::spawn(move || {
+            for mut req in server.incoming_requests() {
+                let mut body = String::new();
+                let _ = std::io::Read::read_to_string(req.as_reader(), &mut body);
+                let out = if body.contains("getSlot") {
+                    format!(r#"{{"jsonrpc":"2.0","id":1,"result":{slot}}}"#)
+                } else {
+                    format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":{stale}}},"value":null}}}}"#)
+                };
+                req.respond(tiny_http::Response::from_string(out)).unwrap();
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn a_stale_first_answer_is_refused_against_the_baseline() {
+        let l = RpcLedger::new(&stub_baseline(10_000, 2_000), Keypair::new(), [0; 32], 2);
+        let e = l.account_data(&Pubkey::new_unique()).unwrap_err().to_string();
+        assert!(e.contains("stale answer"), "{e}");
     }
 
     #[test]
