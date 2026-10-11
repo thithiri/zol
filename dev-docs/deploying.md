@@ -16,7 +16,10 @@ devnet rollup. Facts come from the trial's runbooks:
 | 7 | — | Wait the activation delay (1 h); any guardian can cancel in that time |
 | 8 | You | [Run your app service](#8-run-an-app-service) and [publish your pages](#9-pages) |
 
-On the trial the operators are also the ledger admin. Ask them for steps 4 to 6.
+On the trial, onboarding is **admin-run**: deploy your program, then send the operators its
+program id and source. They review it against the [security checklist](security.md#what-your-app-must-get-right),
+register it if you haven't, and run steps 4 to 6 (their runbook:
+[`onboard-app.md`](../docs/ops/onboard-app.md)).
 
 ## 1. Build
 
@@ -92,16 +95,19 @@ your `["zol-app"]` PDA ([build an app](build-an-app.md#2-register-and-get-activa
 can send it and pay; the testnet `registration_bond` is 0. The app starts `Pending`, with a
 deposit cap of 0.
 
-Send it with your own client. The repo's tools only register `zol-coinflip`:
-`devnet register --payer <keypair>` calls `zol_coinflip::instruction::Register`.
+If your `register` follows the template (that name, no arguments, the same accounts), the
+admin tool sends it for any app: `devnet register --app <program id> --payer <keypair>`.
+Otherwise send it with your own client.
 
 ## 4. Operators: add the app, vault and genesis
 
 The vault is per app, derived from the operators' shared keys, so no new key ceremony is
-needed. The operators:
+needed. On the trial, `zol-add-app <program id> --apply` does items 1 to 3 on the host
+([`onboard-app.md`](../docs/ops/onboard-app.md)). The operators:
 
 1. **Add the app id to every `zol-zcashd`** (`apps = ["<app id hex>"]` in each `zcashd.toml`) and restart. A new app is scanned from the current tip on, so do this **before** the genesis is broadcast. Removing an app later is refused.
-2. **Add it to every gateway** (`serve.json`): `"apps": [{ "program": "<base58>", "gateway_master_secret": "<32-byte hex>" }]`, with the same secret on every operator. Restart. Guardians only check, and gateways only credit, apps in their config.
+2. **Add it to every gateway** (`serve.json`): `"apps": [{ "program": "<base58>", "gateway_master_secret": "<32-byte hex>" }]`, with the same secret on every operator: the operators' one master secret, generated once
+   and reused for every app ([`onboard-app.md`](../docs/ops/onboard-app.md#the-gateway-master-secret)). Restart. Guardians only check, and gateways only credit, apps in their config.
 3. **Read the vault address.** Every daemon must return the same:
 
    ```bash
@@ -152,8 +158,8 @@ the vault and head. The admin can then activate again.
 
 ```bash
 D=spikes/magicblock/target/e2e/release/devnet
-$D activate --admin <admin.json> --vault <vault hex43> --genesis <head_cmx hex32>
-$D status
+$D activate --app <program id> --admin <admin.json> --vault <vault hex43> --genesis <head_cmx hex32>
+$D status --app <program id>
 ```
 
 `activate` prints `chain_now` and `accepting_after`. Credits are refused (`AppNotActive`) until
@@ -165,7 +171,7 @@ A new app's `deposit_cap` is 0. A credit is refused (`OverCap`) unless
 `liability + unpaid_total + net amount ≤ deposit_cap`. The ledger admin sets it, in any state:
 
 ```bash
-$D set-cap --admin <admin.json> --cap <zat>
+$D set-cap --app <program id> --admin <admin.json> --cap <zat>
 ```
 
 ## The devnet admin tool
@@ -176,27 +182,25 @@ JSON lines out; exits 1 on a failed transaction.
 ```bash
 (cd spikes/magicblock/ledger-e2e && cargo build --release --target-dir ../target/e2e --bin devnet)
 D=spikes/magicblock/target/e2e/release/devnet
-ZOL_RPC=https://api.devnet.solana.com $D status      # ZOL_RPC is the default
+ZOL_RPC=https://api.devnet.solana.com $D status --app <program id>     # ZOL_RPC is the default
 ```
 
 | Command | Signer | What |
 | --- | --- | --- |
 | `init --admin <kp> --attestor <b58> --guardians <b58,b58,b58>` | Ledger upgrade authority | `initialize`: testnet network, guardian threshold 2, the params in the file |
-| `register --payer <kp>` | Anyone | `zol-coinflip`'s `register` |
-| `activate --admin <kp> --vault <hex43> --genesis <hex32>` | Admin | `activate_app` |
-| `set-cap --admin <kp> --cap <zat>` | Admin | `set_cap` |
+| `status [--app <b58>]` | — | Config (admin, attestor, guardians, paused, denominations, `min_exit`, `max_seats`); with `--app`, the app (program, app id hex, state, `activates_at`, cap, vault, genesis, books) |
+| `register --app <b58> --payer <kp>` | Anyone | The app's `register`, for apps that follow the template |
+| `activate --app <b58> --admin <kp> --vault <hex43> --genesis <hex32>` | Admin | `activate_app` |
+| `set-cap --app <b58> --admin <kp> --cap <zat>` | Admin | `set_cap` |
 | `set-min-exit --admin <kp> --zat <n>` | Admin | `set_config` with the live params, `min_exit` changed |
 | `set-max-seats --admin <kp> --seats <n>` | Admin | `set_config` with the live params, `max_seats` changed |
-| `settle --payer <kp> <session b58>…` | Anyone | `settle` balances that requested exit |
-| `settlement <seq>` | — | A settlement's state and the app's books |
-| `unfreeze --payer <kp> --guardians <g1.json,g2.json>` | A threshold of guardians | `unfreeze_app` |
-| `status` | — | Config (admin, attestor, guardians, paused, denominations, `min_exit`, `max_seats`) and the app (state, `activates_at`, cap, vault, genesis, books) |
+| `settle --app <b58> --payer <kp> <session b58>…` | Anyone | `settle` balances that requested exit |
+| `settlement --app <b58> <seq>` | — | A settlement's state and the app's books |
+| `unfreeze --app <b58> --payer <kp> --guardians <g1.json,g2.json>` | A threshold of guardians | `unfreeze_app` |
 
-**It is hardwired to `zol-coinflip`.** Every app command uses `const APPP = zol_coinflip::ID`. For
-your app, copy it with your program id and your `register` accounts. `init`, `set-min-exit` and
-`set-max-seats` are ledger-wide. `init`'s params (`min_exit` 100,000, `max_seats` 8) differ from
-the live testnet values (50,000 and 16), which were set afterwards with `set-min-exit` and
-`set-max-seats`.
+Every app command takes `--app`, so a cap or an activation never lands on the wrong app.
+`init`, `set-min-exit` and `set-max-seats` are ledger-wide; `init`'s params are the trial's
+live values (`min_exit` 50,000, `max_seats` 16).
 
 ## 7. Ledger upgrades and the code pin
 
@@ -255,7 +259,6 @@ It drives open games every 1.5 s and keeps its state in SQLite (games, rate-limi
 | `baseRpc`, `erRpc` | Solana and rollup RPC | |
 | `ledger`, `app` | Program ids | |
 | `validator` | Rollup validator identity tables are delegated to | `MAS1Dt9q…` |
-| `vrfQueue` | VRF queue | |
 | `gateway` | This operator's page API (local) | |
 | `zcashd` | This operator's `zol-zcashd`: `/head` for payout tracking, `/admin/send` for fund-me | op0's, on loopback |
 | `zcashNode` | Zakura RPC, for transaction confirmations | |
@@ -274,7 +277,7 @@ on the same host as op0's daemon.
 
 Operations on the trial ([`house.md`](../docs/ops/house.md)):
 
-- **systemd unit** `zol-house`. **Caddy** proxies `/house/*` to `127.0.0.1:8790`. The service matches paths that start with `/house/`, so keep the prefix (Caddy `handle`, not `handle_path`). Neither the unit nor the Caddyfile is in the repo. Wrap Caddy rules in `route { … }` to keep their written order ([`testnet-deploy.md`](../docs/ops/testnet-deploy.md#layout-user-zol-everything-06000700)).
+- **systemd unit** `zol-house`. **Caddy** proxies `/house/*` to `127.0.0.1:8790`. The service matches paths that start with `/house/`, so keep the prefix (Caddy `handle`, not `handle_path`). The trial's unit and Caddyfile are in [`../infra/testnet/`](../infra/testnet/README.md). Wrap Caddy rules in `route { … }` to keep their written order ([`testnet-deploy.md`](../docs/ops/testnet-deploy.md#layout-user-zol-everything-06000700)).
 - **Bankroll**: ordinary deposits to the house session without auto-exit, `cd web && npx vite-node house/bankroll.ts -- <count>` with an SSH tunnel to op0's `zol-zcashd`.
 - **Escrow**: return actions are paid from the delegation program escrow of the app's rent vault; the house tops it up from its fee payer.
 - **Monitoring**: `zol-status` ([`../infra/testnet/zol-status.sh`](../infra/testnet/zol-status.sh)) reads `127.0.0.1:8790/house/info` and flags a bankroll below one stake or a fee payer below 0.3 SOL.

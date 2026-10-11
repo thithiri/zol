@@ -22,7 +22,6 @@ export interface HouseConfig {
   erRpc: string;
   ledger: string;
   app: string;
-  vrfQueue: string;
   validator: string;
   /** This operator's page API and zol-zcashd (local), and the Zcash node. */
   gateway: string;

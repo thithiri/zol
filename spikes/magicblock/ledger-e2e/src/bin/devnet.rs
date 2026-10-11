@@ -1,20 +1,28 @@
-//! Ledger and coinflip administration on a public cluster (devnet) for the testnet trial.
+//! Ledger administration on a public cluster (devnet) for the testnet trial: any app.
 //!
 //!   ZOL_RPC=https://api.devnet.solana.com   (default)
-//!   devnet init     --admin <keypair.json> --attestor <b58> --guardians <b58,b58,b58>
-//!   devnet register --payer <keypair.json>
-//!   devnet activate --admin <keypair.json> --vault <hex43> --genesis <hex32>
-//!   devnet set-cap  --admin <keypair.json> --cap <zat>
-//!   devnet set-min-exit --admin <keypair.json> --zat <n>   (the live params, min_exit changed)
-//!   devnet set-max-seats --admin <keypair.json> --seats <n>  (the live params, max_seats changed)
-//!   devnet settle   --payer <keypair.json> <session b58>...   (balances must have requested exit)
-//!   devnet settlement <seq>
-//!   devnet unfreeze --payer <keypair.json> --guardians <g1.json,g2.json>   (a threshold of guardians)
-//!   devnet status
+//!   devnet init          --admin <keypair.json> --attestor <b58> --guardians <b58,b58,b58>
+//!   devnet set-min-exit  --admin <keypair.json> --zat <n>     (the live params, min_exit changed)
+//!   devnet set-max-seats --admin <keypair.json> --seats <n>   (the live params, max_seats changed)
+//!   devnet status       [--app <program b58>]
+//!   devnet register      --app <program b58> --payer <keypair.json>
+//!   devnet activate      --app <program b58> --admin <keypair.json> --vault <hex43> --genesis <hex32>
+//!   devnet set-cap       --app <program b58> --admin <keypair.json> --cap <zat>
+//!   devnet settle        --app <program b58> --payer <keypair.json> <session b58>...   (balances must have requested exit)
+//!   devnet settlement    --app <program b58> <seq>
+//!   devnet unfreeze      --app <program b58> --payer <keypair.json> --guardians <g1.json,g2.json>   (a threshold of guardians)
+//!
+//! Every app command names the app (`--app`, its program id), so a cap or an activation never
+//! lands on the wrong one. `register` sends the app's own `register` instruction, so it works for
+//! any app whose `register` follows the template in dev-docs/build-an-app.md (that name, no
+//! arguments, the same accounts); other apps send theirs with their own client. `status --app`
+//! prints the app id in hex, which the operators' configs use. Onboarding is admin-run:
+//! docs/ops/onboard-app.md.
 //!
 //! Testnet parameters: production timings (1 h activation delay, 3,900 s refund grace),
 //! denominations 0.01 and 0.1 TAZ. Activate only once the genesis head is at full depth
-//! (300 blocks, about 2 h): guardians cancel an activation whose head is shallower.
+//! (`depths.full`: 60 blocks on the trial, about 25 minutes): guardians cancel an activation whose
+//! head is shallower.
 #[path = "../common.rs"]
 #[allow(dead_code)]
 mod common;
@@ -29,7 +37,6 @@ use solana_signer::Signer;
 use zol_ledger::state::{self as st, seeds, Params};
 
 const LEDGER: Pubkey = zol_ledger::ID;
-const APPP: Pubkey = zol_coinflip::ID;
 const SYSTEM: Pubkey = solana_pubkey::pubkey!("11111111111111111111111111111111");
 const BPF_UPGRADEABLE: Pubkey = solana_pubkey::pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
 
@@ -39,8 +46,9 @@ fn params() -> Params {
         exit_fee_bps: 30,
         // At least 5,000 x the smallest padded action size (4): see docs/ops/multihost.md.
         network_fee_allowance: 20_000,
-        min_exit: 100_000,
-        max_seats: 8,
+        // The trial's live values (set after its init with set-min-exit and set-max-seats).
+        min_exit: 50_000,
+        max_seats: 16,
         max_open_secs: 3_600,
         min_session_secs: 60,
         max_session_secs: 7_200,
@@ -55,8 +63,7 @@ fn url() -> String {
     std::env::var("ZOL_RPC").unwrap_or_else(|_| "https://api.devnet.solana.com".into())
 }
 fn arg(name: &str) -> String {
-    let a: Vec<String> = std::env::args().collect();
-    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned()).unwrap_or_else(|| panic!("missing {name}"))
+    opt(name).unwrap_or_else(|| panic!("missing {name}"))
 }
 fn keypair(path: &str) -> Keypair {
     let bytes: Vec<u8> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
@@ -68,8 +75,16 @@ fn pda(s: &[&[u8]], p: &Pubkey) -> Pubkey {
 fn config_pda() -> Pubkey {
     pda(&[seeds::CONFIG], &LEDGER)
 }
+fn opt(name: &str) -> Option<String> {
+    let a: Vec<String> = std::env::args().collect();
+    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+}
+/// The app's program id, from `--app`.
+fn app_program() -> Pubkey {
+    arg("--app").parse().expect("--app: a base58 program id")
+}
 fn app_pda() -> Pubkey {
-    pda(&[seeds::APP, APPP.as_ref()], &LEDGER)
+    pda(&[seeds::APP, app_program().as_ref()], &LEDGER)
 }
 fn ledger_ix(accounts: impl ToAccountMetas, data: impl InstructionData) -> Instruction {
     Instruction { program_id: LEDGER, accounts: accounts.to_account_metas(None), data: data.data() }
@@ -117,12 +132,15 @@ fn main() {
         }
         "register" => {
             let payer = keypair(&arg("--payer"));
+            let program = app_program();
+            // The template's `register`: the coin flip's accounts and data with another program id.
+            // Anchor's discriminator depends only on the instruction's name.
             let ix = Instruction {
-                program_id: APPP,
+                program_id: program,
                 accounts: zol_coinflip::accounts::Register {
                     payer: payer.pubkey(),
-                    this_program: APPP,
-                    app_authority: pda(&[seeds::APP_AUTHORITY], &APPP),
+                    this_program: program,
+                    app_authority: pda(&[seeds::APP_AUTHORITY], &program),
                     config: config_pda(),
                     app: app_pda(),
                     ledger_program: LEDGER,
@@ -131,7 +149,7 @@ fn main() {
                 .to_account_metas(None),
                 data: zol_coinflip::instruction::Register {}.data(),
             };
-            run("coinflip.register", &[ix], &[&payer]);
+            run("register", &[ix], &[&payer]);
         }
         "activate" => {
             let admin = keypair(&arg("--admin"));
@@ -181,9 +199,10 @@ fn main() {
                 zol_ledger::instruction::Settle {},
             );
             let args: Vec<String> = std::env::args().collect();
-            let start = args.iter().position(|x| x == "--payer").unwrap() + 2;
-            for s in &args[start..] {
-                let session: Pubkey = s.parse().unwrap();
+            let flags = ["--payer", "--app"];
+            let sessions = (2..args.len()).filter(|&i| !args[i].starts_with("--") && !flags.contains(&args[i - 1].as_str()));
+            for i in sessions {
+                let session: Pubkey = args[i].parse().expect("a session key (base58)");
                 ix.accounts.push(solana_instruction::AccountMeta::new(pda(&[seeds::BALANCE, app_pda().as_ref(), session.as_ref()], &LEDGER), false));
             }
             run("settle", &[ix], &[&payer]);
@@ -191,7 +210,8 @@ fn main() {
             println!("{}", json!({"settlement": seq, "payouts": s.payouts[..s.count as usize].iter().map(|p| p.amount).collect::<Vec<_>>(), "total": s.total}));
         }
         "settlement" => {
-            let seq: u64 = std::env::args().nth(2).unwrap().parse().unwrap();
+            let a: Vec<String> = std::env::args().collect();
+            let seq: u64 = a.iter().skip(2).filter(|x| !x.starts_with("--")).find(|x| x.parse::<u64>().is_ok()).expect("a settlement number").parse().unwrap();
             let s: st::Settlement = load(&url(), &pda(&[seeds::SETTLEMENT, app_pda().as_ref(), &seq.to_le_bytes()], &LEDGER));
             let a: st::App = load(&url(), &app_pda());
             println!("{}", json!({"seq": seq, "state": format!("{:?}", s.state), "total": s.total,
@@ -222,13 +242,18 @@ fn main() {
                     );
                 }
             }
+            if opt("--app").is_none() {
+                return;
+            }
+            let program = app_program();
             match account(&u, &app_pda()) {
-                None => println!("{}", json!({"app": null})),
+                None => println!("{}", json!({"program": program.to_string(), "app_id_hex": hex::encode(program), "app": null})),
                 Some(_) => {
                     let a: st::App = load(&u, &app_pda());
                     println!(
                         "{}",
-                        json!({"app": app_pda().to_string(), "state": format!("{:?}", a.state), "activates_at": a.activates_at,
+                        json!({"program": program.to_string(), "app_id_hex": hex::encode(program), "app": app_pda().to_string(),
+                               "state": format!("{:?}", a.state), "activates_at": a.activates_at,
                                "chain_now": now_on_chain(&u), "deposit_cap": a.deposit_cap, "vault": hex::encode(a.vault_address),
                                "genesis_head": hex::encode(a.genesis_head), "credited_total": a.credited_total, "liability": a.liability})
                     );
@@ -236,7 +261,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("usage: devnet init|register|activate|set-cap|set-min-exit|set-max-seats|status (see the file header)");
+            eprintln!("usage: devnet init|set-min-exit|set-max-seats|status|register|activate|set-cap|settle|settlement|unfreeze (see the file header)");
             std::process::exit(2);
         }
     }

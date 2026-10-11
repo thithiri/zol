@@ -1,0 +1,20 @@
+[network]
+network = "Testnet"
+listen_addr = "0.0.0.0:18233"
+cache_dir = "/home/zebra/.cache/zakura"
+
+[state]
+cache_dir = "/home/zebra/.cache/zakura"
+
+[state.storage_mode.pruned]
+tx_retention = 30000
+
+[rpc]
+listen_addr = "0.0.0.0:18232"
+enable_cookie_auth = false
+
+[mining]
+internal_miner = false
+
+[tracing]
+use_color = false

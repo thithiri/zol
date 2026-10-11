@@ -43,7 +43,7 @@ Every step appears in the timeline:
 
 - **Service:** `zol-house` is a Bun binary built from `web/house/server.ts`:
   ```sh
-  cd web && bun build --compile --target=bun-linux-x64 house/server.ts --outfile zol-house
+  cd web && bun build --compile --target=bun-linux-x64 house/server.ts --outfile dist-house/zol-house
   ```
   - It runs under the systemd unit `zol-house`, with its config at `/home/zol/ops/house/house.json`.
   - It listens on 127.0.0.1:8790; Caddy proxies `/house/*` to it.

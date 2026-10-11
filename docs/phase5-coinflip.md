@@ -223,7 +223,7 @@ To skip the hour-long activation wait in run B, use the dev ledger build: `ZOL_D
 cargo build --release -p zol-gateway --bin zol-gateway
 cargo build --release --manifest-path crates/zol-zcash/Cargo.toml --bin zol-zcashd
 infra/zakura/scripts/up.sh pair                          # Zakura regtest on :18232 (miner: the zol-dev dev wallet)
-cd spikes/magicblock && npm install && (cd ledger-e2e && cargo build --release --bins) && cd ../..
+cd spikes/magicblock && npm install && (cd ledger-e2e && cargo build --release --target-dir ../target/e2e --bins) && cd ../..
 cd web && npm install && cd ..
 spikes/magicblock/zcash-leg/run.sh                       # brings everything up, then plays as the page
 ```

@@ -1,0 +1,7 @@
+/var/log/zol-status.jsonl /var/log/zol-backup.log {
+  weekly
+  rotate 8
+  compress
+  missingok
+  notifempty
+}

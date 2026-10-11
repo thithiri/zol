@@ -1,0 +1,11 @@
+[Unit]
+Description=ZOL gateway operator %i
+After=zol-zcashd@%i.service
+Requires=zol-zcashd@%i.service
+[Service]
+User=zol
+ExecStart=/usr/local/bin/zol-gateway serve --config /home/zol/ops/op%i/serve.json
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

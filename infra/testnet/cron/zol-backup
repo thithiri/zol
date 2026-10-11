@@ -1,0 +1,1 @@
+17 3 * * * root /usr/local/bin/zol-backup >> /var/log/zol-backup.log 2>&1

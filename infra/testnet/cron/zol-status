@@ -1,0 +1,1 @@
+*/5 * * * * root /usr/local/bin/zol-alert 2>/dev/null

@@ -196,10 +196,11 @@ cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.39 -p zol-gateway -
                                    gateway-master-secret.hex, pubkeys.json, testnet-wallet.json
 /home/zol/ops/op{0,1,2}/           guardian.json, relayer.json, attestor-share.json,
                                    serve.json, zcashd.toml, zcashd-state/, gateway.db
-/etc/systemd/system/               zol-zcashd@.service, zol-gateway@.service (instance = operator)
+/etc/systemd/system/               zol-zcashd@.service, zol-gateway@.service (instance = operator), zol-house.service
 /etc/caddy/Caddyfile               /op{0,1,2}/* -> 127.0.0.1:870{0,1,2}; /peer/* -> 404; / -> the page
 ```
 
+- **In the repo:** the units, the Caddyfile, the Zakura config, cron and logrotate are in [`infra/testnet/`](../../infra/testnet/README.md); new apps are added with `zol-add-app` ([`onboard-app.md`](onboard-app.md)). The master secret's generation is in [`onboard-app.md`](onboard-app.md#the-gateway-master-secret).
 - **Ports:** `zol-zcashd` on 127.0.0.1:1830N and gateways on 127.0.0.1:870N. Peers call each other on localhost.
 - **Funding:** only op0 has `[funding]`.
 - **Keys:** the Solana guardian and relayer keypairs were generated on the host (PyNaCl). The attestor key came from `zol-gateway keygen` and the Pallas shares from `zol-zcashd keygen`; both are dealer-generated on this one host.
@@ -216,10 +217,10 @@ solana program deploy -u devnet -k keys/devnet-relayer.json --program-id keys/zo
 solana program deploy -u devnet -k keys/devnet-relayer.json --program-id keys/zol_coinflip-keypair.json target/deploy/zol_coinflip.so
 D=spikes/magicblock/target/e2e/release/devnet   # (cd spikes/magicblock/ledger-e2e && cargo build --release --target-dir ../target/e2e --bin devnet)
 $D init --admin keys/devnet-relayer.json --attestor <group key> --guardians <g0,g1,g2>
-$D register --payer keys/devnet-relayer.json
+$D register --app 7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo --payer keys/devnet-relayer.json
 # after the genesis is at full depth:
-$D activate --admin keys/devnet-relayer.json --vault <vault hex43> --genesis <head_cmx>
-$D status
+$D activate --app 7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo --admin keys/devnet-relayer.json --vault <vault hex43> --genesis <head_cmx>
+$D status --app 7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo
 ```
 
 - **Cost:** about 6.3 SOL for both programs, at rent of 3.67 SOL (ledger) plus 2.56 SOL (coinflip). A deploy briefly needs twice its rent for the upload buffer. Fund each relayer with 0.4 SOL; guardians need none, because the relayer pays for `freeze_app`.

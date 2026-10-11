@@ -1,0 +1,34 @@
+# The testnet trial's /etc/caddy/Caddyfile (root:caddy 0640). The Helius key comes from
+# Caddy's environment: HELIUS_API_KEY in /etc/caddy/caddy.env (see ../README.md). The live
+# host has the key written in place instead; either works.
+{$ZOL_HOST:159-223-38-126.sslip.io} {
+	encode gzip
+	# `route` keeps this order: operator traffic (/peer/*) is never proxied.
+	route {
+		@peer path */peer/*
+		respond @peer 404
+		handle_path /op0/* {
+			reverse_proxy 127.0.0.1:8700
+		}
+		handle_path /op1/* {
+			reverse_proxy 127.0.0.1:8701
+		}
+		handle_path /op2/* {
+			reverse_proxy 127.0.0.1:8702
+		}
+		# The page's Solana devnet RPC (HTTP and WebSocket), through Helius with the key
+		# added here so it never reaches the browser.
+		handle_path /solana {
+			rewrite * /?api-key={$HELIUS_API_KEY}
+			reverse_proxy https://devnet.helius-rpc.com {
+				header_up Host devnet.helius-rpc.com
+			}
+		}
+		# The house service (single-player games); keeps its /house prefix.
+		handle /house/* {
+			reverse_proxy 127.0.0.1:8790
+		}
+		root * /var/www/zol
+		file_server
+	}
+}

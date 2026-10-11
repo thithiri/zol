@@ -1,0 +1,10 @@
+[Unit]
+Description=ZOL house (single-player games)
+After=zol-gateway@0.service
+[Service]
+User=zol
+ExecStart=/usr/local/bin/zol-house --config /home/zol/ops/house/house.json
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

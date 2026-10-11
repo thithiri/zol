@@ -1,0 +1,10 @@
+[Unit]
+Description=ZOL zol-zcashd operator %i
+After=docker.service network-online.target
+[Service]
+User=zol
+ExecStart=/usr/local/bin/zol-zcashd --config /home/zol/ops/op%i/zcashd.toml
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

@@ -47,7 +47,7 @@ describe("checkSigned", () => {
 describe("fund me", () => {
   const cfg = {
     baseRpc: "http://127.0.0.1:1", erRpc: "http://127.0.0.1:1", ledger: "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y",
-    app: "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo", vrfQueue: PublicKey.default.toBase58(), validator: PublicKey.default.toBase58(),
+    app: "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo", validator: PublicKey.default.toBase58(),
     gateway: "http://gw", zcashd: "http://zcashd", zcashNode: "http://node", genesisHead: "00".repeat(32),
     maxOpenGames: 3, flipAfterSecs: 60, fundZat: 1_000_000, fundPerDay: 3, fundPerIpPerDay: 2, playsPerIpPerHour: 10,
   } satisfies HouseConfig;
