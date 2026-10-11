@@ -8,6 +8,8 @@
 //   POST /house/join   {game, tx}           the player's signed tx; the house co-signs and sends
 //   GET  /house/game/:id                    timeline of one game
 //   GET  /house/games/:session              the player's recent games
+//   POST /house/withdraw {session}         -> {id, tx}: exit + settle for the player to sign
+//   POST /house/withdraw/sign {id, tx}     the player's signed withdrawal; co-signed and sent
 //   POST /house/fund   {session, memo?}     one deposit from the house's funding wallet
 //   GET  /house/ztx/:txid                   confirmations of a Zcash transaction
 // Build: bun build --compile --target=bun-linux-x64 house/server.ts --outfile dist-house/zol-house
@@ -83,6 +85,11 @@ async function route(req: Request): Promise<Response> {
   if (req.method === "POST" && p === "/house/join") {
     const b = await body();
     return json(200, await house.join(String(b.game ?? ""), String(b.tx ?? "")));
+  }
+  if (req.method === "POST" && p === "/house/withdraw") return json(200, await house.withdraw(String((await body()).session ?? "")));
+  if (req.method === "POST" && p === "/house/withdraw/sign") {
+    const b = await body();
+    return json(200, await house.submitWithdraw(String(b.id ?? ""), String(b.tx ?? "")));
   }
   if (req.method === "POST" && p === "/house/fund") {
     const b = await body();

@@ -456,6 +456,24 @@ pub mod page {
         pub memo: String,
     }
 
+    /// `POST /v1/apps/{app}/sessions/{session}/payout`: is this the payout address the
+    /// session's balance is bound to? Answers only yes or no: the bound address itself is
+    /// never returned. A page on a new device uses it before signing a deposit memo, since a
+    /// deposit naming a different address is voided.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PayoutCheck {
+        /// The 43-byte raw receiver, hex.
+        pub address: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PayoutCheckResult {
+        /// The session has a ledger balance, so an address is bound.
+        pub bound: bool,
+        /// Whether `address` is that address (absent when nothing is bound yet).
+        pub matches: Option<bool>,
+    }
+
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct DepositStatus {
         /// Note commitment, hex.

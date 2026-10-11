@@ -231,6 +231,18 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
     } else {
         (None, Vec::new())
     };
+    // The bound payout commitment of a session, for the payout check (ledger first).
+    let bound_commitment = match (method, &parts[1..]) {
+        (Method::Post, ["sessions", s, "payout"]) => {
+            let Some(session) = hex32(s) else { return err(400, "session must be 32-byte hex") };
+            let l = st.ledger.lock().unwrap();
+            match l.balance(&program, &Pubkey::new_from_array(session)) {
+                Ok(b) => Some(b.map(|b| b.payout_commitment)),
+                Err(e) => return err(503, e),
+            }
+        }
+        _ => None,
+    };
     let guard = st.local.0.lock().unwrap();
     let node = &guard.node;
     let Some(rt) = node.apps.get(&app) else { return err(404, "unknown app") };
@@ -269,6 +281,20 @@ fn page_call(st: &ServerState, method: &Method, rest: &str, body: &[u8]) -> Resp
             Some(session) => session_info(&guard, &app, &session),
             None => err(400, "session must be 32-byte hex"),
         },
+        (Method::Post, ["sessions", s, "payout"]) => {
+            let Some(session) = hex32(s) else { return err(400, "session must be 32-byte hex") };
+            let Ok(c) = serde_json::from_slice::<page::PayoutCheck>(body) else { return err(400, "body must be {\"address\": hex}") };
+            let Some(addr) = hex::decode(&c.address).ok().and_then(|v| <[u8; 43]>::try_from(v).ok()) else {
+                return err(400, "address must be a 43-byte receiver in hex");
+            };
+            match bound_commitment.flatten() {
+                None => json(200, &page::PayoutCheckResult { bound: false, matches: None }),
+                Some(want) => {
+                    let got = rt.secrets.payout_commitment(&addr, &session, &app);
+                    json(200, &page::PayoutCheckResult { bound: true, matches: Some(got == want) })
+                }
+            }
+        }
         (Method::Post, ["intents"]) => {
             let Ok(i) = serde_json::from_slice::<page::Intent>(body) else { return err(400, "body must be {\"memo\": hex}") };
             let Ok(bytes) = hex::decode(&i.memo) else { return err(400, "memo hex") };

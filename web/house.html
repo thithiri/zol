@@ -3,89 +3,114 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ZOL: flip against the house</title>
+  <title>Zcash coin flip</title>
   <style>
-    :root { --fg: #1b1b1b; --bg: #fafaf7; --muted: #666; --line: #ddd; --accent: #1f6feb; --err: #b42318; --ok: #1a7f37; --card: #fff; }
-    @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e3; --bg: #151515; --muted: #9a9a9a; --line: #333; --accent: #58a6ff; --err: #ff7b72; --ok: #3fb950; --card: #1d1d1d; } }
-    body { font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 760px; margin: 0 auto; padding: 16px; }
-    h1 { font-size: 22px; margin: 4px 0; } h2 { font-size: 17px; margin: 0 0 8px; }
-    section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
-    section.off { opacity: .55; }
-    input, button { font: inherit; padding: 6px 10px; }
-    input { width: 100%; box-sizing: border-box; }
-    button { margin: 6px 6px 6px 0; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
+    :root { --fg: #1b1b1b; --bg: #f6f4ee; --muted: #6b6b6b; --line: #e2ded3; --accent: #e8a317; --accent-fg: #1b1b1b; --err: #b42318; --ok: #1a7f37; --card: #fffdf8; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ece9e0; --bg: #121212; --muted: #9a9a9a; --line: #2c2b28; --accent: #f4b400; --accent-fg: #121212; --err: #ff7b72; --ok: #3fb950; --card: #1b1a18; } }
+    * { box-sizing: border-box; }
+    body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; }
+    h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
+    .center { text-align: center; }
+    .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
+    button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.link { border: 0; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font-size: 13px; }
+    input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
     code { word-break: break-all; font-size: 12px; }
-    .muted { color: var(--muted); } .err { color: var(--err); } .ok { color: var(--ok); }
-    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-    #qr svg, #qr img { width: 180px; height: 180px; background: #fff; padding: 6px; border-radius: 6px; }
-    ol.timeline { list-style: none; padding: 0; margin: 8px 0 0; }
-    ol.timeline li { padding: 4px 0 4px 22px; position: relative; font-size: 14px; }
-    ol.timeline li::before { content: "●"; position: absolute; left: 4px; color: var(--ok); font-size: 11px; top: 7px; }
-    ol.timeline li.wait::before { content: "○"; color: var(--muted); }
-    .badge { font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; color: var(--muted); }
-    .big { font-size: 20px; font-weight: 600; }
-    details { margin-top: 6px; } summary { cursor: pointer; color: var(--muted); }
+    .balance { font-size: 40px; font-weight: 750; letter-spacing: -0.5px; margin: 4px 0 0; }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .coin { width: 150px; height: 150px; margin: 10px auto 6px; border-radius: 50%; display: grid; place-items: center; font-size: 46px; font-weight: 800;
+      background: radial-gradient(circle at 35% 30%, #ffe7a3, #e8a317 60%, #a86d05); color: #6d4300; box-shadow: inset 0 -6px 0 rgba(0,0,0,.15), 0 6px 18px rgba(0,0,0,.18); user-select: none; }
+    .coin.spin { animation: spin .6s linear infinite; }
+    @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
+    .status { min-height: 26px; font-weight: 600; }
+    .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; border-radius: 10px; }
+    ol.tl { list-style: none; padding: 0; margin: 6px 0; font-size: 13px; }
+    ol.tl li { padding: 2px 0 2px 18px; position: relative; } ol.tl li::before { content: "●"; position: absolute; left: 2px; color: var(--ok); font-size: 9px; top: 6px; }
+    ol.tl li.wait::before { content: "○"; color: var(--muted); }
+    details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    .hist li { list-style: none; border-top: 1px solid var(--line); padding: 6px 0; font-size: 14px; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <h1>Flip a coin against the house</h1>
-  <p class="muted">Shielded ZEC in, a fair coin, shielded ZEC out. <b>Zcash testnet</b>, Solana devnet and a MagicBlock rollup; no real money. You only need a Zcash testnet wallet, or not even that: use “Fund me”.</p>
-  <details><summary>How it works, and what you trust</summary>
-    <ul class="muted" style="font-size:14px">
-      <li>Your 0.01 TAZ goes to the app's Zcash vault, which three operators hold together (2 of 3 must sign anything).</li>
-      <li>A ledger on Solana records your balance. The house is a second player with its own balance: it matches your stake, nothing more.</li>
-      <li>The coin is flipped in a MagicBlock rollup with a verifiable random function: neither you nor the house picks the outcome. You trust the rollup validator for the result.</li>
-      <li>When the game ends, your winnings are paid out automatically to the Zcash address you give, from the vault. The operators can't pay anyone else: the ledger fixes where it goes.</li>
-    </ul>
-  </details>
+  <header><h1>Zcash coin flip</h1><span class="pill">testnet · no real money</span></header>
 
-  <section id="s-session">
-    <h2>Your session</h2>
-    <div class="muted" style="font-size:13px">A key in this browser that holds your game balance. <span id="backup-state"></span></div>
-    <div id="backup-out" hidden>
-      <p class="muted" style="font-size:13px">Save this somewhere. It is the only way to use or recover your balance from another browser. Never share it.</p>
-      <code id="backup-text"></code><br />
-      <button id="backup-copy">Copy</button><button id="backup-done" class="primary">I saved it</button>
-    </div>
-    <button id="backup-btn">Show backup</button>
-    <span class="muted" style="font-size:13px">Balance: <b id="balance">…</b></span>
+  <!-- First visit: a player key held by a passkey -->
+  <section id="start" class="card center" hidden>
+    <p style="margin-top:0">Flip a coin against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the game runs on Solana and a MagicBlock rollup.</p>
+    <button id="pk-new" class="primary">Start with a passkey</button>
+    <div><button id="pk-login" class="link">I already have one (passkey)</button></div>
+    <p class="small muted">Your passkey (Face ID, Touch ID, your password manager) holds your player key, on every device it syncs to. Nothing to write down.</p>
+    <details><summary>No passkey?</summary>
+      <p class="small muted">Use a player key kept in this browser, with a backup string you must save.</p>
+      <button id="nopk-new">Use a backup key</button>
+      <p class="small muted">Or restore one:</p>
+      <input id="restore-text" placeholder="zolsess1:…" /><button id="restore-go">Restore</button>
+    </details>
   </section>
 
-  <section id="s-deposit">
-    <h2>1. Deposit 0.01 TAZ</h2>
-    <label class="muted" style="font-size:13px">Your Zcash testnet address, for winnings (a unified address starting <code>utest1</code>)
-      <input id="payout" placeholder="utest1…" autocomplete="off" /></label>
-    <button id="deposit-btn" class="primary">Get my deposit link</button>
-    <div id="deposit-out" hidden>
-      <div class="row">
-        <div id="qr"></div>
-        <div style="flex:1; min-width:240px">
-          <p style="margin:0">Scan with your Zcash wallet, or <a id="link">open the payment link</a>. Pay <b>exactly 0.01 TAZ</b>. The memo is filled in for you; if your wallet drops it, it still works.</p>
-          <p class="muted" style="font-size:13px">Address: <code id="session-ua"></code></p>
-          <button id="fund-btn">No wallet? Fund me (the house pays 0.01 TAZ)</button>
-        </div>
+  <main id="main" hidden>
+    <!-- Balance -->
+    <section class="card center">
+      <div class="muted small">Game balance</div>
+      <div class="balance" id="balance">…</div>
+      <div class="muted small" id="flips">&nbsp;</div>
+      <div class="row" style="margin-top:10px">
+        <button id="add-btn">Add funds</button>
+        <button id="cashout-btn">Cash out to my wallet</button>
       </div>
-    </div>
-    <ol class="timeline" id="deposit-timeline"></ol>
-  </section>
+      <div id="cashout-status" class="small" hidden><ol class="tl" id="cashout-tl"></ol></div>
+    </section>
 
-  <section id="s-play" class="off">
-    <h2>2. Flip against the house</h2>
-    <div class="muted" style="font-size:13px" id="house-info">…</div>
-    <button id="play-btn" class="primary" disabled>Flip the coin</button>
-    <div id="result" class="big"></div>
-    <ol class="timeline" id="game-timeline"></ol>
-  </section>
+    <!-- Add funds -->
+    <section id="add" class="card" hidden>
+      <div class="muted small">Add funds with shielded ZEC</div>
+      <div id="addr-step">
+        <label class="small">Your Zcash testnet address, where cash-outs go (<code>utest1…</code>)
+          <input id="payout" placeholder="utest1…" autocomplete="off" /></label>
+        <p class="small muted" style="margin:6px 0 0">Asked once. It is fixed to your player, so even someone with your key could only pay you.</p>
+      </div>
+      <div id="addr-known" class="small muted" hidden>Cash-outs go to <code id="addr-short"></code></div>
+      <div class="row" style="margin-top:10px" id="amounts"></div>
+      <div id="pay" class="center" hidden>
+        <div class="qr" id="qr"></div>
+        <p style="margin:6px 0">Scan with your Zcash wallet or <a id="link">open the payment link</a>. Pay <b id="pay-amount"></b> exactly.</p>
+        <p class="small muted" style="margin:0">To <code id="session-ua"></code></p>
+        <button id="fund-btn" class="link">No wallet? The house funds 0.01 TAZ once</button>
+      </div>
+      <ol class="tl" id="deposit-tl"></ol>
+    </section>
 
-  <section id="s-payout" class="off">
-    <h2>3. Paid out to your Zcash wallet</h2>
-    <div class="muted" style="font-size:13px">Automatic: winnings go to the address you gave, usually within a few minutes of the flip. Final on both chains about 2 h later.</div>
-    <ol class="timeline" id="payout-timeline"></ol>
-  </section>
+    <!-- The coin -->
+    <section class="card center">
+      <div class="coin" id="coin">Z</div>
+      <div class="status" id="status">&nbsp;</div>
+      <div class="row">
+        <button id="heads" class="primary">Heads</button>
+        <button id="tails" class="primary">Tails</button>
+      </div>
+      <div class="small muted" id="stake-note">&nbsp;</div>
+    </section>
 
-  <p class="muted" style="font-size:12px">Two players instead? <a href="./">The two-player table</a>. <span id="err" class="err"></span></p>
+    <section class="card">
+      <details id="hist-d"><summary>Your rounds and their proof</summary><ul class="hist" id="hist" style="padding:0"></ul></details>
+      <details><summary>How it works, and what you trust</summary>
+        <ul class="small muted">
+          <li>Your ZEC goes to the app's shielded Zcash vault, held by three operators (2 of 3 sign everything). A Solana ledger keeps your game balance.</li>
+          <li>The house is a second player with its own balance: it matches your stake. The coin is decided by a verifiable random function in a MagicBlock rollup: neither you nor the house can pick it. Heads or tails is your call; who wins is the VRF's.</li>
+          <li>Cash-outs go only to the address you gave at your first deposit: the ledger fixes it, and the operators can't send it elsewhere.</li>
+        </ul>
+      </details>
+      <div class="small muted" style="margin-top:8px">Player key: <span id="key-kind"></span> <button id="backup-btn" class="link" hidden>show backup</button> <button id="logout-btn" class="link">switch player</button></div>
+      <div id="backup-out" class="small" hidden><code id="backup-text"></code><br /><button id="backup-done" class="link">I saved it</button></div>
+    </section>
+    <p class="small muted center">Two players instead? <a href="./">The two-player table</a></p>
+  </main>
+  <p id="err" class="err small center"></p>
   <script type="module" src="/src/house-page.ts"></script>
 </body>
 </html>

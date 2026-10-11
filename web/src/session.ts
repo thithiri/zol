@@ -36,6 +36,25 @@ export function loadOrCreateSession(app: string, kv: KV): Session {
   return sessionFromSeed(unhex(s));
 }
 
+/** This app's stored session, if there is one (does not create one). */
+export function readSession(app: string, kv: KV): Session | null {
+  const s = kv.getItem(sessionKey(app));
+  return s && s.length === 64 ? sessionFromSeed(unhex(s)) : null;
+}
+
+/** Stores `seed` as this app's session; `how` records how it is kept safe. */
+export function storeSession(app: string, seed: Uint8Array, kv: KV, how: "passkey" | "backup"): Session {
+  const s = sessionFromSeed(seed);
+  kv.setItem(sessionKey(app), hex(seed));
+  kv.setItem(`zol:session-kind:${app}`, how);
+  if (how === "passkey") markBackedUp(app, s, kv); // the passkey is the backup
+  return s;
+}
+
+export function sessionKind(app: string, kv: KV): "passkey" | "backup" {
+  return kv.getItem(`zol:session-kind:${app}`) === "passkey" ? "passkey" : "backup";
+}
+
 export function sign(session: Session, msg: Uint8Array): Uint8Array {
   return ed25519.sign(msg, session.seed);
 }

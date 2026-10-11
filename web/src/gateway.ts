@@ -68,6 +68,15 @@ export class Gateway {
       body: JSON.stringify({ memo: memoHex }),
     });
   }
+  /** Is `addressHex` (43-byte receiver) the payout address bound to this session's balance? */
+  payoutCheck(app: string, sessionHex: string, addressHex: string) {
+    return this.req<{ bound: boolean; matches: boolean | null }>(`/v1/apps/${app}/sessions/${sessionHex}/payout`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: addressHex }),
+    });
+  }
+
   deposits(app: string, sessionHex: string) {
     return this.req<DepositStatus[]>(`/v1/apps/${app}/sessions/${sessionHex}/deposits`);
   }

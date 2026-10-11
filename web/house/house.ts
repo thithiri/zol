@@ -43,7 +43,9 @@ export type GameState =
 export interface GameEvent { step: string; t: string; chain?: "solana" | "rollup" | "zcash"; sig?: string; detail?: string }
 
 export interface Game {
-  id: string; // pot id hex
+  id: string; // pot id hex (a game) or a random id (a withdrawal)
+  /** A coin flip, or a withdrawal of the player's balance to Zcash. */
+  kind?: "game" | "withdraw";
   player: string; // session, base58
   stake: string;
   state: GameState;
@@ -340,7 +342,7 @@ export class House {
         }
         if (!bal.exiting) {
           g.state = "done";
-          g.events.push({ step: `your balance (${bal.amount} zat) stays on the ledger: use "Exit and settle" to be paid`, t: now() });
+          g.events.push({ step: g.playerWon ? "winnings added to your balance: flip again or cash out" : "round over", t: now() });
           return;
         }
         const app = decodeApp((await this.base.getAccountInfo(this.cf.pdas.app()))!.data);
@@ -379,6 +381,60 @@ export class House {
     g.playerWon = winner === 1;
     g.state = "landed";
     g.events.push({ step: g.playerWon ? "the coin landed: you won" : "the coin landed: the house won", t: now(), chain: "rollup", detail: `seat ${winner}` });
+  }
+
+  // ------------------------------------------------------------ withdraw
+
+  /**
+   * Builds the withdrawal for `player`: request_exit (if not already exiting) and settle in
+   * one transaction, the house as fee payer. The player signs it with the session key; the
+   * ledger pays the settlement to the address bound at the first deposit, nowhere else.
+   */
+  async withdraw(player: string) {
+    let who: PublicKey;
+    try { who = new PublicKey(player); } catch { throw new HouseError(400, "session must be a base58 public key"); }
+    const live = this.store.byPlayer(player).find((g) => LIVE.includes(g.state) && !(g.state === "awaiting_signature" && this.expired(g)));
+    if (live) throw new HouseError(409, live.kind === "withdraw" ? "a withdrawal is already in progress" : "finish your game first");
+    const bal = await this.balanceOf(who);
+    if (!bal || bal.amount === 0n) throw new HouseError(409, "nothing to withdraw");
+    const app = decodeApp((await this.base.getAccountInfo(this.cf.pdas.app()))!.data);
+    const ixs = bal.exiting ? [] : [this.cf.requestExit(who)];
+    ixs.push(this.cf.settle(this.feePayer.publicKey, app.nextSettlement, [who]));
+    const tx = new Transaction().add(...ixs);
+    tx.feePayer = this.feePayer.publicKey;
+    const bh = await this.base.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = bh.blockhash;
+    const id = hex(crypto.getRandomValues(new Uint8Array(32)));
+    const g: Game = {
+      id, kind: "withdraw", player, stake: String(bal.amount), state: "awaiting_signature", created: Date.now(), updated: Date.now(),
+      events: [{ step: `withdrawal of ${bal.amount} zat prepared`, t: now() }],
+      tx: Buffer.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })).toString("base64"),
+      lastValid: bh.lastValidBlockHeight, settlement: String(app.nextSettlement),
+    };
+    this.store.put(g);
+    return { id, tx: g.tx, amount: String(bal.amount), settlement: g.settlement };
+  }
+
+  /** The player's signed withdrawal: checked like a join, then co-signed and sent. */
+  async submitWithdraw(id: string, signedB64: string) {
+    const g = this.store.get(id);
+    if (!g || g.kind !== "withdraw") throw new HouseError(404, "no such withdrawal");
+    if (g.state !== "awaiting_signature") throw new HouseError(409, `withdrawal is ${g.state}`);
+    const tx = checkSigned(g.tx!, signedB64, new PublicKey(g.player));
+    tx.partialSign(this.feePayer);
+    try {
+      const sig = await sendSigned(this.base, tx.serialize(), g.lastValid!);
+      g.state = "settled";
+      g.events.push({ step: `settlement ${g.settlement}: the operators pay ${g.stake} zat less fees to your Zcash address`, t: now(), chain: "solana", sig });
+    } catch (e: any) {
+      g.state = /expired/.test(String(e.message)) ? "expired" : "failed";
+      g.error = String(e.message).slice(0, 400);
+      g.events.push({ step: g.state === "expired" ? "took too long to sign; try again" : "the withdrawal did not go through; try again", t: now(), detail: g.error });
+    }
+    g.updated = Date.now();
+    this.store.put(g);
+    if (g.state !== "settled") throw new HouseError(409, g.error ?? g.state);
+    return this.game(id);
   }
 
   // ------------------------------------------------------------ fund me, Zcash lookups
