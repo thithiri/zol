@@ -1153,7 +1153,11 @@ fn crank_close_settles_an_expired_bet_then_closes_when_idle() {
     let t = cf.table();
     assert!(!t.bet.open && t.wins == 1 && t.state == TableState::Landed);
     assert_eq!(cf.pot().amounts[1], 3 * SMALL + WIN);
-    cf.env.warp(zol_coinflip::IDLE_SECS);
+    // Idleness counts from the result, not from the bet.
+    cf.env.warp(zol_coinflip::IDLE_SECS - 5);
+    ok!(cf.crank_close());
+    assert_eq!(cf.table().state, TableState::Landed);
+    cf.env.warp(5);
     ok!(cf.crank_close());
     assert_eq!(cf.table().state, TableState::Finished);
 }

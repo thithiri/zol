@@ -1212,6 +1212,7 @@ fn settle_open_bet<'info>(
     let t = table;
     t.bet.open = false;
     t.bet.settle_price = price;
+    t.flip_requested_at = now; // activity: `crank_close` counts idleness from the result
     t.flips = t.flips.saturating_add(1);
     let bettor_won = outcome == 1;
     t.results = (t.results << 1) | bettor_won as u64;

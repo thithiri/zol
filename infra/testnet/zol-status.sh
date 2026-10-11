@@ -59,7 +59,12 @@ app_state=$(j 'd["state"]' < /tmp/zol-appinfo.json)
 house=$(curl -s -m 10 http://127.0.0.1:8790/house/info)
 bankroll=$(echo "$house" | j 'd["bankroll"]')
 [ -n "$house" ] && [ -z "$bankroll" ] && problems+=("house: no answer")
-[ -n "$bankroll" ] && [ "$bankroll" -lt 997000 ] && problems+=("house bankroll below one stake: $bankroll zat")
+stake=$(echo "$house" | j 'd["stake"]')
+[ -n "$bankroll" ] && [ -n "$stake" ] && [ "$bankroll" -lt "$stake" ] && problems+=("house bankroll below one stake: $bankroll zat")
+# The house's fee payer pays every game transaction, table rent and buffers, and each
+# auction certificate's rent (kept on Solana).
+fee_sol=$(echo "$house" | j 'd["fee_payer_sol"]')
+[ -n "$fee_sol" ] && python3 -c "import sys; sys.exit(0 if float('$fee_sol') < 0.3 else 1)" && problems+=("house fee payer low: $fee_sol SOL")
 
 mem_avail=$(free -m | awk '/^Mem:/ {print $7}')
 swap_used=$(free -m | awk '/^Swap:/ {print $3}')
@@ -85,7 +90,7 @@ else
   echo "  polls      $fails failed in 15 min"
   echo "  funding    ${funding:-?} zat spendable"
   echo "  public     page API HTTP $public, app ${app_state:-?}"
-  echo "  house      bankroll ${bankroll:-not running} zat"
+  echo "  house      bankroll ${bankroll:-not running} zat, fee payer ${fee_sol:-?} SOL"
   echo "  host       ${mem_avail} MB RAM free, swap ${swap_used} MB, disk ${disk_pct}%, last backup ${backup_age} h ago"
   for p in "${problems[@]}"; do echo "  !! $p"; done
 fi
