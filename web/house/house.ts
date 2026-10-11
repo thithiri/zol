@@ -125,6 +125,8 @@ export class HouseError extends Error {
 }
 
 const now = () => new Date().toISOString().slice(11, 19);
+/** "3 flips" or "3 bets", for a table's timeline. */
+const rounds = (g: Game) => `${g.flips ?? 0} ${g.game === "updown" ? "bet" : "flip"}${g.flips === 1 ? "" : "s"}`;
 
 export class House {
   readonly cf: Coinflip;
@@ -426,7 +428,7 @@ export class House {
         if ((await this.base.getAccountInfo(table))?.owner.equals(DLP)) {
           g.state = "in_rollup";
           g.inRollupAt = Date.now();
-          g.events.push({ step: "table in the MagicBlock rollup: flip away", t: now(), chain: "rollup" });
+          g.events.push({ step: `table in the MagicBlock rollup: ${g.game === "updown" ? "bet away" : "flip away"}`, t: now(), chain: "rollup" });
         }
         return;
       }
@@ -437,7 +439,7 @@ export class House {
         // Closed in the rollup without us (its scheduled closer, or a player): follow it home.
         if (t.state === "Finished") {
           g.state = "finishing";
-          g.events.push({ step: `table closed in the rollup after ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}: you won ${g.wins ?? 0}; it returns to Solana`, t: now(), chain: "rollup" });
+          g.events.push({ step: `table closed in the rollup after ${rounds(g)}: you won ${g.wins ?? 0}${g.ties ? `, ${g.ties} tied` : ""}; it returns to Solana`, t: now(), chain: "rollup" });
           return;
         }
         // Once per table: the rollup itself closes it when idle, short or near its deadline,
@@ -475,7 +477,7 @@ export class House {
         const sig = await this.finishInRollup(potId);
         g.state = "finishing";
         const why = g.stop ? "you stopped" : short ? (amounts[1] < stake ? "your stakes are used up" : "you took all the house's stakes") : idle ? "no flips for a while" : "the session's time is nearly up";
-        g.events.push({ step: `table closed (${why}) after ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}: you won ${g.wins ?? 0}; it returns to Solana`, t: now(), chain: "rollup", sig });
+        g.events.push({ step: `table closed (${why}) after ${rounds(g)}: you won ${g.wins ?? 0}${g.ties ? `, ${g.ties} tied` : ""}; it returns to Solana`, t: now(), chain: "rollup", sig });
         return;
       }
       case "landed": {
