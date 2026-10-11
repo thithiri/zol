@@ -190,9 +190,9 @@ function render() {
   $("balance").textContent = taz(total());
   const s = liveSession();
   const n = stake > 0n ? total() / stake : 0n;
-  $("flips").textContent = stake === 0n ? " "
-    : inRollup() ? `${seats![1] / stake} flip${seats![1] / stake === 1n ? "" : "s"} at this table${s.flips ? ` · won ${s.wins ?? 0} of ${s.flips}` : ""}`
-    : n > 0n ? `${n} flip${n === 1n ? "" : "s"}` : "deposit to play";
+  $("flips").textContent = stake === 0n ? " " : n > 0n ? `${n} flip${n === 1n ? "" : "s"}' worth` : "deposit to play";
+  const f = s?.flips ?? 0;
+  $("table-note").textContent = s && f > 0 ? `This table: ${s.wins ?? 0} won · ${f - (s.wins ?? 0)} lost` : "";
   let can: boolean;
   if (inRollup()) can = !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
   else can = !s && balance >= stake && !exiting;
@@ -323,8 +323,18 @@ async function readRollup(id: string) {
   return { t, seats: [a[0], a[1]] as [bigint, bigint] };
 }
 
+/** Rings the side the player called; the other fades while the coin is in the air. */
+function markCall(c: "H" | "T") {
+  $("heads").classList.toggle("chosen", c === "H");
+  $("tails").classList.toggle("chosen", c === "T");
+  $("heads").classList.toggle("unchosen", c !== "H");
+  $("tails").classList.toggle("unchosen", c !== "T");
+}
+const sideName = (c: "H" | "T") => (c === "H" ? "Z heads" : "Zakura flower tails");
+
 async function play(c: "H" | "T") {
   call = c;
+  markCall(c);
   busy = true;
   render();
   face(c);
@@ -349,6 +359,7 @@ async function play(c: "H" | "T") {
     await flipNow(id);
   } catch (e) {
     coin.classList.remove("spin");
+    for (const b of ["heads", "tails"]) $(b).classList.remove("chosen", "unchosen");
     $("status").textContent = " ";
     showError(e);
   } finally {
@@ -359,7 +370,7 @@ async function play(c: "H" | "T") {
 
 /** One flip in the rollup: ask the VRF, then watch the table until the coin lands. */
 async function flipNow(id: string) {
-  $("status").textContent = "Flipping…";
+  $("status").textContent = `Flipping… you called ${sideName(call)}`;
   let r = await readRollup(id);
   for (let i = 0; i < 10 && !r; i++) {
     await sleep(500);
@@ -380,6 +391,7 @@ async function flipNow(id: string) {
   tableState = r.t.state;
   const won = r.t.winner === 1;
   coin.classList.remove("spin");
+  for (const b of ["heads", "tails"]) $(b).classList.remove("unchosen");
   const other = call === "H" ? "T" : "H";
   face(won ? call : other);
   $("status").innerHTML = won

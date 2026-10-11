@@ -21,6 +21,10 @@
     button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
     button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
     button:disabled { opacity: .45; cursor: not-allowed; }
+    /* Your call: ringed and kept bright while the coin is in the air; the other side fades. */
+    button.chosen { box-shadow: 0 0 0 3px var(--card), 0 0 0 6px var(--fg); }
+    button.chosen:disabled { opacity: 1; }
+    button.unchosen:disabled { opacity: .25; }
     button.link { border: 0; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font-size: 13px; }
     input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
     code { word-break: break-all; font-size: 12px; }
@@ -115,6 +119,7 @@
         <button id="heads" class="primary"><span id="ico-heads"></span>Heads</button>
         <button id="tails" class="primary"><span id="ico-tails"></span>Tails</button>
       </div>
+      <div class="small" id="table-note"></div>
       <div class="small muted" id="stake-note">&nbsp;</div>
     </section>
 
