@@ -101,7 +101,14 @@ if ! curl -s -m 3 -X POST -H 'content-type: application/json' \
 fi
 
 step "Zcash leg end to end (MagicBlock stack, VRF, three gateways)"
-(cd spikes/magicblock/zcash-leg && ./run.sh)
+# run.sh leaves its stack running for inspection; stop it either way.
+leg=0
+(cd spikes/magicblock/zcash-leg && ./run.sh) || leg=$?
+pkill -f "zcash-leg/work/" 2>/dev/null || true
+pkill -f "node_modules/.bin/mb-stack" 2>/dev/null || true
+pkill -f "solana-test-validator --bpf-program DELeGG" 2>/dev/null || true
+pkill -f "ephemeral-validator|query-filtering-service|vrf-oracle" 2>/dev/null || true
+[ "$leg" = 0 ] || exit "$leg"
 
 step "full tier done"
 cd "$ROOT"
