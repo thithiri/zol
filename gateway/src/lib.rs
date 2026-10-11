@@ -19,6 +19,7 @@ pub mod rpc;
 pub mod service;
 pub mod zcashd;
 pub mod payout;
+pub mod pin;
 pub mod peer;
 pub mod rounds;
 pub mod server;

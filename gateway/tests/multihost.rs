@@ -208,6 +208,7 @@ fn three_hosts_over_authenticated_http() {
             poll_ms: 400,
             guard_every: 1,
             send_commitment: "confirmed".into(),
+            ledger_code: None,
         };
         handles.push(Some(serve::start(cfg).unwrap()));
     }

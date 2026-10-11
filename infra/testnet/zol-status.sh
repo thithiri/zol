@@ -44,6 +44,10 @@ fails=$(journalctl -u 'zol-gateway@*' --since '-15min' --no-pager 2>/dev/null | 
 [ "$fails" -gt 20 ] && problems+=("gateways: $fails failed polls in 15 min")
 frozen=$(journalctl -u 'zol-gateway@*' --since '-15min' --no-pager 2>/dev/null | grep -c 'guard: Froze')
 [ "$frozen" -gt 0 ] && problems+=("guardian FROZE the app")
+# Design rule 2: an operator whose pinned ledger code no longer matches the deployed ledger
+# signs nothing until it does (gateway/src/pin.rs).
+pinned=$(journalctl -u 'zol-gateway@*' --since '-5min' --no-pager 2>/dev/null | grep -c 'does not match ledger_code')
+[ "$pinned" -gt 0 ] && problems+=("ledger code mismatch: gateways HALTED signing")
 
 funding=$(curl -s -m 5 http://127.0.0.1:18300/admin/funding | j 'd["spendable"]')
 [ -n "$funding" ] && [ "$funding" -lt 2100000 ] && problems+=("funding wallet low: $funding zat")

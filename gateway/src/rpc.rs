@@ -124,6 +124,11 @@ impl RpcLedger {
         Ok(Some(B64.decode(b64).map_err(rpc_err)?))
     }
 
+    /// Raw account data (finalized), for checks outside the ledger's own accounts.
+    pub fn raw_account(&self, key: &Pubkey) -> Result<Option<Vec<u8>>> {
+        self.account_data(key)
+    }
+
     fn typed<T: AccountDeserialize>(&self, key: &Pubkey) -> Result<Option<T>> {
         match self.account_data(key)? {
             None => Ok(None),

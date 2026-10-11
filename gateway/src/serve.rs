@@ -84,7 +84,14 @@ pub struct ServeConfig {
     /// Commitment a relayed transaction must reach ("confirmed" or "finalized").
     #[serde(default = "default_commitment")]
     pub send_commitment: String,
+    /// The audited ledger code (design rule 2). Without it this operator signs whatever
+    /// ledger is deployed: local development only.
+    #[serde(default)]
+    pub ledger_code: Option<crate::pin::LedgerCode>,
 }
+
+/// How often the deployed ledger is checked against `ledger_code`.
+const PIN_CHECK_SECS: i64 = 60;
 
 fn default_epoch() -> i64 {
     30
@@ -174,7 +181,12 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
         allowed.push(VerifyingKey::from_bytes(&pk.to_bytes())?);
     }
     let attestor = group_key(&pubkeys);
+    let pin = crate::pin::Pin::new(cfg.ledger_code.clone());
+    if pin.code.is_none() {
+        eprintln!("[{}] WARNING: ledger_code not set: this operator does not check the ledger it signs for", cfg.name);
+    }
     let state = Arc::new(ServerState {
+        pin: pin.clone(),
         local: local.clone(),
         ledger: Mutex::new(Box::new(ledger(&cfg, attestor)?)),
         peers: allowed,
@@ -206,7 +218,7 @@ pub fn start(cfg: ServeConfig) -> Result<Handle, BoxErr> {
             while !stop.load(Ordering::SeqCst) {
                 let guard = n.is_multiple_of(cfg.guard_every.max(1));
                 n += 1;
-                if let Err(e) = tick(&cfg, &local, &mut ledger, &pubkeys, &seed, guard) {
+                if let Err(e) = tick(&cfg, &local, &mut ledger, &pubkeys, &seed, guard, &pin) {
                     eprintln!("[{}] tick: {e}", cfg.name);
                 }
                 std::thread::sleep(Duration::from_millis(cfg.poll_ms));
@@ -221,8 +233,18 @@ pub fn coordinator_at(order: &[String], epoch_secs: i64, now: i64) -> usize {
     ((now / epoch_secs.max(1)) as usize) % order.len().max(1)
 }
 
-fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: &PublicKeyPackage, seed: &[u8; 32], guard: bool) -> Result<(), BoxErr> {
+#[allow(clippy::too_many_arguments)]
+fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: &PublicKeyPackage, seed: &[u8; 32], guard: bool, pin: &crate::pin::Pin) -> Result<(), BoxErr> {
     let now = now_secs();
+    // Design rule 2: the deployed ledger must be the pinned code before anything is signed.
+    let program_data = crate::pin::program_data_address(&zol_ledger::ID);
+    if let Some(ok) = pin.refresh(now, PIN_CHECK_SECS, || ledger.raw_account(&program_data).ok().flatten()) {
+        if ok {
+            eprintln!("[{}] ledger code matches the pinned hash", cfg.name);
+        } else {
+            eprintln!("[{}] HALT: the deployed ledger does not match ledger_code; signing nothing until it does", cfg.name);
+        }
+    }
     // Keep this operator current.
     {
         let mut g = local.0.lock().map_err(|_| "poisoned")?;
@@ -250,6 +272,9 @@ fn tick(cfg: &ServeConfig, local: &SharedPeer, ledger: &mut RpcLedger, pubkeys: 
     let reports = rounds::chain_reports(&mut peers);
     local.0.lock().map_err(|_| "poisoned")?.node.check_agreement(&reports).map_err(|e| e.to_string())?;
 
+    if !pin.ok() {
+        return Ok(()); // no rounds: nothing is attested or spent
+    }
     // Act only in the first half of this host's epoch, so a round that is still
     // running (proving takes seconds) ends before the next coordinator starts.
     if coordinator_at(&cfg.order, cfg.epoch_secs, now) != me || now.rem_euclid(cfg.epoch_secs.max(1)) * 2 >= cfg.epoch_secs {

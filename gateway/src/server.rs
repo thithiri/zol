@@ -36,6 +36,8 @@ pub struct ServerState {
     pub gossip_seed: [u8; 32],
     /// Every operator's public page API base URL, for `AppInfo.operators`.
     pub operators: Vec<String>,
+    /// Whether the deployed ledger is the pinned code; signing requests are refused if not.
+    pub pin: crate::pin::Pin,
 }
 
 /// Passes an intent to every other operator in the background, retrying a few
@@ -162,6 +164,9 @@ fn peer_call(st: &ServerState, method: &str, body: &[u8]) -> Resp {
             Ok(v) => json(200, &v),
             Err(e) => peer_err(e),
         },
+        "attest_commit" | "attest_sign" | "spend_commit" | "spend_share" if !st.pin.ok() => {
+            err(503, "the deployed ledger does not match this operator's pinned code; not signing")
+        }
         "attest_commit" => {
             let r = parse!(AttestReq);
             match local.attest_commit(ledger, r.session, &r.statement) {
