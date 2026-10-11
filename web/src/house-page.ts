@@ -120,8 +120,10 @@ async function pollHouse() {
     const i = await house("/info");
     stake = BigInt(i.stake);
     $("stake-note").textContent = i.can_play ? `Stake ${taz(stake)} a flip; win ${taz(2n * stake)}` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
-  } catch (e) {
-    $("stake-note").textContent = `house unavailable: ${String((e as any)?.message ?? e)}`;
+  } catch {
+    // Usually a rate-limited RPC on the operators' side: keep the last note, retry soon.
+    if (!stake) $("stake-note").textContent = "Connecting to the house…";
+    setTimeout(() => void pollHouse(), 5_000);
   }
   render();
 }

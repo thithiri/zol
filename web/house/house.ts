@@ -125,7 +125,11 @@ export class House {
   /** The stake follows the ledger's parameters, which rarely change: cached 10 min. */
   async stake(): Promise<bigint> {
     if (this.stakeCache && Date.now() - this.stakeCache.t < 600_000) return this.stakeCache.v;
-    const c = await this.base.getAccountInfo(this.cf.pdas.config());
+    const c = await this.base.getAccountInfo(this.cf.pdas.config()).catch((e) => {
+      if (this.stakeCache) return null; // rate limited: keep the known stake
+      throw e;
+    });
+    if (!c) return this.stakeCache!.v;
     const v = allowedStakes(decodeLedgerParams(c!.data))[0];
     this.stakeCache = { v, t: Date.now() };
     return v;
@@ -139,9 +143,16 @@ export class House {
   /** Every visitor's page polls this: cached 10 s to spare the RPC (one IP, rate limited). */
   async info() {
     if (this.infoCache && Date.now() - this.infoCache.t < 10_000) return this.infoCache.v;
-    const v = await this.computeInfo();
-    this.infoCache = { v, t: Date.now() };
-    return v;
+    try {
+      const v = await this.computeInfo();
+      this.infoCache = { v, t: Date.now() };
+      return v;
+    } catch (e) {
+      // A rate-limited RPC (one IP for the gateways and the house): the last good answer,
+      // up to 10 minutes old, beats an error on every player's page.
+      if (this.infoCache && Date.now() - this.infoCache.t < 600_000) return this.infoCache.v;
+      throw e;
+    }
   }
 
   private async computeInfo() {
