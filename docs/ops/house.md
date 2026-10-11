@@ -58,3 +58,12 @@ Every step appears in the timeline:
   - **Monitoring gap:** `zol-status` now reads the app's state from the ledger. Its log-based check had stopped showing the freeze after 15 minutes.
 - **Helius devnet returned stale account data:** about 40% of `getAccountInfo` answers were 70+ minutes old, at a *current* context slot. So the slot-freshness check (`MAX_SLOT_LAG`, `5841a30`) can't catch it. The gateways and the house went back to the public devnet RPC, with retries and 15 s polling. The page calls the public RPC from each browser.
 - **Zcash testnet mined only empty blocks,** every ~6 s from about 07:56 UTC. No transaction confirmed: a deposit expired unmined after its 40-block expiry (4 minutes at that pace). `expiry_delta` is now 300 for payouts and the daemons' own sends. Wait for blocks that carry transactions before testing.
+
+## First games against the house (2026-10-11, `web/house/house-smoke.ts`)
+
+| Game | Deposit credited | Seated → landed | Result | Payout |
+| --- | --- | --- | --- | --- |
+| 1 | 223 s (3 blocks) | 33 s: co-signed create+join, start, rollup, player flip, VRF | the house won; pot to the house, table closed | none (nothing to pay) |
+| 2 | 415 s | 12 s | the player won; auto-exit, so the house settled it as settlement 3, 37 s after the win | mined on Zcash in block 4,488,262, 2 min 48 s after the settle; **11.0 min from deposit to coins in the wallet** |
+
+Rate limiting on the shared IP showed up as retries in game 1's timeline. Retries are now silent, don't count toward giving up, and are hidden from the page (`bced3cb`).
