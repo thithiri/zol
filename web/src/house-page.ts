@@ -211,9 +211,13 @@ $("fund-btn").onclick = async () => {
     const r = await house<{ txid: string }>("/fund", { session: hex(session!.publicKey), ...(memo.startsWith("ZOL1:") ? { memo } : {}) });
     localStorage.setItem(K("fundtx"), r.txid);
     $("fund-btn").hidden = true;
+    $("fund-msg").hidden = false;
+    $("fund-msg").innerHTML = '<span class="ok">Sent: 0.01 TAZ is on its way to your address.</span>';
     void pollDeposits();
   } catch (e) {
-    showError(e);
+    // Say why right here (most often: the once-a-day limit for this network address).
+    $("fund-msg").hidden = false;
+    $("fund-msg").innerHTML = `<span class="err">${esc(String((e as any)?.message ?? e).split("\n")[0])}.</span> Get testnet ZEC from <a href="https://faucet.testnet.valargroup.dev" target="_blank" rel="noopener">Valar's faucet</a> and pay the QR code instead.`;
   }
 };
 
