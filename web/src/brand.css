@@ -1,0 +1,63 @@
+/* The ZOL brand: colors, fonts and the elements every page shares.
+   Night ground, Mist text, Shield violet for the player's choice, Mint for live and won,
+   Flare for lost and errors. The fonts are bundled with the pages, so no font host sees
+   who visits.
+   The rules sit in a layer so each page's own styles win, wherever the build puts this file. */
+@import "@fontsource/chakra-petch/latin-600.css";
+@import "@fontsource/chakra-petch/latin-700.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
+@layer brand {
+  :root {
+    --night: #140c2e; --ink: #0c0720; --raised: #1a1139; --mist: #edecfa; --shield: #a374ff;
+    --mint: #45f0c3; --flare: #ff8466; --haze: #a39cc8; --line: #2a2150; --edge: #3a3068;
+    /* The roles the pages use. */
+    --bg: var(--night); --card: var(--raised); --fg: var(--mist); --muted: var(--haze);
+    --accent: var(--shield); --accent-fg: var(--ink); --ok: var(--mint); --err: var(--flare);
+    --display: "Chakra Petch", system-ui, sans-serif;
+    --text: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { font: 16px/1.5 var(--text); color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
+  a { color: var(--shield); } a:hover { color: var(--fg); }
+
+  /* Header: the logo home, the testnet tag; then the page title and the games. */
+  header.brand { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+  header.brand .logo { display: block; line-height: 0; }
+  header.brand .logo svg { height: 26px; width: auto; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--mint); border: 1px solid var(--mint); padding: 5px 8px; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; background: var(--mint); }
+  h1 { font: 700 28px/1.1 var(--display); margin: 18px 0 0; }
+  h2, .panel-title { font-family: var(--display); font-weight: 600; }
+  nav.games { font-size: 14px; margin-top: 6px; color: var(--muted); }
+  nav.games a { color: var(--muted); text-decoration: none; } nav.games a:hover { color: var(--fg); }
+  nav.games b { color: var(--fg); font-weight: 600; }
+
+  .card { background: var(--card); border: 1px solid var(--line); padding: 16px; margin: 14px 0; }
+  .center { text-align: center; }
+  .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
+  .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; }
+  .kv b { font: 500 14px var(--mono); font-variant-numeric: tabular-nums; }
+
+  button { font: 600 15px/1.2 var(--text); min-height: 44px; padding: 11px 16px; border-radius: 0; border: 1px solid var(--edge); background: transparent; color: var(--fg); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--haze); }
+  button.primary { background: var(--shield); color: var(--ink); border-color: var(--shield); }
+  button.primary:hover:not(:disabled) { background: #b68fff; border-color: #b68fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.link { min-height: 0; border: 0; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font: 400 13px var(--text); }
+  button.link:hover:not(:disabled) { color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+  input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 0; border: 1px solid var(--edge); background: var(--ink); color: var(--fg); }
+  input::placeholder { color: #7a74a3; }
+  code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details > summary:hover { color: var(--fg); }
+  [hidden] { display: none !important; }
+}

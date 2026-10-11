@@ -4,39 +4,24 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sealed-bid auction</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/src/brand.css" />
   <style>
-    :root { --fg: #1b1b1b; --bg: #f6f4ee; --muted: #6b6b6b; --line: #e2ded3; --accent: #e8a317; --accent-fg: #1b1b1b; --err: #b42318; --ok: #1a7f37; --card: #fffdf8; }
-    @media (prefers-color-scheme: dark) { :root { --fg: #ece9e0; --bg: #121212; --muted: #9a9a9a; --line: #2c2b28; --accent: #f4b400; --accent-fg: #121212; --err: #ff7b72; --ok: #3fb950; --card: #1b1a18; } }
-    * { box-sizing: border-box; }
-    body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
-    header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-    h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
-    nav { font-size: 14px; margin-top: 4px; } nav a { color: var(--muted); }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
-    .center { text-align: center; }
-    .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
-    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
-    button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
-    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
-    button:disabled { opacity: .45; cursor: not-allowed; }
-    input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-    code { word-break: break-all; font-size: 12px; }
-    .balance { font-size: 32px; font-weight: 750; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
-    .cert { font-size: 22px; font-weight: 750; margin: 0; }
-    .phase { font-size: 15px; font-weight: 650; margin: 10px 0 2px; }
-    .clock { font-size: 32px; font-weight: 750; font-variant-numeric: tabular-nums; }
-    .steps { display: flex; justify-content: center; gap: 6px; margin: 8px 0 4px; font-size: 12px; }
-    .steps span { padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
-    .steps span.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .balance { font: 500 32px/1.15 var(--mono); margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+    .cert { font: 700 24px/1.2 var(--display); margin: 0; }
+    .phase { font-size: 15px; font-weight: 600; margin: 10px 0 2px; }
+    .clock { font: 500 32px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+    .steps { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; font: 500 12px/1 var(--mono); }
+    .steps span { padding: 6px 10px; border: 1px solid var(--line); color: var(--muted); }
+    .steps span.on { background: var(--shield); color: var(--ink); border-color: var(--shield); }
     .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; margin-top: 12px; }
     .bidrow { display: flex; gap: 8px; margin-top: 12px; } .bidrow input { flex: 1; }
-    details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
-    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <header><h1>Sealed-bid auction</h1><span class="pill">testnet · no real money</span></header>
-  <nav><a href="/">Home</a> · <a href="/coinflip.html">Coin flip</a> · <a href="/updown.html">ZEC Up/Down</a> · <b>Sealed-bid auction</b></nav>
+  <header class="brand"><a class="logo" href="/" aria-label="ZOL home"><svg viewBox="0 0 67.5 23" role="img" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg></a><span class="pill">Testnet · no real money</span></header>
+  <h1>Sealed-bid auction</h1>
+  <nav class="games"><a href="/">Home</a> · <a href="/coinflip.html">Coin flip</a> · <a href="/updown.html">ZEC Up/Down</a> · <b>Sealed-bid auction</b></nav>
 
   <section id="nosession" class="card center" hidden>
     <p style="margin-top:0">Set up your player and deposit on the <a href="/">home page</a> first. This page uses the same player and balance.</p>

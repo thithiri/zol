@@ -50,32 +50,31 @@ const signB64 = (b64: string, s: Session) => {
 };
 
 // ---------------------------------------------------------------- coin faces
-// Heads: a Zcash-style Z (with the bars above and below). Tails: a five-petal flower for
-// Zakura. Drawn here, not the official artwork.
+// Heads: the ZOL Z (two rows and the violet crossing). Tails: a five-petal flower for Zakura.
+// Drawn here, not official artwork.
 
-const zSvg = (fill: string) =>
-  `<svg viewBox="0 0 100 100" aria-label="Z heads"><g fill="${fill}">
-    <rect x="45" y="10" width="10" height="14" rx="2"/><rect x="45" y="76" width="10" height="14" rx="2"/>
-    <path d="M27 24h46v11L44 65h29v11H27V65l29-30H27z"/></g></svg>`;
+const cell = (x: number, y: number) => `<rect x="${x}" y="${y}" width="5" height="5"/>`;
+const zMark = (fill: string, cross: string) =>
+  `<g fill="${fill}">${[0, 6, 12, 18].map((x) => cell(x, 0) + cell(x, 18)).join("")}</g><g fill="${cross}">${cell(12, 6)}${cell(6, 12)}</g>`;
+const zSvg = (fill: string, cross: string) =>
+  `<svg viewBox="0 0 100 100" aria-label="Z heads"><g transform="translate(13.2 13.2) scale(3.2)">${zMark(fill, cross)}</g></svg>`;
 const flowerSvg = (petal: string, heart: string) =>
   `<svg viewBox="0 0 100 100" aria-label="Zakura flower tails"><g transform="translate(50 50)">
     ${[0, 72, 144, 216, 288].map((a) => `<path transform="rotate(${a})" d="M0 -6 C-14 -14 -16 -32 -6 -40 L0 -34 L6 -40 C16 -32 14 -14 0 -6Z" fill="${petal}"/>`).join("")}
     <circle r="8" fill="${heart}"/></g></svg>`;
-const FACE = { H: zSvg("#5c3900"), T: flowerSvg("#1b1b1b", "#e8a317") };
-const ICON = { H: zSvg("currentColor"), T: flowerSvg("currentColor", "currentColor") };
-/** A whole coin around a face: milled edge, raised rim, engraved ring, a struck look. */
+const FACE = { H: zSvg("#edecfa", "#a374ff"), T: flowerSvg("#edecfa", "#45f0c3") };
+const ICON = { H: `<svg viewBox="0 0 23 23" aria-label="Z heads">${zMark("currentColor", "currentColor")}</svg>`, T: flowerSvg("currentColor", "currentColor") };
+/** A whole coin around a face: an edge milled in square cells, a rim, a struck face. */
 function coinSvg(inner: string) {
-  const notches = Array.from({ length: 90 }, (_, i) => `<rect x="-1.3" y="-80" width="2.6" height="7" rx="1" transform="rotate(${i * 4})" fill="#e7b04a"/>`).join("");
+  const notches = Array.from({ length: 60 }, (_, i) => `<rect x="-2.2" y="-77.5" width="4.4" height="4.4" transform="rotate(${i * 6})"/>`).join("");
   return `<svg viewBox="-80 -80 160 160" aria-hidden="true">
     <defs>
-      <radialGradient id="cf" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff0c0"/><stop offset=".35" stop-color="#f0bd45"/><stop offset=".75" stop-color="#d2901a"/><stop offset="1" stop-color="#a86a08"/></radialGradient>
-      <linearGradient id="cr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbe08f"/><stop offset=".5" stop-color="#cf8d16"/><stop offset="1" stop-color="#8f5a05"/></linearGradient>
+      <radialGradient id="cf" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#33276b"/><stop offset=".6" stop-color="#1e1545"/><stop offset="1" stop-color="#140c2e"/></radialGradient>
     </defs>
-    <circle r="80" fill="#8e5905"/>${notches}
-    <circle r="72" fill="url(#cr)"/>
-    <circle r="64" fill="url(#cf)"/>
-    <circle r="59" fill="none" stroke="#9a6206" stroke-opacity=".55" stroke-width="1.6"/>
-    <circle r="57.5" fill="none" stroke="#fff3c9" stroke-opacity=".55" stroke-width="1"/>
+    <circle r="80" fill="#0c0720"/><g fill="#a374ff">${notches}</g>
+    <circle r="69" fill="#1a1139" stroke="#3a3068" stroke-width="1.5"/>
+    <circle r="62" fill="url(#cf)"/>
+    <circle r="58" fill="none" stroke="#edecfa" stroke-opacity=".12" stroke-width="1"/>
     <g transform="translate(-44 -44) scale(.88)">${inner}</g>
   </svg>`;
 }
@@ -367,11 +366,11 @@ async function readRollup(id: string) {
   return { t, seats: [a[0], a[1]] as [bigint, bigint] };
 }
 
-/** The table's last results for the player (seat 1), oldest first: ● won, ○ lost. */
+/** The table's last results for the player (seat 1), oldest first: ■ won, □ lost. */
 let lastResults = "";
 function resultDots(t: { flips: number; results: bigint }) {
   const n = Math.min(t.flips, 12);
-  return Array.from({ length: n }, (_, i) => ((t.results >> BigInt(n - 1 - i)) & 1n ? "●" : "○")).join("");
+  return Array.from({ length: n }, (_, i) => ((t.results >> BigInt(n - 1 - i)) & 1n ? "■" : "□")).join("");
 }
 
 /** Rings the side the player called; the other fades while the coin is in the air. */

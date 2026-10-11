@@ -5,69 +5,58 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ZEC Up/Down</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/src/brand.css" />
   <style>
-    :root { --fg: #1b1b1b; --bg: #f6f4ee; --muted: #6b6b6b; --line: #e2ded3; --accent: #e8a317; --accent-fg: #1b1b1b; --err: #b42318; --ok: #1a7f37; --card: #fffdf8; }
-    @media (prefers-color-scheme: dark) { :root { --fg: #ece9e0; --bg: #121212; --muted: #9a9a9a; --line: #2c2b28; --accent: #f4b400; --accent-fg: #121212; --err: #ff7b72; --ok: #3fb950; --card: #1b1a18; } }
-    * { box-sizing: border-box; }
-    body { font: 16px/1.5 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 520px; margin: 0 auto; padding: 16px; }
-    header { display: flex; justify-content: space-between; align-items: baseline; }
-    h1 { font-size: 20px; margin: 0; } .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
-    .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 14px 0; }
-    .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 22px; line-height: 1; padding: 4px 8px; color: var(--muted); }
-    .panel-title { font-weight: 650; margin: 0 0 8px; }
-    button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 6px; }
-    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; } .kv b { font-variant-numeric: tabular-nums; }
-    .center { text-align: center; }
-    .muted { color: var(--muted); } .small { font-size: 13px; } .err { color: var(--err); } .ok { color: var(--ok); }
-    button { font: inherit; padding: 10px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
-    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 650; }
-    button:disabled { opacity: .45; cursor: not-allowed; }
+    .card { position: relative; }
+    .close { position: absolute; top: 4px; right: 4px; min-height: 0; border: 0; background: none; font-size: 22px; line-height: 1; padding: 8px 12px; color: var(--muted); }
+    .panel-title { margin: 0 0 8px; font-size: 18px; }
+    button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 8px; }
     /* Your call: ringed and kept bright while the coin is in the air; the other side fades. */
-    button.chosen { box-shadow: 0 0 0 3px var(--card), 0 0 0 6px var(--fg); }
+    button.chosen { box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--fg); }
     button.chosen:disabled { opacity: 1; }
     button.unchosen:disabled { opacity: .25; }
-    button.link { border: 0; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font-size: 13px; }
-    input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-    code { word-break: break-all; font-size: 12px; }
-    .balance { font-size: 40px; font-weight: 750; letter-spacing: -0.5px; margin: 4px 0 0; }
+    .balance { font: 500 40px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin: 6px 0 0; }
     .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    /* The coin is drawn as one SVG (milled edge, rim, engraved ring, struck face). */
+    /* The coin is drawn as one SVG (milled edge of cells, rim, the face). */
     .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
-    .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 7px 10px rgba(0,0,0,.3)); }
+    .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 8px 18px rgba(0,0,0,.5)); }
     .coin.spin { animation: spin .6s linear infinite; }
-    nav.games { margin-top: 4px; color: var(--muted); } nav.games a { color: var(--muted); }
     .restore { margin-top: 18px; text-align: left; } .restore button { display: block; margin: 10px auto 0; }
-    .keybtn { position: absolute; top: 8px; right: 8px; border: 0; background: none; padding: 6px 8px; font-size: 18px; line-height: 1; }
-    .keybtn .dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
+    .keybtn { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); color: var(--muted); }
+    .keybtn svg { width: 20px; height: 20px; }
+    .keybtn .dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; background: var(--err); }
     .keypanel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); text-align: left; }
-    a.game { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; color: var(--fg); text-decoration: none; }
-    a.game:hover { border-color: var(--accent); } a.game b { display: block; } a.game span { display: block; }
+    a.game { display: flex; gap: 14px; align-items: center; padding: 12px; border: 1px solid var(--line); margin: 8px 0; color: var(--fg); text-decoration: none; }
+    a.game:hover { border-color: var(--shield); color: var(--fg); }
+    a.game > svg { width: 40px; height: 40px; flex-shrink: 0; }
+    a.game b { display: block; font: 600 17px/1.3 var(--display); } a.game span span { display: block; }
     .spark { width: 100%; height: 96px; display: block; margin: 6px 0 0; }
     .spark .line { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
     .spark .entry { stroke: var(--fg); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .7; }
     .spark.win .line { stroke: var(--ok); } .spark.lose .line { stroke: var(--err); }
-    .spark .area { opacity: .12; } .spark.win .area { fill: var(--ok); } .spark.lose .area { fill: var(--err); }
-    .lead { font-weight: 700; min-height: 24px; font-variant-numeric: tabular-nums; }
+    .spark .area { opacity: .14; } .spark.win .area { fill: var(--ok); } .spark.lose .area { fill: var(--err); }
+    .lead { font: 500 16px/1.5 var(--mono); min-height: 24px; font-variant-numeric: tabular-nums; }
     .lead.win { color: var(--ok); } .lead.lose { color: var(--err); }
-    .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
-    .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+    .bar { height: 6px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
+    .bar > div { height: 100%; width: 0; background: var(--mint); transition: width 1s linear; }
     .bar.final > div { animation: pulse .5s ease-in-out infinite alternate; }
     @keyframes pulse { from { opacity: 1 } to { opacity: .35 } }
-    .price { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
-    .betline { min-height: 22px; font-size: 14px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .price { font: 500 40px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
+    .betline { min-height: 22px; font: 14px var(--mono); margin-top: 6px; font-variant-numeric: tabular-nums; }
     @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
     .status { min-height: 26px; font-weight: 600; }
-    .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; border-radius: 10px; }
+    #flips, #table-note, #stake-note { font-family: var(--mono); }
+    .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; }
     ol.tl { list-style: none; padding: 0; margin: 6px 0; font-size: 13px; }
-    ol.tl li { padding: 2px 0 2px 18px; position: relative; } ol.tl li::before { content: "●"; position: absolute; left: 2px; color: var(--ok); font-size: 9px; top: 6px; }
-    ol.tl li.wait::before { content: "○"; color: var(--muted); }
-    details > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    ol.tl li { padding: 2px 0 2px 18px; position: relative; } ol.tl li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 7px; height: 7px; background: var(--ok); }
+    ol.tl li.wait::before { background: none; border: 1px solid var(--muted); }
     .hist li { list-style: none; border-top: 1px solid var(--line); padding: 6px 0; font-size: 14px; }
-    [hidden] { display: none !important; }
   </style>
 </head>
 <body data-page="updown">
-  <header><h1>ZEC Up/Down</h1><span class="pill">testnet · no real money</span></header>
+  <header class="brand"><a class="logo" href="/" aria-label="ZOL home"><svg viewBox="0 0 67.5 23" role="img" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg></a><span class="pill">Testnet · no real money</span></header>
+  <h1>ZEC Up/Down</h1>
   <nav class="small games"><a href="/">Home</a> · <a href="/coinflip.html">Coin flip</a> · <b>ZEC Up/Down</b> · <a href="/auction.html">Sealed-bid auction</a></nav>
 
   <!-- First visit: a player key held by a passkey -->
@@ -88,7 +77,7 @@
   <main id="main" hidden>
     <!-- Balance -->
     <section class="card center">
-      <button id="key-btn" class="keybtn" title="Your player key" aria-label="Your player key" aria-expanded="false">🔑<span id="key-warn" class="dot" hidden></span></button>
+      <button id="key-btn" class="keybtn" title="Your player key" aria-label="Your player key" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><rect x="3" y="11" width="8" height="8"/><path d="M10 12L19 3M15 7L18 10"/></svg><span id="key-warn" class="dot" hidden></span></button>
       <div class="muted small">Game balance</div>
       <div class="balance" id="balance">…</div>
       <div class="muted small" id="flips">&nbsp;</div>
@@ -144,9 +133,10 @@
     <!-- Home: the games -->
     <section class="card" id="games" hidden>
       <div class="panel-title">Games</div>
-      <a class="game" href="/coinflip.html"><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></a>
-      <a class="game" href="/updown.html"><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></a>
-      <a class="game" href="/auction.html"><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></a>
+      <!-- Each game's glyph is drawn on the logo's 4 × 4 grid and keeps its two violet cells. -->
+      <a class="game" href="/coinflip.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="6" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></span></a>
+      <a class="game" href="/updown.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></span></a>
+      <a class="game" href="/auction.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></span></a>
       <div class="small muted" style="margin-top:8px">Also: the <a href="/two-player.html">two-player table</a>, the original developer page.</div>
     </section>
 
