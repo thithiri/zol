@@ -28,6 +28,8 @@ function check(idl: any, name: string, ix: { data: Buffer; keys: { pubkey: Publi
 test("coinflip instruction builders match idl/zol_coinflip.json", () => {
   check(cfIdl, "create_table", cf.createTable(payer, potId, 500_000n, 600n, payer));
   check(cfIdl, "join", cf.join(session, potId));
+  check(cfIdl, "join_rounds", cf.join(session, potId, 10));
+  expect(Array.from(cf.join(session, potId, 10).data.subarray(8))).toEqual([10, 0]);
   check(cfIdl, "start", cf.start(payer, potId, 600n));
   check(cfIdl, "flip", cf.flip(payer, potId, queue, new Uint8Array(32)));
   check(cfIdl, "finish", cf.finish(payer, potId));
@@ -42,7 +44,7 @@ test("ledger calls the page makes match idl/zol_ledger.json", () => {
 
 test("Table decoder reads the Anchor layout", () => {
   const disc = cfIdl.accounts.find((a: any) => a.name === "Table")!.discriminator;
-  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1);
+  const data = new Uint8Array(8 + 32 + 32 + 8 + 32 + 32 + 1 + 1 + 32 + 1 + 4 + 8);
   data.set(disc, 0);
   data.fill(7, 8, 40);
   data.set(potId, 40);
@@ -51,7 +53,13 @@ test("Table decoder reads the Anchor layout", () => {
   data.fill(5, 112, 144); // creator
   data[144] = 3; // Landed
   data[145] = 1; // winner seat 1
+  new DataView(data.buffer).setUint32(179, 7, true); // flips
+  new DataView(data.buffer).setBigInt64(183, 1_791_000_000n, true); // flip_requested_at
   const t = decodeTable(data);
+  expect(t.flips).toBe(7);
+  expect(t.flipRequestedAt).toBe(1_791_000_000n);
+  // A table from before sessions (no flips fields) still decodes.
+  expect(decodeTable(data.subarray(0, 179)).flips).toBe(0);
   expect(t.stake).toBe(500_000n);
   expect(t.state).toBe("Landed");
   expect(t.winner).toBe(1);
@@ -60,11 +68,11 @@ test("Table decoder reads the Anchor layout", () => {
   expect(Array.from(t.potId)).toEqual(Array.from(potId));
 });
 
-test("stakes are one deposit's net value at the ledger's entry fee", () => {
+test("stakes are one deposit's net value at the ledger's entry fee, and a tenth of it", () => {
   const two = [1_000_000n, 10_000_000n, 0n, 0n];
-  expect(allowedStakes({ entryFeeBps: 30, denominations: two })).toEqual([997_000n, 9_970_000n]);
-  expect(allowedStakes({ entryFeeBps: 50, denominations: two })).toEqual([995_000n, 9_950_000n]);
-  expect(allowedStakes({ entryFeeBps: 30, denominations: [2_000_000n, 0n, 50_000_000n, 0n] })).toEqual([1_994_000n, 49_850_000n]);
+  expect(allowedStakes({ entryFeeBps: 30, denominations: two })).toEqual([997_000n, 9_970_000n, 99_700n]);
+  expect(allowedStakes({ entryFeeBps: 50, denominations: two })).toEqual([995_000n, 9_950_000n, 99_500n]);
+  expect(allowedStakes({ entryFeeBps: 30, denominations: [2_000_000n, 0n, 50_000_000n, 0n] })).toEqual([1_994_000n, 49_850_000n, 199_400n, 4_985_000n]);
   // Config layout: params after admin, attestor, 7 guardians and 4 bytes; denominations 69 bytes in.
   const disc = ledgerIdl.accounts.find((a: any) => a.name === "Config")!.discriminator;
   const data = new Uint8Array(420);
@@ -73,7 +81,8 @@ test("stakes are one deposit's net value at the ledger's entry fee", () => {
   dv.setUint16(300, 30, true);
   dv.setBigUint64(369, 1_000_000n, true);
   dv.setBigUint64(377, 10_000_000n, true);
-  expect(decodeLedgerParams(data)).toEqual({ entryFeeBps: 30, denominations: two });
+  dv.setBigUint64(312, 100_000n, true); // min_exit, after the two fees and the network allowance
+  expect(decodeLedgerParams(data)).toEqual({ entryFeeBps: 30, denominations: two, minExit: 100_000n });
 });
 
 test("settle matches the ledger IDL; settlement PDA uses next_settlement", () => {

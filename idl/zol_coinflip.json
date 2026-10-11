@@ -176,8 +176,9 @@
     {
       "name": "finish",
       "docs": [
-        "Rollup. Anyone, after the coin landed: returns the pot (ledger `close_pot`)",
-        "and the table to Solana."
+        "Rollup. Anyone, between flips (or before the first): returns the pot (ledger",
+        "`close_pot`) and the table to Solana. A flip whose VRF answer has not landed",
+        "after `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were."
       ],
       "discriminator": [
         67,
@@ -263,7 +264,8 @@
     {
       "name": "flip",
       "docs": [
-        "Rollup. Anyone may trigger the flip of a started table; the outcome is the oracle's."
+        "Rollup. Anyone may trigger the flip of a started table, and again after each",
+        "landing while both seats still cover a stake; the outcome is the oracle's."
       ],
       "discriminator": [
         24,
@@ -303,6 +305,12 @@
               }
             ]
           }
+        },
+        {
+          "name": "pot",
+          "relations": [
+            "table"
+          ]
         },
         {
           "name": "oracle_queue",
@@ -442,6 +450,102 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "join_rounds",
+      "docs": [
+        "`join` for `rounds` stakes at once (1..=`MAX_ROUNDS`): the seat can play up to",
+        "that many flips in one rollup session. Both seats must buy the same number."
+      ],
+      "discriminator": [
+        245,
+        140,
+        169,
+        100,
+        208,
+        205,
+        9,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "session_key",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.pot_id",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "app_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  111,
+                  108,
+                  45,
+                  97,
+                  112,
+                  112
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "app",
+          "writable": true
+        },
+        {
+          "name": "balance",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "relations": [
+            "table"
+          ]
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "ledger_program",
+          "address": "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"
+        }
+      ],
+      "args": [
+        {
+          "name": "rounds",
+          "type": "u16"
+        }
+      ]
     },
     {
       "name": "land",
@@ -1250,6 +1354,16 @@
       "code": 6012,
       "name": "NotRefunded",
       "msg": "rescue needs the pot refunded by the ledger"
+    },
+    {
+      "code": 6013,
+      "name": "SeatShort",
+      "msg": "a seat cannot cover another stake"
+    },
+    {
+      "code": 6014,
+      "name": "BadRounds",
+      "msg": "rounds must be 1 to MAX_ROUNDS"
     }
   ],
   "types": [
@@ -1419,6 +1533,20 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "flips",
+            "docs": [
+              "Flips landed so far (a table plays as many as its seats' stakes allow)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "flip_requested_at",
+            "docs": [
+              "When the pending flip asked the oracle (unix seconds, rollup clock)."
+            ],
+            "type": "i64"
           }
         ]
       }

@@ -316,6 +316,7 @@ fn play() {
         zol_coinflip::accounts::Flip {
             payer: flip_payer.pubkey(),
             table,
+            pot,
             oracle_queue: queue,
             program_identity: pda(&[b"identity"], &APPP),
             vrf_program: VRF_PROGRAM,

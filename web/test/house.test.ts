@@ -78,6 +78,21 @@ describe("fund me", () => {
     expect(sends.length).toBe(3);
   });
 
+  it("stop marks the player's live session once, and ignores others", () => {
+    const store = new MemoryStore();
+    const h = new House(cfg, House.sessionFromSeedHex("33".repeat(32)), feePayer, store, http);
+    const g = { id: "aa", player: "P", stake: "99700", state: "in_rollup", created: 0, updated: 0, events: [], rounds: 10 } as any;
+    store.put(g);
+    store.put({ ...g, id: "bb", player: "Q" });
+    expect(h.stop("P")).toEqual({ stopping: true, game: "aa" });
+    expect(h.stop("P")).toEqual({ stopping: true, game: "aa" });
+    expect(store.get("aa")!.stop).toBe(true);
+    expect(store.get("aa")!.events.length).toBe(1);
+    expect(store.get("bb")!.stop).toBeUndefined();
+    store.put({ ...store.get("aa")!, state: "done" });
+    expect(h.stop("P")).toEqual({ stopping: false });
+  });
+
   it("needs a deposit link first, and a well-formed request", async () => {
     const h = new House(cfg, House.sessionFromSeedHex("22".repeat(32)), feePayer, new MemoryStore(), http);
     await expect(h.fund("ff".repeat(32), "ip")).rejects.toThrow(/deposit link first/);

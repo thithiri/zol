@@ -123,7 +123,8 @@
       <details><summary>How it works, and what you trust</summary>
         <ul class="small muted">
           <li>Your ZEC goes to the app's shielded Zcash vault, held by three operators (2 of 3 sign everything). A Solana ledger keeps your game balance.</li>
-          <li>The house is a second player with its own balance: it matches your stake. The coin is decided by a verifiable random function in a MagicBlock rollup: neither you nor the house can pick it. Heads or tails is your call; who wins is the VRF's.</li>
+          <li>The house is a second player with its own balance. Your first flip opens a table: you and the house each put in up to 10 stakes, and the table moves into a MagicBlock rollup once. Each flip there moves one stake to the winner, in a couple of seconds; the table returns to Solana when you stop, run out, or leave it idle.</li>
+          <li>The coin is decided by a verifiable random function in the rollup: neither you nor the house can pick it. Heads or tails is your call; who wins is the VRF's.</li>
           <li>Cash-outs go only to the address you gave at your first deposit: the ledger fixes it, and the operators can't send it elsewhere.</li>
         </ul>
       </details>

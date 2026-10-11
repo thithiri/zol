@@ -10,7 +10,7 @@ import { Gateway, type AppInfo, type DepositStatus } from "./gateway";
 import { prepareDeposit } from "./deposit";
 import { exportSession, hex, isBackedUp, markBackedUp, readSession, restoreSession, sessionKind, storeSession, type Session } from "./session";
 import { parsePayoutAddress } from "./ua";
-import { Coinflip, decodeBalance, sendTx } from "./chain";
+import { Coinflip, decodeBalance, decodePot, decodeTable, sendTx } from "./chain";
 import { createPasskeySeed, NO_PRF_HELP, passkeysAvailable, prfSupported, seedFromPasskey } from "./passkey";
 
 const env = (import.meta as any).env ?? {};
@@ -139,10 +139,25 @@ function renderKey() {
 const K = (k: string) => `zol:house:${k}:${session!.keypair.publicKey.toBase58()}`;
 let app: AppInfo | null = null;
 let stake = 0n;
+let minExit = 0n;
+/** The player's ledger balance on Solana, and whether it is being paid out. */
 let balance = 0n;
 let exiting = false;
+/** The house's record of the player's current table (a session) or withdrawal. */
 let game: any = null;
+/** The session's seats in the rollup [house, player], while it is there. */
+let seats: [bigint, bigint] | null = null;
+/** The table's state in the rollup. */
+let tableState = "";
+/** After a session closes, its seat until the ledger balance shows it (reads can lag). */
+let pending: { seat: bigint; before: bigint; t: number } | null = null;
 let busy = false;
+
+const SESSION_LIVE = ["awaiting_signature", "seated", "started", "in_rollup", "landed", "finishing", "returned", "cashed_out"];
+const liveSession = () => game && game.kind !== "withdraw" && SESSION_LIVE.includes(game.state) ? game : null;
+const inRollup = () => liveSession()?.state === "in_rollup" && seats !== null;
+/** What the player has: the ledger balance plus their seat at a live table. */
+const total = () => balance + (liveSession() && seats ? seats[1] : 0n) + (pending ? pending.seat : 0n);
 
 async function pollBalance() {
   try {
@@ -150,6 +165,8 @@ async function pollBalance() {
     const bal = b ? decodeBalance(b.data) : null;
     balance = bal?.amount ?? 0n;
     exiting = !!bal?.exiting;
+    // The closed table's seat shows up in the ledger balance: stop adding it.
+    if (pending && (balance !== pending.before || Date.now() - pending.t > 60_000)) pending = null;
   } catch {
     /* rate limited: keep the last value */
   }
@@ -159,7 +176,8 @@ async function pollHouse() {
   try {
     const i = await house("/info");
     stake = BigInt(i.stake);
-    $("stake-note").textContent = i.can_play ? `Stake ${taz(stake)} a flip; win ${taz(2n * stake)}` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
+    minExit = BigInt(i.min_exit ?? 0);
+    $("stake-note").textContent = i.can_play || inRollup() ? `${taz(stake)} a flip; win ${taz(2n * stake)}` : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
   } catch {
     // Usually a rate-limited RPC on the operators' side: keep the last note, retry soon.
     if (!stake) $("stake-note").textContent = "Connecting to the house…";
@@ -169,12 +187,17 @@ async function pollHouse() {
 }
 
 function render() {
-  $("balance").textContent = taz(balance);
-  const n = stake > 0n ? balance / stake : 0n;
-  $("flips").textContent = stake > 0n ? (n > 0n ? `${n} flip${n === 1n ? "" : "s"}` : "add funds to play") : " ";
-  const playing = busy || (game && game.kind !== "withdraw" && !["done", "final", "paid", "expired", "failed"].includes(game.state));
-  for (const id of ["heads", "tails"]) $<HTMLButtonElement>(id).disabled = playing || balance < stake || stake === 0n || exiting;
-  $<HTMLButtonElement>("cashout-btn").disabled = playing || balance === 0n || !!localStorage.getItem(K("withdraw-live"));
+  $("balance").textContent = taz(total());
+  const s = liveSession();
+  const n = stake > 0n ? total() / stake : 0n;
+  $("flips").textContent = stake === 0n ? " "
+    : inRollup() ? `${seats![1] / stake} flip${seats![1] / stake === 1n ? "" : "s"} at this table${s.flips ? ` · won ${s.wins ?? 0} of ${s.flips}` : ""}`
+    : n > 0n ? `${n} flip${n === 1n ? "" : "s"}` : "deposit to play";
+  let can: boolean;
+  if (inRollup()) can = !s.stop && tableState !== "Flipping" && seats![0] >= stake && seats![1] >= stake;
+  else can = !s && balance >= stake && !exiting;
+  for (const id of ["heads", "tails"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !can;
+  $<HTMLButtonElement>("cashout-btn").disabled = busy || total() === 0n || !!localStorage.getItem(K("withdraw-live"));
 }
 
 // ---------------------------------------------------------------- add funds
@@ -288,6 +311,17 @@ const coin = $("coin");
 let call: "H" | "T" = "H";
 $("heads").onclick = () => play("H");
 $("tails").onclick = () => play("T");
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const potIdOf = (id: string) => Uint8Array.from(Buffer.from(id, "hex"));
+
+/** The table and its seats as the rollup has them now. */
+async function readRollup(id: string) {
+  const [ti, pi] = await er.getMultipleAccountsInfo([cf.pdas.table(potIdOf(id)), cf.pdas.pot(potIdOf(id))]);
+  if (!ti || !pi) return null;
+  const t = decodeTable(ti.data);
+  const a = decodePot(pi.data).amounts;
+  return { t, seats: [a[0], a[1]] as [bigint, bigint] };
+}
 
 async function play(c: "H" | "T") {
   call = c;
@@ -295,13 +329,24 @@ async function play(c: "H" | "T") {
   render();
   face(c);
   coin.classList.add("spin");
-  $("status").textContent = "The house matches your stake…";
   try {
-    const p = await house<{ game: string; tx: string }>("/play", { session: session!.keypair.publicKey.toBase58() });
-    localStorage.setItem(K("game"), p.game);
-    localStorage.setItem(K(`call:${p.game}`), c);
-    game = await house("/join", { game: p.game, tx: signB64(p.tx, session!) });
-    $("status").textContent = "Moving the table into the rollup…";
+    let id = liveSession()?.id as string | undefined;
+    if (!id || !inRollup()) {
+      // A new table for this session: one signature, then it moves into the rollup (once).
+      $("status").textContent = "Setting up your table…";
+      const p = await house<{ game: string; tx?: string; resume?: boolean }>("/play", { session: session!.keypair.publicKey.toBase58() });
+      id = p.game;
+      localStorage.setItem(K("game"), id);
+      if (!p.resume) game = await house("/join", { game: id, tx: signB64(p.tx!, session!) });
+      $("status").textContent = "Moving your table into the rollup (once per session)…";
+      for (let i = 0; i < 90 && game?.state !== "in_rollup"; i++) {
+        await sleep(1_000);
+        game = await house(`/game/${id}`).catch(() => game);
+        if (["failed", "expired", "done", "final"].includes(game?.state)) throw new Error(game.error ?? `the table is ${game.state}`);
+      }
+      if (game?.state !== "in_rollup") throw new Error("the table is taking long to reach the rollup; try again in a minute");
+    }
+    await flipNow(id);
   } catch (e) {
     coin.classList.remove("spin");
     $("status").textContent = " ";
@@ -312,51 +357,69 @@ async function play(c: "H" | "T") {
   }
 }
 
-let flipping = false;
+/** One flip in the rollup: ask the VRF, then watch the table until the coin lands. */
+async function flipNow(id: string) {
+  $("status").textContent = "Flipping…";
+  let r = await readRollup(id);
+  for (let i = 0; i < 10 && !r; i++) {
+    await sleep(500);
+    r = await readRollup(id);
+  }
+  if (!r) throw new Error("your table is not in the rollup yet; try again");
+  const before = r.t.flips;
+  await sendTx(er, [cf.flip(session!.keypair.publicKey, potIdOf(id), new PublicKey(S.vrfQueue), crypto.getRandomValues(new Uint8Array(32)))], session!.keypair);
+  tableState = "Flipping";
+  const t0 = Date.now();
+  for (;;) {
+    await sleep(350);
+    r = await readRollup(id).catch(() => null);
+    if (r && r.t.flips > before) break;
+    if (Date.now() - t0 > 70_000) throw new Error("the coin is taking long to land; the house will close the table and nothing is lost");
+  }
+  seats = r.seats;
+  tableState = r.t.state;
+  const won = r.t.winner === 1;
+  coin.classList.remove("spin");
+  const other = call === "H" ? "T" : "H";
+  face(won ? call : other);
+  $("status").innerHTML = won
+    ? `<span class="ok">${call === "H" ? "Heads" : "Tails"}! You win +${taz(stake)}</span>`
+    : `${other === "H" ? "Heads" : "Tails"}. The house wins this one.`;
+  if (game) {
+    game.flips = r.t.flips;
+    game.wins = (game.wins ?? 0) + (won ? 1 : 0);
+  }
+}
+
+/** Follows the house's record of the session: setup, the rollup seats, closing. */
 async function pollGame() {
   const id = localStorage.getItem(K("game"));
   if (!id) return;
+  const was = liveSession();
   try {
     game = await house(`/game/${id}`);
   } catch {
     return;
   }
-  call = (localStorage.getItem(K(`call:${id}`)) as "H" | "T") ?? call;
-  const st = game.state;
-  if (st === "in_rollup" && !flipping && !localStorage.getItem(K(`flipped:${id}`))) {
-    flipping = true;
-    $("status").textContent = "Flipping…";
-    coin.classList.add("spin");
-    try {
-      const sig = await sendTx(er, [cf.flip(session!.keypair.publicKey, Uint8Array.from(Buffer.from(id, "hex")), new PublicKey(S.vrfQueue), crypto.getRandomValues(new Uint8Array(32)))], session!.keypair);
-      localStorage.setItem(K(`flipped:${id}`), JSON.stringify({ sig, t: new Date().toISOString().slice(11, 19) }));
-    } catch (e) {
-      showError(e); // the house flips after a minute anyway
-    } finally {
-      flipping = false;
+  if (game.state === "in_rollup" && !busy) {
+    const r = await readRollup(id).catch(() => null);
+    if (r) {
+      seats = r.seats;
+      tableState = r.t.state;
     }
   }
-  if (game.playerWon !== undefined) {
-    coin.classList.remove("spin");
-    const other = call === "H" ? "T" : "H";
-    face(game.playerWon ? call : other);
-    $("status").innerHTML = game.playerWon
-      ? `<span class="ok">${call === "H" ? "Heads" : "Tails"}! You win ${taz(2n * BigInt(game.stake))}</span>`
-      : `${other === "H" ? "Heads" : "Tails"}. The house wins this one.`;
-    if (["done", "final", "paid"].includes(st)) {
-      if (!localStorage.getItem(K(`seen:${id}`))) {
-        localStorage.setItem(K(`seen:${id}`), "1");
-        void pollBalance();
-        void pollHistory();
-      }
-    } else if (game.playerWon) {
-      $("status").innerHTML += ' <span class="muted small">(adding to your balance…)</span>';
-    }
-  } else if (["expired", "failed"].includes(st)) {
-    coin.classList.remove("spin");
-    $("status").innerHTML = `<span class="err">${esc(String(game.error ?? st).split("\n")[0])}</span>`;
-  } else if (st !== "in_rollup") {
-    coin.classList.add("spin");
+  const s = liveSession();
+  if (was && !s && seats) {
+    // Closed and paid back: the seat lands in the ledger balance; show it until a read does.
+    pending = { seat: game.state === "failed" ? 0n : seats[1], before: balance, t: Date.now() };
+    seats = null;
+    void pollBalance();
+    void pollHistory();
+  }
+  if (!busy) {
+    if (s && ["finishing", "returned", "cashed_out"].includes(s.state)) $("status").textContent = "Closing your table…";
+    else if (s?.state === "in_rollup" && seats && (seats[0] < stake || seats[1] < stake)) $("status").textContent = seats[1] < stake ? "Out of stakes at this table." : "You took all the house's stakes at this table!";
+    else if (!s && $("status").textContent === "Closing your table…") $("status").textContent = " ";
   }
   render();
 }
@@ -367,29 +430,52 @@ const NETWORK_FEE = 20_000n; // the ledger's network-fee allowance per withdrawa
 $("cashout-btn").onclick = () => {
   $("withdraw").hidden = !$("withdraw").hidden;
   $("add").hidden = true;
-  const fee = (balance * 30n) / 10_000n;
-  const net = balance - fee - NETWORK_FEE;
-  $("w-balance").textContent = taz(balance);
+  const all = total();
+  const fee = (all * 30n) / 10_000n;
+  const net = all - fee - NETWORK_FEE;
+  $("w-balance").textContent = taz(all);
   $("w-fee").textContent = taz(fee);
-  $("w-net").textContent = net > 0n ? taz(net) : "nothing (below the fees)";
+  $("w-net").textContent = all < minExit ? `nothing yet (the smallest withdrawal is ${taz(minExit)})` : net > 0n ? taz(net) : "nothing (below the fees)";
   const a = localStorage.getItem(payoutKey());
   $("w-addr").textContent = a ? `${a.slice(0, 14)}…${a.slice(-6)}` : "your address";
   $("withdraw-form").hidden = !!localStorage.getItem(K("withdraw-live"));
-  $<HTMLButtonElement>("withdraw-go").disabled = net <= 0n;
+  $<HTMLButtonElement>("withdraw-go").disabled = net <= 0n || all < minExit;
 };
 $("withdraw-go").onclick = async () => {
   $<HTMLButtonElement>("withdraw-go").disabled = true;
+  busy = true;
+  render();
   try {
-    const w = await house<{ id: string; tx: string }>("/withdraw", { session: session!.keypair.publicKey.toBase58() });
-    localStorage.setItem(K("withdraw-live"), w.id);
-    await house("/withdraw/sign", { id: w.id, tx: signB64(w.tx, session!) });
+    // A table in play is closed first: its seat goes back to the ledger balance.
+    if (liveSession()) {
+      $("cashout-tl").innerHTML = '<li class="wait">closing your table first…</li>';
+      await house("/stop", { session: session!.keypair.publicKey.toBase58() });
+      for (let i = 0; i < 120 && liveSession(); i++) {
+        await sleep(1_500);
+        await pollGame();
+      }
+      if (liveSession()) throw new Error("your table is still closing; try again in a minute");
+    }
+    let w: { id: string; tx: string } | null = null;
+    for (let i = 0; i < 10 && !w; i++) {
+      w = await house<{ id: string; tx: string }>("/withdraw", { session: session!.keypair.publicKey.toBase58() }).catch((e) => {
+        if (i === 9 || !/closing your table|nothing to withdraw/.test(String(e.message))) throw e;
+        return null; // the ledger read may lag the cash-out by a few seconds
+      });
+      if (!w) await sleep(2_000);
+    }
+    localStorage.setItem(K("withdraw-live"), w!.id);
+    await house("/withdraw/sign", { id: w!.id, tx: signB64(w!.tx, session!) });
     $("withdraw-form").hidden = true;
     void pollWithdraw();
     void pollBalance();
   } catch (e) {
     localStorage.removeItem(K("withdraw-live"));
     $<HTMLButtonElement>("withdraw-go").disabled = false;
+    $("cashout-tl").innerHTML = "";
     showError(e);
+  } finally {
+    busy = false;
     render();
   }
 };
@@ -426,6 +512,12 @@ async function pollWithdraw() {
 
 // ---------------------------------------------------------------- history
 
+/** A session's result for the player: their seat now against what they put in. */
+function netOf(g: any) {
+  const d = BigInt(g.amounts[1]) - BigInt(g.rounds) * BigInt(g.stake);
+  return d > 0n ? `<span class="ok">+${taz(d)}</span>` : d < 0n ? `−${taz(-d)}` : "even";
+}
+
 async function pollHistory() {
   try {
     const gs: any[] = await house(`/games/${session!.keypair.publicKey.toBase58()}`);
@@ -433,11 +525,10 @@ async function pollHistory() {
       const t = new Date(g.created).toLocaleString();
       const head = g.kind === "withdraw"
         ? `Cash out ${taz(BigInt(g.stake))} · ${g.state === "paid" || g.state === "final" ? '<span class="ok">paid</span>' : g.state}`
-        : `Flip · ${g.playerWon === true ? '<span class="ok">won</span>' : g.playerWon === false ? "lost" : g.state}`;
-      const flip = localStorage.getItem(K(`flipped:${g.id}`));
-      const f = flip && flip.startsWith("{") ? JSON.parse(flip) : null;
+        : g.rounds
+          ? `Table · ${g.flips ?? 0} flip${g.flips === 1 ? "" : "s"}, won ${g.wins ?? 0}${g.amounts ? ` · ${netOf(g)}` : ""}${SESSION_LIVE.includes(g.state) ? " · open" : ""}`
+          : `Flip · ${g.playerWon === true ? '<span class="ok">won</span>' : g.playerWon === false ? "lost" : g.state}`;
       const evs = g.events.filter((e: any) => !e.step.startsWith("retrying"));
-      if (f) evs.splice(evs.findIndex((e: any) => e.step.startsWith("table in the")) + 1, 0, { step: "you flipped the coin", t: f.t, chain: "rollup", sig: f.sig });
       return `<li><details><summary>${head} <span class="muted">· ${t}</span></summary><ol class="tl">${evs.map(tlItem).join("")}</ol></details></li>`;
     }).join("") || '<li class="muted">no rounds yet</li>';
   } catch {

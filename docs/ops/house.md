@@ -12,10 +12,11 @@ reasoning: [plan-house-mode.md](../plan-house-mode.md).
    - Pay the QR code or link from a wallet on the NU7 testnet: exactly 0.01 TAZ. The memo is filled in; if your wallet drops it, the deposit still counts.
    - No wallet? **Fund me** pays 0.01 TAZ from the house's funding wallet, once per session and once per IP per day.
    - The deposit is credited after 3 Zcash blocks.
-3. **Flip the coin.** One button:
-   - The house matches your stake, and you sign your seat (no SOL needed).
-   - The table moves into the rollup, and the page flips the coin for you. If the page is closed, the house flips after 60 s. The VRF decides either way.
-4. **Paid out automatically.** If you win, about 0.0197 TAZ (1,994,000 zat less the 0.3% exit fee and the network allowance) goes to your address within minutes. "Final" follows about 2 h later.
+3. **Flip the coin.** A stake is 99,700 zat (about 0.001 TAZ), a tenth of a 0.01 TAZ deposit after the entry fee.
+   - The first flip opens a **session**: you and the house each put up to 10 stakes on one table, you sign once (no SOL needed), and the table moves into the rollup (about 5–10 s, once).
+   - Every flip after that runs in the rollup only: one stake moves from the loser's seat to the winner's, the result shows in about 2–3 s.
+   - The house closes the table (back to Solana, your seat into your balance) when a side runs out of stakes, after 2 minutes without a flip, near the session deadline, or when you withdraw.
+4. **Withdraw** when you like: the page closes any open table first, then the house co-signs your withdrawal. It reaches your address within minutes (0.3% exit fee and a 0.0002 TAZ network fee; the smallest withdrawal is 0.001 TAZ). "Final" follows about 2 h later.
 
 Every step appears in the timeline:
 - **Solana and rollup steps** link to the Solana explorer.
@@ -37,17 +38,20 @@ Every step appears in the timeline:
   ```sh
   cd web && npx vite-node house/bankroll.ts -- <count>   # SSH tunnel to op0's zol-zcashd needed
   ```
-  - One game needs one stake (997,000 zat).
+  - A session takes up to `maxRounds` stakes (default 10, 997,000 zat) from it while the table is open.
   - `zol-status` warns when the bankroll is below one stake.
   - The house wins about half its games, so the bankroll drifts.
+- **Sessions** (`house.json`, all optional):
+  - `stake` zat per flip, default the coinflip's smallest allowed stake (a tenth of the smallest deposit's net value);
+  - `maxRounds` 10 stakes per seat; `idleSecs` 120 before an idle table is closed; `sessionSecs` 1800, the ledger session deadline (closed 5 minutes before).
 - **Limits** (`house.json`):
-  - `maxOpenGames` 2;
+  - `maxOpenGames` 2 (open sessions);
   - `playsPerIpPerHour` 10;
   - fund-me: `fundPerDay` 3, `fundPerIpPerDay` 1, at `fundZat` 1,000,000 each.
-- **How a game runs:** the house builds one transaction that creates the table and seats both the house and the player.
+- **How a session runs:** the house builds one transaction that creates the table, seats both the house and the player with the same number of stakes (`join_rounds`) and starts it (pot and table into the rollup). It is 1,155 bytes, so it fits; the house falls back to a separate `start` if it ever does not.
   - The player signs it; the house checks it's byte-for-byte the transaction it built, adds its signatures and sends it.
-  - Either both are seated or nothing happens, so the house never strands an open table.
-  - From there the house drives every step: start, flip if needed, finish, cash out, close, settle. It then follows the Zcash payout to the end.
+  - Either all of it happens or nothing does, so the house never strands an open table.
+  - The page flips in the rollup and watches the table there. The house watches too and closes the table (finish; then cash out and close in one Solana transaction). Withdrawals go through `/house/stop` first.
 - **A game stuck** (in `failed`): the timeline says so. Use the two-player page's **Rescue stuck table** or the ledger's refund path. The pot is refunded by the ledger after the session deadline and grace.
 
 ## Lessons from bringing it up (2026-10-11)

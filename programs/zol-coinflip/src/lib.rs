@@ -5,9 +5,10 @@
 //! | `register`     | Solana  | One-off: registers this program with the ledger (CPI `register_app`) |
 //! | `create_table` | Solana  | Opens a ledger pot (CPI `open_pot`) and a `Table` for it, naming the rollup validator |
 //! | `join`         | Solana  | CPI `buy_in` for the table stake; the player's session key signs |
+//! | `join_rounds`  | Solana  | `join` for `rounds` stakes at once: a session of up to `rounds` flips |
 //! | `start`        | Solana  | CPI `delegate_pot` with the receipt's stakes, and delegates the table, both to the table's validator |
-//! | `flip`         | Rollup  | Requests MagicBlock VRF randomness; the callback is `land` |
-//! | `land`         | Rollup  | VRF callback only: CPI `move_seat` so the winner's seat holds the whole pot |
+//! | `flip`         | Rollup  | Requests MagicBlock VRF randomness; the callback is `land`. Again after each landing while both seats cover a stake |
+//! | `land`         | Rollup  | VRF callback only: CPI `move_seat` of one stake from the loser's seat to the winner's |
 //! | `finish`       | Rollup  | CPI `close_pot` and commits and undelegates the table |
 //! | `close_table`  | Solana  | Anyone, once the ledger's receipt is terminal: closes the table, rent to its creator |
 //!
@@ -36,11 +37,27 @@ pub const TABLE_SEED: &[u8] = b"table";
 pub const SEATS: u8 = 2;
 pub const NO_WINNER: u8 = u8::MAX;
 
-/// The stakes `create_table` accepts: one deposit's net credited value,
-/// `d - floor(d * entry_fee_bps / 10_000)`, for each denomination `d` the ledger
-/// permits (`Config.params.denominations`, nonzero entries). A single deposit buys one seat.
+/// A deposit also splits into this many smaller stakes.
+pub const STAKE_SPLIT: u64 = 10;
+/// The most stakes one seat may buy into a table (`join_rounds`).
+pub const MAX_ROUNDS: u16 = 100;
+/// A flip whose VRF answer has not landed after this long may be abandoned by `finish`.
+pub const FLIP_TIMEOUT_SECS: i64 = 60;
+
+/// The stakes `create_table` accepts: for each denomination `d` the ledger permits
+/// (`Config.params.denominations`, nonzero entries), one deposit's net credited value
+/// `n = d - floor(d * entry_fee_bps / 10_000)`, and a tenth of it, `floor(n / STAKE_SPLIT)`.
+/// Whole-deposit stakes come first, in denomination order.
 pub fn allowed_stakes(params: &zol_ledger::state::Params) -> Vec<u64> {
-    params.denominations.iter().filter(|d| **d > 0).map(|d| d - bps(*d, params.entry_fee_bps)).collect()
+    let net: Vec<u64> = params.denominations.iter().filter(|d| **d > 0).map(|d| d - bps(*d, params.entry_fee_bps)).collect();
+    let split = net.iter().map(|n| n / STAKE_SPLIT).filter(|s| *s > 0);
+    let mut out: Vec<u64> = Vec::new();
+    for s in net.iter().copied().chain(split) {
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
 }
 
 /// System-owned PDA that pays the table's delegation deposit, so that this program can
@@ -128,111 +145,44 @@ pub mod zol_coinflip {
         t.winner = NO_WINNER;
         t.randomness = [0; 32];
         t.bump = ctx.bumps.table;
+        t.flips = 0;
+        t.flip_requested_at = 0;
         emit!(TableCreated { table: t.key(), pot: t.pot, stake, validator });
         Ok(())
     }
 
     /// The player's session key signs; the ledger moves the stake from their balance.
     pub fn join(ctx: Context<Join>) -> Result<()> {
-        let a = &ctx.accounts;
-        require!(a.table.state == TableState::Open, CoinflipError::BadTableState);
-        let r = load_receipt(&a.receipt, &a.table)?;
-        let player = a.session_key.key();
-        require!(r.seat_of(&player).is_none(), CoinflipError::AlreadySeated);
-        require!(r.seat_count < SEATS, CoinflipError::TableFull);
-        let bump = ctx.bumps.app_authority;
-        zol_ledger::cpi::buy_in(
-            CpiContext::new_with_signer(
-                zol_ledger::ID,
-                zol_ledger::cpi::accounts::BuyIn {
-                    config: a.config.to_account_info(),
-                    app: a.app.to_account_info(),
-                    authority: a.app_authority.to_account_info(),
-                    session_key: a.session_key.to_account_info(),
-                    balance: a.balance.to_account_info(),
-                    pot: a.pot.to_account_info(),
-                    receipt: a.receipt.to_account_info(),
-                },
-                &[&[APP_AUTHORITY_SEED, &[bump]]],
-            ),
-            a.table.stake,
-        )?;
-        emit!(Joined { table: a.table.key(), player, seat: r.seat_count });
-        Ok(())
+        join_for(ctx, 1)
+    }
+
+    /// `join` for `rounds` stakes at once (1..=`MAX_ROUNDS`): the seat can play up to
+    /// that many flips in one rollup session. Both seats must buy the same number.
+    pub fn join_rounds(ctx: Context<Join>, rounds: u16) -> Result<()> {
+        join_for(ctx, rounds)
     }
 
     /// Anyone, once both seats hold the stake. Sends the pot and the table to the
     /// table's validator.
     pub fn start(ctx: Context<Start>, session_secs: i64) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        let table_info = ctx.accounts.table.to_account_info();
-        require_keys_eq!(*table_info.owner, crate::ID, CoinflipError::BadAccount);
-        let mut table = {
-            let data = table_info.try_borrow_data()?;
-            Table::try_deserialize(&mut &data[..])?
-        };
-        let (expected_table, _) = Pubkey::find_program_address(&[TABLE_SEED, &table.pot_id], &crate::ID);
-        require_keys_eq!(expected_table, table_info.key(), CoinflipError::BadAccount);
-        require_keys_eq!(table.pot, ctx.accounts.pot.key(), CoinflipError::BadAccount);
-        require!(table.state == TableState::Open, CoinflipError::BadTableState);
-        let validator = table.validator;
-
-        // The receipt, not the app, says who is playing.
-        let r = load_receipt(&ctx.accounts.receipt, &table)?;
-        require!(r.state == PotState::Open, CoinflipError::BadTableState);
-        require!(r.seat_count == SEATS, CoinflipError::NotFull);
-        let expected: Vec<SeatStake> = (0..SEATS as usize)
-            .map(|i| SeatStake { player: r.players[i], amount: r.buy_ins[i] })
-            .collect();
-        require!(expected.iter().all(|s| s.amount == table.stake), CoinflipError::BadStake);
-
-        // Write the table before it changes owner.
-        table.state = TableState::Started;
-        {
-            let mut data = table_info.try_borrow_mut_data()?;
-            let mut w: &mut [u8] = &mut data[..];
-            table.try_serialize(&mut w)?;
-        }
-
-        let a = &ctx.accounts;
-        let session_deadline = now.checked_add(session_secs).ok_or(CoinflipError::Overflow)?;
-        let bump = ctx.bumps.app_authority;
-        zol_ledger::cpi::delegate_pot(
-            CpiContext::new_with_signer(
-                zol_ledger::ID,
-                zol_ledger::cpi::accounts::DelegatePot {
-                    payer: a.payer.to_account_info(),
-                    config: a.config.to_account_info(),
-                    app: a.app.to_account_info(),
-                    authority: a.app_authority.to_account_info(),
-                    receipt: a.receipt.to_account_info(),
-                    buffer_pot: a.ledger_buffer_pot.to_account_info(),
-                    delegation_record_pot: a.ledger_delegation_record_pot.to_account_info(),
-                    delegation_metadata_pot: a.ledger_delegation_metadata_pot.to_account_info(),
-                    pot: a.pot.to_account_info(),
-                    owner_program: a.ledger_program.to_account_info(),
-                    delegation_program: a.delegation_program.to_account_info(),
-                    system_program: a.system_program.to_account_info(),
-                },
-                &[&[APP_AUTHORITY_SEED, &[bump]]],
-            ),
-            expected,
-            session_deadline,
-            validator,
-        )?;
-        // The table is delegated with the rent vault as its delegation rent payer, so a
-        // stuck table can be rescued by anyone through this program (`rescue_table`).
-        top_up_vault(a, ctx.bumps.rent_vault)?;
-        delegate_table_via_vault(a, &table.pot_id, validator, ctx.bumps.rent_vault)?;
-        emit!(Started { table: table_info.key(), validator, session_deadline });
-        Ok(())
+        start_table(ctx, session_secs)
     }
 
-    /// Rollup. Anyone may trigger the flip of a started table; the outcome is the oracle's.
+    /// Rollup. Anyone may trigger the flip of a started table, and again after each
+    /// landing while both seats still cover a stake; the outcome is the oracle's.
     pub fn flip(ctx: Context<Flip>, caller_seed: [u8; 32]) -> Result<()> {
-        require!(ctx.accounts.table.state == TableState::Started, CoinflipError::BadTableState);
+        require!(matches!(ctx.accounts.table.state, TableState::Started | TableState::Landed), CoinflipError::BadTableState);
         require!(ALLOWED_QUEUES.contains(&ctx.accounts.oracle_queue.key()), CoinflipError::BadQueue);
+        {
+            let info = ctx.accounts.pot.to_account_info();
+            require_keys_eq!(*info.owner, zol_ledger::ID, CoinflipError::BadAccount);
+            let data = info.try_borrow_data()?;
+            let pot = Pot::try_deserialize(&mut &data[..])?;
+            let stake = ctx.accounts.table.stake;
+            require!(pot.seat_count == SEATS && pot.amounts[..SEATS as usize].iter().all(|a| *a >= stake), CoinflipError::SeatShort);
+        }
         ctx.accounts.table.state = TableState::Flipping;
+        ctx.accounts.table.flip_requested_at = Clock::get()?.unix_timestamp;
         let ix = create_request_randomness_ix(RequestRandomnessParams {
             payer: ctx.accounts.payer.key(),
             oracle_queue: ctx.accounts.oracle_queue.key(),
@@ -265,7 +215,8 @@ pub mod zol_coinflip {
         require!(pot.seat_count == SEATS, CoinflipError::NotFull);
         let winner = outcome(&randomness);
         let loser = 1 - winner;
-        let amount = pot.amounts[loser as usize];
+        // One stake per flip (`flip` checked both seats cover it).
+        let amount = ctx.accounts.table.stake.min(pot.amounts[loser as usize]);
         if amount > 0 {
             let a = &ctx.accounts;
             let bump = ctx.bumps.app_authority;
@@ -288,14 +239,19 @@ pub mod zol_coinflip {
         t.state = TableState::Landed;
         t.winner = winner;
         t.randomness = randomness;
+        t.flips = t.flips.saturating_add(1);
         emit!(Landed { table: t.key(), winner, amount });
         Ok(())
     }
 
-    /// Rollup. Anyone, after the coin landed: returns the pot (ledger `close_pot`)
-    /// and the table to Solana.
+    /// Rollup. Anyone, between flips (or before the first): returns the pot (ledger
+    /// `close_pot`) and the table to Solana. A flip whose VRF answer has not landed
+    /// after `FLIP_TIMEOUT_SECS` may be abandoned; its stakes stay where they were.
     pub fn finish(ctx: Context<Finish>) -> Result<()> {
-        require!(ctx.accounts.table.state == TableState::Landed, CoinflipError::BadTableState);
+        let t = &ctx.accounts.table;
+        let stale_flip = t.state == TableState::Flipping
+            && Clock::get()?.unix_timestamp >= t.flip_requested_at.saturating_add(FLIP_TIMEOUT_SECS);
+        require!(matches!(t.state, TableState::Started | TableState::Landed) || stale_flip, CoinflipError::BadTableState);
         ctx.accounts.table.state = TableState::Finished;
         ctx.accounts.table.exit(&crate::ID)?;
         let a = &ctx.accounts;
@@ -449,6 +405,102 @@ pub mod zol_coinflip {
     }
 }
 
+fn join_for(ctx: Context<Join>, rounds: u16) -> Result<()> {
+    require!(rounds >= 1 && rounds <= MAX_ROUNDS, CoinflipError::BadRounds);
+    let a = &ctx.accounts;
+    require!(a.table.state == TableState::Open, CoinflipError::BadTableState);
+    let r = load_receipt(&a.receipt, &a.table)?;
+    let player = a.session_key.key();
+    require!(r.seat_of(&player).is_none(), CoinflipError::AlreadySeated);
+    require!(r.seat_count < SEATS, CoinflipError::TableFull);
+    let bump = ctx.bumps.app_authority;
+    zol_ledger::cpi::buy_in(
+        CpiContext::new_with_signer(
+            zol_ledger::ID,
+            zol_ledger::cpi::accounts::BuyIn {
+                config: a.config.to_account_info(),
+                app: a.app.to_account_info(),
+                authority: a.app_authority.to_account_info(),
+                session_key: a.session_key.to_account_info(),
+                balance: a.balance.to_account_info(),
+                pot: a.pot.to_account_info(),
+                receipt: a.receipt.to_account_info(),
+            },
+            &[&[APP_AUTHORITY_SEED, &[bump]]],
+        ),
+        a.table.stake.checked_mul(rounds as u64).ok_or(CoinflipError::Overflow)?,
+    )?;
+    emit!(Joined { table: a.table.key(), player, seat: r.seat_count });
+    Ok(())
+}
+
+fn start_table(ctx: Context<Start>, session_secs: i64) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let table_info = ctx.accounts.table.to_account_info();
+    require_keys_eq!(*table_info.owner, crate::ID, CoinflipError::BadAccount);
+    let mut table = {
+        let data = table_info.try_borrow_data()?;
+        Table::try_deserialize(&mut &data[..])?
+    };
+    let (expected_table, _) = Pubkey::find_program_address(&[TABLE_SEED, &table.pot_id], &crate::ID);
+    require_keys_eq!(expected_table, table_info.key(), CoinflipError::BadAccount);
+    require_keys_eq!(table.pot, ctx.accounts.pot.key(), CoinflipError::BadAccount);
+    require!(table.state == TableState::Open, CoinflipError::BadTableState);
+    let validator = table.validator;
+
+    // The receipt, not the app, says who is playing.
+    let r = load_receipt(&ctx.accounts.receipt, &table)?;
+    require!(r.state == PotState::Open, CoinflipError::BadTableState);
+    require!(r.seat_count == SEATS, CoinflipError::NotFull);
+    let expected: Vec<SeatStake> = (0..SEATS as usize)
+        .map(|i| SeatStake { player: r.players[i], amount: r.buy_ins[i] })
+        .collect();
+    // Equal seats, each a whole number of stakes: every flip moves exactly one stake.
+    let first = expected[0].amount;
+    require!(first > 0 && first % table.stake == 0 && expected.iter().all(|s| s.amount == first), CoinflipError::BadStake);
+
+    // Write the table before it changes owner.
+    table.state = TableState::Started;
+    {
+        let mut data = table_info.try_borrow_mut_data()?;
+        let mut w: &mut [u8] = &mut data[..];
+        table.try_serialize(&mut w)?;
+    }
+
+    let a = &ctx.accounts;
+    let session_deadline = now.checked_add(session_secs).ok_or(CoinflipError::Overflow)?;
+    let bump = ctx.bumps.app_authority;
+    zol_ledger::cpi::delegate_pot(
+        CpiContext::new_with_signer(
+            zol_ledger::ID,
+            zol_ledger::cpi::accounts::DelegatePot {
+                payer: a.payer.to_account_info(),
+                config: a.config.to_account_info(),
+                app: a.app.to_account_info(),
+                authority: a.app_authority.to_account_info(),
+                receipt: a.receipt.to_account_info(),
+                buffer_pot: a.ledger_buffer_pot.to_account_info(),
+                delegation_record_pot: a.ledger_delegation_record_pot.to_account_info(),
+                delegation_metadata_pot: a.ledger_delegation_metadata_pot.to_account_info(),
+                pot: a.pot.to_account_info(),
+                owner_program: a.ledger_program.to_account_info(),
+                delegation_program: a.delegation_program.to_account_info(),
+                system_program: a.system_program.to_account_info(),
+            },
+            &[&[APP_AUTHORITY_SEED, &[bump]]],
+        ),
+        expected,
+        session_deadline,
+        validator,
+    )?;
+    // The table is delegated with the rent vault as its delegation rent payer, so a
+    // stuck table can be rescued by anyone through this program (`rescue_table`).
+    top_up_vault(a, ctx.bumps.rent_vault)?;
+    delegate_table_via_vault(a, &table.pot_id, validator, ctx.bumps.rent_vault)?;
+    emit!(Started { table: table_info.key(), validator, session_deadline });
+    Ok(())
+}
+
 /// Tops the rent vault up to `RENT_VAULT_TARGET` from `start`'s payer.
 fn top_up_vault<'info>(a: &Start<'info>, _vault_bump: u8) -> Result<()> {
     let have = a.rent_vault.lamports();
@@ -554,6 +606,10 @@ pub struct Table {
     pub winner: u8,
     pub randomness: [u8; 32],
     pub bump: u8,
+    /// Flips landed so far (a table plays as many as its seats' stakes allow).
+    pub flips: u32,
+    /// When the pending flip asked the oracle (unix seconds, rollup clock).
+    pub flip_requested_at: i64,
 }
 
 // ---------------------------------------------------------------- accounts
@@ -677,8 +733,10 @@ pub struct Start<'info> {
 pub struct Flip<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump)]
+    #[account(mut, seeds = [TABLE_SEED, table.pot_id.as_ref()], bump = table.bump, has_one = pot @ CoinflipError::BadAccount)]
     pub table: Account<'info, Table>,
+    /// CHECK: the table's pot (`has_one`); owner checked in the handler
+    pub pot: UncheckedAccount<'info>,
     /// CHECK: VRF oracle queue; checked by the VRF program
     #[account(mut)]
     pub oracle_queue: UncheckedAccount<'info>,
@@ -845,4 +903,8 @@ pub enum CoinflipError {
     NotDelegated,
     #[msg("rescue needs the pot refunded by the ledger")]
     NotRefunded,
+    #[msg("a seat cannot cover another stake")]
+    SeatShort,
+    #[msg("rounds must be 1 to MAX_ROUNDS")]
+    BadRounds,
 }

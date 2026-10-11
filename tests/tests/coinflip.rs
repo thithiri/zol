@@ -206,6 +206,13 @@ impl Cf {
         self.env.send(&[ix], &[&r, p])
     }
 
+    fn join_rounds(&mut self, p: &Keypair, rounds: u16) -> TxResult {
+        let mut ix = self.join_ix(&p.pubkey());
+        ix.data = zol_coinflip::instruction::JoinRounds { rounds }.data();
+        let r = self.relayer();
+        self.env.send(&[ix], &[&r, p])
+    }
+
     fn start(&mut self) -> TxResult {
         let pot = cf_pot();
         let table = cf_table();
@@ -261,6 +268,7 @@ impl Cf {
             zol_coinflip::accounts::Flip {
                 payer: self.env.relayer.pubkey(),
                 table: cf_table(),
+                pot: cf_pot(),
                 oracle_queue: queue,
                 program_identity: pda(&[b"identity"], &COINFLIP),
                 vrf_program: VRF,
@@ -641,14 +649,124 @@ fn flip_refuses_an_unpinned_oracle_queue() {
 }
 
 #[test]
-fn land_before_flip_and_finish_before_land_are_refused() {
+fn land_before_flip_and_finish_during_a_flip_are_refused() {
     let (mut cf, _a, _b) = Cf::started();
     cf.enter_rollup();
     assert_cf_err(&cf.vrf_callback(randomness_for(0)), CoinflipError::BadTableState);
-    assert_cf_err(&cf.finish(), CoinflipError::BadTableState);
     ok!(cf.flip());
     assert_cf_err(&cf.flip(), CoinflipError::BadTableState);
     assert_cf_err(&cf.finish(), CoinflipError::BadTableState);
+    cf.env.warp(zol_coinflip::FLIP_TIMEOUT_SECS - 2);
+    assert_cf_err(&cf.finish(), CoinflipError::BadTableState);
+}
+
+#[test]
+fn finish_before_any_flip_returns_the_buy_ins() {
+    let (mut cf, a, b) = Cf::started();
+    cf.enter_rollup();
+    ok!(cf.finish());
+    ok!(cf.cash_out());
+    assert_eq!((cf.balance(&a.pubkey()), cf.balance(&b.pubkey())), (STAKE, STAKE));
+}
+
+#[test]
+fn finish_abandons_a_flip_the_oracle_never_answered() {
+    let (mut cf, a, b) = Cf::started();
+    cf.enter_rollup();
+    ok!(cf.flip());
+    cf.env.warp(zol_coinflip::FLIP_TIMEOUT_SECS);
+    ok!(cf.finish());
+    // A late answer cannot land on a finished table.
+    assert_cf_err(&cf.vrf_callback(randomness_for(0)), CoinflipError::BadTableState);
+    ok!(cf.cash_out());
+    assert_eq!((cf.balance(&a.pubkey()), cf.balance(&b.pubkey())), (STAKE, STAKE), "nobody won the abandoned flip");
+}
+
+// ------------------------------------------------------------------ sessions: many flips per table
+
+/// One tenth of a 1,000,000-zatoshi deposit's net value.
+const SMALL: u64 = 99_700;
+
+/// Two players, `rounds` small stakes each, started and in the rollup.
+fn session(rounds: u16) -> (Cf, Keypair, Keypair) {
+    let mut cf = Cf::new();
+    let a = cf.player(1_000_000);
+    let b = cf.player(1_000_000);
+    ok!(cf.create_table(SMALL));
+    ok!(cf.join_rounds(&a, rounds));
+    ok!(cf.join_rounds(&b, rounds));
+    ok!(cf.start());
+    cf.enter_rollup();
+    (cf, a, b)
+}
+
+#[test]
+fn a_session_plays_many_flips_one_stake_each() {
+    let (mut cf, a, b) = session(10);
+    assert_eq!(cf.balance(&a.pubkey()), 997_000 - 10 * SMALL);
+    assert_eq!(&cf.pot().amounts[..2], &[10 * SMALL, 10 * SMALL]);
+    let wins = [1u8, 1, 0, 1, 0, 0, 1];
+    for (i, w) in wins.iter().enumerate() {
+        ok!(cf.flip());
+        ok!(cf.vrf_callback(randomness_for(*w)));
+        let t = cf.table();
+        assert_eq!((t.state, t.winner, t.flips), (TableState::Landed, *w, i as u32 + 1));
+    }
+    // Seat 1 won 4 of 7: one stake per flip.
+    assert_eq!(&cf.pot().amounts[..2], &[9 * SMALL, 11 * SMALL]);
+    ok!(cf.finish());
+    ok!(cf.cash_out());
+    assert_eq!(cf.balance(&a.pubkey()), 997_000 - SMALL);
+    assert_eq!(cf.balance(&b.pubkey()), 997_000 + SMALL);
+    cf.env.check_invariants_for(&COINFLIP);
+}
+
+#[test]
+fn flip_refused_once_a_seat_cannot_cover_a_stake() {
+    let (mut cf, a, b) = session(2);
+    for _ in 0..2 {
+        ok!(cf.flip());
+        ok!(cf.vrf_callback(randomness_for(0)));
+    }
+    assert_eq!(&cf.pot().amounts[..2], &[4 * SMALL, 0]);
+    assert_cf_err(&cf.flip(), CoinflipError::SeatShort);
+    ok!(cf.finish());
+    ok!(cf.cash_out());
+    assert_eq!(cf.balance(&a.pubkey()), 997_000 + 2 * SMALL);
+    assert_eq!(cf.balance(&b.pubkey()), 997_000 - 2 * SMALL);
+}
+
+#[test]
+fn a_one_stake_table_plays_once() {
+    let (mut cf, _a, _b) = Cf::started();
+    cf.enter_rollup();
+    ok!(cf.flip());
+    ok!(cf.vrf_callback(randomness_for(1)));
+    assert_cf_err(&cf.flip(), CoinflipError::SeatShort);
+}
+
+#[test]
+fn start_needs_equal_whole_stakes() {
+    let mut cf = Cf::new();
+    let a = cf.player(1_000_000);
+    let b = cf.player(1_000_000);
+    ok!(cf.create_table(SMALL));
+    ok!(cf.join_rounds(&a, 3));
+    ok!(cf.join_rounds(&b, 2));
+    assert_cf_err(&cf.start(), CoinflipError::BadStake);
+}
+
+#[test]
+fn join_rounds_bounds() {
+    let mut cf = Cf::new();
+    let a = cf.player(1_000_000);
+    ok!(cf.create_table(SMALL));
+    assert_cf_err(&cf.join_rounds(&a, 0), CoinflipError::BadRounds);
+    assert_cf_err(&cf.join_rounds(&a, zol_coinflip::MAX_ROUNDS + 1), CoinflipError::BadRounds);
+    // 11 small stakes are more than one deposit's net value.
+    assert_eq!(err_code(&cf.join_rounds(&a, 11)), Some(zerr(zol_ledger::error::ZolError::InsufficientBalance)));
+    ok!(cf.join_rounds(&a, 10));
+    assert_eq!(cf.receipt().buy_ins[0], 10 * SMALL);
 }
 
 #[test]
@@ -744,10 +862,13 @@ fn stake_must_be_a_denominations_net_value() {
     for bad in [500_000, 1_000_000, 996_999, 10_000_000, 1] {
         assert_cf_err(&cf.create_table(bad), CoinflipError::BadStake);
     }
-    // Both denominations at the configured 30 bps: 997,000 and 9,970,000.
-    assert_eq!(zol_coinflip::allowed_stakes(&params()), vec![997_000, 9_970_000]);
+    // Both denominations at the configured 30 bps: 997,000 and 9,970,000, and their
+    // tenths (99,700; 997,000 already listed).
+    assert_eq!(zol_coinflip::allowed_stakes(&params()), vec![997_000, 9_970_000, 99_700]);
     ok!(cf.create_table_at([1; 32], 997_000, VALIDATOR));
     ok!(cf.create_table_at([2; 32], 9_970_000, VALIDATOR));
+    ok!(cf.create_table_at([3; 32], 99_700, VALIDATOR));
+    assert_cf_err(&cf.create_table_at([4; 32], 99_699, VALIDATOR), CoinflipError::BadStake);
 }
 
 #[test]
@@ -759,6 +880,7 @@ fn stakes_follow_the_ledgers_entry_fee() {
     assert_cf_err(&cf.create_table_at([1; 32], 997_000, VALIDATOR), CoinflipError::BadStake);
     ok!(cf.create_table_at([1; 32], 995_000, VALIDATOR));
     ok!(cf.create_table_at([2; 32], 9_950_000, VALIDATOR));
+    ok!(cf.create_table_at([3; 32], 99_500, VALIDATOR));
 }
 
 #[test]
@@ -794,7 +916,7 @@ fn stakes_follow_the_ledgers_denominations() {
     let mut p = params();
     p.denominations = [2_000_000, 0, 50_000_000, 0];
     ok!(cf.env.set_config(zol_ledger::SetConfigArgs { new_admin: None, attestor: None, params: Some(p), paused: None }));
-    assert_eq!(zol_coinflip::allowed_stakes(&p), vec![1_994_000, 49_850_000]);
+    assert_eq!(zol_coinflip::allowed_stakes(&p), vec![1_994_000, 49_850_000, 199_400, 4_985_000]);
     assert_cf_err(&cf.create_table_at([1; 32], 997_000, VALIDATOR), CoinflipError::BadStake);
     ok!(cf.create_table_at([1; 32], 1_994_000, VALIDATOR));
     ok!(cf.create_table_at([2; 32], 49_850_000, VALIDATOR));

@@ -6,6 +6,7 @@
 //   GET  /house/info                        bankroll, stake, whether a game can start
 //   POST /house/play   {session}            -> {game, tx}: create+join for the player to sign
 //   POST /house/join   {game, tx}           the player's signed tx; the house co-signs and sends
+//   POST /house/stop   {session}            the house finishes the player's session table now
 //   GET  /house/game/:id                    timeline of one game
 //   GET  /house/games/:session              the player's recent games
 //   POST /house/withdraw {session}         -> {id, tx}: exit + settle for the player to sign
@@ -86,6 +87,7 @@ async function route(req: Request): Promise<Response> {
     const b = await body();
     return json(200, await house.join(String(b.game ?? ""), String(b.tx ?? "")));
   }
+  if (req.method === "POST" && p === "/house/stop") return json(200, house.stop(String((await body()).session ?? "")));
   if (req.method === "POST" && p === "/house/withdraw") return json(200, await house.withdraw(String((await body()).session ?? "")));
   if (req.method === "POST" && p === "/house/withdraw/sign") {
     const b = await body();
@@ -118,7 +120,7 @@ Bun.serve({
 });
 console.log(`zol-house on ${cfg.listen}; house session ${session.keypair.publicKey.toBase58()}, fee payer ${feePayer.publicKey.toBase58()}`);
 
-// Drive games every 3 s; one tick at a time.
+// Drive games every 1.5 s; one tick at a time.
 let ticking = false;
 setInterval(async () => {
   if (ticking) return;
@@ -130,4 +132,4 @@ setInterval(async () => {
   } finally {
     ticking = false;
   }
-}, 3000);
+}, 1500);

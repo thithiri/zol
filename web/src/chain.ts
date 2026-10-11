@@ -12,10 +12,15 @@ export const MAGIC_PROGRAM = new PublicKey("Magic1111111111111111111111111111111
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 export const MAX_SEATS = 16;
+/** A deposit also splits into this many smaller stakes (zol-coinflip STAKE_SPLIT). */
+export const STAKE_SPLIT = 10n;
 /** Stakes `create_table` accepts: one deposit's net credited value, for each denomination
- *  the ledger permits (Config.params.denominations, nonzero), at the ledger's entry fee. */
-export const allowedStakes = (p: LedgerParams) =>
-  p.denominations.filter((d) => d > 0n).map((d) => d - (d * BigInt(p.entryFeeBps)) / 10_000n);
+ *  the ledger permits (Config.params.denominations, nonzero), at the ledger's entry fee;
+ *  then a tenth of each. Whole-deposit stakes first; no duplicates. */
+export const allowedStakes = (p: LedgerParams) => {
+  const net = p.denominations.filter((d) => d > 0n).map((d) => d - (d * BigInt(p.entryFeeBps)) / 10_000n);
+  return [...new Set([...net, ...net.map((n) => n / STAKE_SPLIT).filter((s) => s > 0n)])];
+};
 
 const enc = new TextEncoder();
 const disc = (kind: "global" | "account", name: string) => sha256(enc.encode(`${kind}:${name}`)).subarray(0, 8);
@@ -83,13 +88,16 @@ export class Coinflip {
     );
   }
 
-  join(session: PublicKey, potId: Uint8Array) {
+  /** One stake, or `rounds` stakes (`join_rounds`): a session of up to that many flips. */
+  join(session: PublicKey, potId: Uint8Array, rounds?: number) {
     const d = this.pdas;
     const pot = d.pot(potId);
+    const r = new Uint8Array(2);
+    new DataView(r.buffer).setUint16(0, rounds ?? 1, true);
     return this.ix(
       [m(session, false, true), m(d.table(potId)), m(d.appAuthority()), m(d.config()), m(d.app(), true),
         m(d.balance(session), true), m(pot, true), m(d.receipt(pot), true), m(this.p.ledger)],
-      disc("global", "join"),
+      rounds === undefined ? disc("global", "join") : cat(disc("global", "join_rounds"), r),
     );
   }
 
@@ -109,7 +117,7 @@ export class Coinflip {
   flip(payer: PublicKey, potId: Uint8Array, queue: PublicKey, callerSeed: Uint8Array) {
     const d = this.pdas;
     return this.ix(
-      [m(payer, true, true), m(d.table(potId), true), m(queue, true), m(d.identity()), m(VRF_PROGRAM),
+      [m(payer, true, true), m(d.table(potId), true), m(d.pot(potId)), m(queue, true), m(d.identity()), m(VRF_PROGRAM),
         m(SYSVAR_SLOT_HASHES_PUBKEY), m(SystemProgram.programId)],
       cat(disc("global", "flip"), callerSeed),
     );
@@ -182,6 +190,7 @@ class Reader {
   key() { const k = new PublicKey(this.b.subarray(this.o, this.o + 32)); this.o += 32; return k; }
   bytes(n: number) { const x = this.b.slice(this.o, this.o + n); this.o += n; return x; }
   u8() { return this.b[this.o++]; }
+  u32() { const v = this.dv.getUint32(this.o, true); this.o += 4; return v; }
   u64() { const v = this.dv.getBigUint64(this.o, true); this.o += 8; return v; }
   i64() { const v = this.dv.getBigInt64(this.o, true); this.o += 8; return v; }
 }
@@ -194,11 +203,20 @@ function checkDisc(data: Uint8Array, name: string) {
 export const TABLE_STATES = ["Open", "Started", "Flipping", "Landed", "Finished"] as const;
 export const POT_STATES = ["Open", "Delegated", "CashedOut", "Refunded"] as const;
 
-export interface TableAcc { pot: PublicKey; potId: Uint8Array; stake: bigint; validator: PublicKey; creator: PublicKey; state: (typeof TABLE_STATES)[number]; winner: number }
+export interface TableAcc {
+  pot: PublicKey; potId: Uint8Array; stake: bigint; validator: PublicKey; creator: PublicKey; state: (typeof TABLE_STATES)[number]; winner: number;
+  /** Flips landed so far, and when the pending one asked the oracle (unix s). */
+  flips: number; flipRequestedAt: bigint;
+}
 export function decodeTable(data: Uint8Array): TableAcc {
   checkDisc(data, "Table");
   const r = new Reader(data);
-  return { pot: r.key(), potId: r.bytes(32), stake: r.u64(), validator: r.key(), creator: r.key(), state: TABLE_STATES[r.u8()], winner: r.u8() };
+  const t = { pot: r.key(), potId: r.bytes(32), stake: r.u64(), validator: r.key(), creator: r.key(), state: TABLE_STATES[r.u8()], winner: r.u8() };
+  r.bytes(32); // randomness
+  r.u8(); // bump
+  // Tables created before sessions existed end here.
+  const more = data.length >= r.o + 12;
+  return { ...t, flips: more ? r.u32() : 0, flipRequestedAt: more ? r.i64() : 0n };
 }
 
 export interface ReceiptAcc { state: (typeof POT_STATES)[number]; players: PublicKey[]; buyIns: bigint[]; total: bigint; validator: PublicKey }
@@ -243,7 +261,7 @@ export function decodeApp(data: Uint8Array): AppAcc {
   return { state, activatesAt, liability, feePool, nextSettlement, paidCount, unpaidTotal };
 }
 
-export interface LedgerParams { entryFeeBps: number; denominations: bigint[] }
+export interface LedgerParams { entryFeeBps: number; denominations: bigint[]; minExit?: bigint }
 /** Ledger Config params the page needs. `params` starts after admin, attestor, 7 guardians
  *  and 4 one-byte fields; `denominations` follows 2 u16, 2 u64, a u8, 5 i64 and a u64. */
 export function decodeLedgerParams(data: Uint8Array): LedgerParams {
@@ -251,7 +269,7 @@ export function decodeLedgerParams(data: Uint8Array): LedgerParams {
   const p = 8 + 32 + 32 + 7 * 32 + 4;
   const dv = new DataView(data.buffer, data.byteOffset);
   const d0 = p + 2 + 2 + 8 + 8 + 1 + 5 * 8 + 8;
-  return { entryFeeBps: dv.getUint16(p, true), denominations: [0, 1, 2, 3].map((i) => dv.getBigUint64(d0 + 8 * i, true)) };
+  return { entryFeeBps: dv.getUint16(p, true), denominations: [0, 1, 2, 3].map((i) => dv.getBigUint64(d0 + 8 * i, true)), minExit: dv.getBigUint64(p + 12, true) };
 }
 
 export interface BalanceAcc { amount: bigint; exiting: boolean; autoExit: boolean }
