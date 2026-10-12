@@ -6,7 +6,7 @@ Zcash wallet. Everything runs from one script, [`../web/examples/quickstart.ts`]
 using the TypeScript client in [`../web/src/`](../web/src/).
 
 Prefer clicking? The same flow is on the pages at
-<https://159-223-38-126.sslip.io/play.html>.
+<https://zol.cash/play.html>.
 
 ## You need
 

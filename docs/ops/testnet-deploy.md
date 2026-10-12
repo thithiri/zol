@@ -177,7 +177,7 @@ operators, so this shows the system runs; it is not a security setup.
 | Provider | DigitalOcean, SGP1, Basic $18: 2 vCPU, 2 GB RAM, 60 GB SSD, plus 4 GB swap (`vm.swappiness=10`) |
 | OS | Ubuntu 24.04, key-only SSH, unattended upgrades, `net.ipv4.tcp_slow_start_after_idle=0` (Zakura asks for it) |
 | Firewall (ufw) | 22, 80 and 443 (Caddy), 18233 (Zakura testnet P2P). Everything else is on 127.0.0.1 |
-| Public name | `159-223-38-126.sslip.io` (no domain needed; Caddy gets a Let's Encrypt certificate for it) |
+| Public name | `zol.cash` since 2026-10-12 (A records for `@` and `www` at Spaceship; `www` redirects to it). Before that, `159-223-38-126.sslip.io`, which still answers for the operator APIs, `/solana` and `/house` and redirects its pages to `zol.cash`. Caddy gets the Let's Encrypt certificates |
 | Memory in use | about 1.5 GB with Zakura (about 1 GB) + three `zol-zcashd` + three gateways + Caddy |
 
 Binaries are cross-compiled on the developer's Mac and copied up, so the host never builds

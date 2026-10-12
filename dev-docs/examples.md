@@ -7,9 +7,9 @@ table life cycle, which the other two reuse.
 
 | Game | Decides with | Page | Shows |
 | --- | --- | --- | --- |
-| Coin flip | MagicBlock VRF | [`/coinflip.html`](https://159-223-38-126.sslip.io/coinflip.html) | Sessions, verifiable randomness, keeper-free closing |
-| ZEC Up/Down | MagicBlock's price oracle (Pyth) | [`/updown.html`](https://159-223-38-126.sslip.io/updown.html) | Reading a live feed in the rollup, time-bounded settlement |
-| Sealed-bid auction | Commit, then reveal | [`/auction.html`](https://159-223-38-126.sslip.io/auction.html) | Many players in one pot, hidden bids without a TEE, a certificate on Solana |
+| Coin flip | MagicBlock VRF | [`/coinflip.html`](https://zol.cash/coinflip.html) | Sessions, verifiable randomness, keeper-free closing |
+| ZEC Up/Down | MagicBlock's price oracle (Pyth) | [`/updown.html`](https://zol.cash/updown.html) | Reading a live feed in the rollup, time-bounded settlement |
+| Sealed-bid auction | Commit, then reveal | [`/auction.html`](https://zol.cash/auction.html) | Many players in one pot, hidden bids without a TEE, a certificate on Solana |
 
 ## Coin flip
 

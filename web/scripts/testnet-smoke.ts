@@ -20,7 +20,7 @@ import { hex, sessionFromSeed } from "../src/session";
 import { allowedStakes, Coinflip, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, sendTx } from "../src/chain";
 
 const root = new URL("../..", import.meta.url).pathname;
-const HOST = process.env.HOST ?? "https://159-223-38-126.sslip.io";
+const HOST = process.env.HOST ?? "https://zol.cash";
 const APP = "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo";
 const GWS = [0, 1, 2].map((i) => `${HOST}/op${i}`);
 const ZCASHD = process.env.ZCASHD ?? "http://127.0.0.1:28300"; // op0 zol-zcashd through the SSH tunnel

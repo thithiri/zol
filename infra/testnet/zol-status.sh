@@ -51,7 +51,7 @@ pinned=$(journalctl -u 'zol-gateway@*' --since '-5min' --no-pager 2>/dev/null | 
 
 funding=$(curl -s -m 5 http://127.0.0.1:18300/admin/funding | j 'd["spendable"]')
 [ -n "$funding" ] && [ "$funding" -lt 2100000 ] && problems+=("funding wallet low: $funding zat")
-public=$(curl -s -m 20 -o /tmp/zol-appinfo.json -w '%{http_code}' "https://159-223-38-126.sslip.io/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo")
+public=$(curl -s -m 20 -o /tmp/zol-appinfo.json -w '%{http_code}' "https://zol.cash/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo")
 [ "$public" != 200 ] && problems+=("public page API: HTTP $public")
 # The app's state on the ledger itself, not log lines: a freeze must show until it is undone.
 app_state=$(j 'd["state"]' < /tmp/zol-appinfo.json)

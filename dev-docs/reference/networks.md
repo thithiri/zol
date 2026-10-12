@@ -7,9 +7,9 @@
 | Zcash | testnet, NU7 active since height 4,465,026 (25 s blocks) |
 | Solana | devnet |
 | MagicBlock/SVM rollup | `https://devnet-as.magicblock.app` (validator `MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57`) |
-| Pages | <https://159-223-38-126.sslip.io/> (landing), `/play.html` (deposit, withdraw, the games), `/coinflip.html`, `/updown.html`, `/auction.html`, `/two-player.html`, `/docs/` (these docs) |
-| Gateway API (3 operators) | `https://159-223-38-126.sslip.io/op0`, `/op1`, `/op2` ([reference](gateway-api.md)) |
-| House service (the games' counterparty) | `https://159-223-38-126.sslip.io/house` |
+| Pages | <https://zol.cash/> (landing), `/play.html` (deposit, withdraw, the games), `/coinflip.html`, `/updown.html`, `/auction.html`, `/two-player.html`, `/docs/` (these docs) |
+| Gateway API (3 operators) | `https://zol.cash/op0`, `/op1`, `/op2` ([reference](gateway-api.md)) |
+| House service (the games' counterparty) | `https://zol.cash/house` |
 
 Everything runs on one host for the beta; the operators are meant to run on separate hosts
 and providers before mainnet.

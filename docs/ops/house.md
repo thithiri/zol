@@ -1,9 +1,9 @@
 # The house: single-player coin flips
 
-The pages (https://159-223-38-126.sslip.io/ on the testnet trial): home `/` (player key, deposit,
-withdraw, the games), `/coinflip.html` (`/house.html` redirects there), `/updown.html`, `/auction.html`;
-the original two-player page is `/two-player.html`.
-lets one person play against the house. The two-player page `/` is unchanged. Design and
+The pages (https://zol.cash on the testnet beta): the landing page `/`, the games page `/play.html`
+(player key, deposit, withdraw, the games), `/coinflip.html` (`/house.html` redirects there),
+`/updown.html`, `/auction.html`; the original two-player page is `/two-player.html`. The house
+lets one person play against the house. Design and
 reasoning: [plan-house-mode.md](../plan-house-mode.md).
 
 ## For players

@@ -1,7 +1,9 @@
-# The testnet trial's /etc/caddy/Caddyfile (root:caddy 0640). The Helius key comes from
+# The testnet beta's /etc/caddy/Caddyfile (root:caddy 0640). The Helius key comes from
 # Caddy's environment: HELIUS_API_KEY in /etc/caddy/caddy.env (see ../README.md). The live
 # host has the key written in place instead; either works.
-{$ZOL_HOST:159-223-38-126.sslip.io} {
+
+# Every site serves the same routes.
+(zol) {
 	encode gzip
 	# `route` keeps this order: operator traffic (/peer/*) is never proxied.
 	route {
@@ -35,4 +37,19 @@
 		root * /var/www/zol
 		file_server
 	}
+}
+
+zol.cash {
+	import zol
+}
+
+www.zol.cash {
+	redir https://zol.cash{uri} 308
+}
+
+# The first address: pages move to zol.cash; the APIs keep answering here.
+159-223-38-126.sslip.io {
+	@pages not path /op0/* /op1/* /op2/* /solana /house/*
+	redir @pages https://zol.cash{uri} 308
+	import zol
 }

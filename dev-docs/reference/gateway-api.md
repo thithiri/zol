@@ -19,9 +19,9 @@ Testnet beta (Zcash testnet, Solana devnet), three operators behind one Caddy:
 
 | Operator | Base URL |
 |---|---|
-| op0 | `https://159-223-38-126.sslip.io/op0` |
-| op1 | `https://159-223-38-126.sslip.io/op1` |
-| op2 | `https://159-223-38-126.sslip.io/op2` |
+| op0 | `https://zol.cash/op0` |
+| op1 | `https://zol.cash/op1` |
+| op2 | `https://zol.cash/op2` |
 
 Testnet app (zol-coinflip program): `7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo`.
 
@@ -75,7 +75,7 @@ Response `200`:
 | `halted` | string \| null | reason this operator's node halted (it then signs nothing), or `null` |
 
 ```sh
-curl -s https://159-223-38-126.sslip.io/op0/health
+curl -s https://zol.cash/op0/health
 # {"halted":null,"name":"op0","ok":true}
 ```
 
@@ -113,14 +113,14 @@ Errors:
 | `404` | the operator does not serve this app |
 
 ```sh
-curl -s https://159-223-38-126.sslip.io/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo
+curl -s https://zol.cash/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo
 ```
 
 ```json
 {"app":"7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo","network":"testnet",
  "vault_address":"25e45332989eeaf6341def5f6596421d3ad7f384227d1ad6f30c17d86bc949a2e1874d27809b260f92ee05",
  "denominations":[1000000,10000000],"tip":4489919,"early_depth":3,"full_depth":60,"state":"active",
- "operators":["https://159-223-38-126.sslip.io/op0","https://159-223-38-126.sslip.io/op1","https://159-223-38-126.sslip.io/op2"]}
+ "operators":["https://zol.cash/op0","https://zol.cash/op1","https://zol.cash/op2"]}
 ```
 
 ---
@@ -142,7 +142,7 @@ Errors: `400` (`"session must be 32-byte hex"`, bad app), `404` (unknown app), `
 operator's `zol-zcashd` could not derive the receiver).
 
 ```sh
-curl -s https://159-223-38-126.sslip.io/op1/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+curl -s https://zol.cash/op1/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 # {"ua":"utest14zzmgm5v…","receiver_index":"178960308578357930303823353","intent_registered":false}
 ```
 
@@ -189,7 +189,7 @@ Errors:
 ```sh
 curl -s -X POST -H 'content-type: application/json' \
   -d "{\"memo\":\"$MEMO_HEX\"}" \
-  https://159-223-38-126.sslip.io/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/intents
+  https://zol.cash/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/intents
 ```
 
 `$MEMO_HEX` is produced by `hex(canonicalMemo(buildSignedMemo(...)))`
@@ -232,7 +232,7 @@ not returned by this endpoint.
 Errors: `400` (bad session/app), `404` (unknown app).
 
 ```sh
-curl -s https://159-223-38-126.sslip.io/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/$SESSION_HEX/deposits
+curl -s https://zol.cash/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/$SESSION_HEX/deposits
 # [{"cmx":"…","value":1000000,"height":4489900,"confirmations":4,"state":"credited","txid":"…"}]
 ```
 
@@ -271,7 +271,7 @@ Errors:
 ```sh
 curl -s -X POST -H 'content-type: application/json' \
   -d '{"address":"<86 hex chars>"}' \
-  https://159-223-38-126.sslip.io/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/$SESSION_HEX/payout
+  https://zol.cash/op0/v1/apps/7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo/sessions/$SESSION_HEX/payout
 # {"bound":false,"matches":null}
 ```
 

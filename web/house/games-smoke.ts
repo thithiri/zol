@@ -12,7 +12,7 @@ import { Auctions, bidCommitment, bidSalt, Coinflip, decodeBalance, decodePrice,
 import { sessionFromSeed, unhex, type Session } from "../src/session";
 
 
-const HOST = process.env.HOST ?? "https://159-223-38-126.sslip.io";
+const HOST = process.env.HOST ?? "https://zol.cash";
 const base = new Connection(process.env.BASE_RPC ?? "https://api.devnet.solana.com", "confirmed");
 const er = new Connection(process.env.ER_RPC ?? "https://devnet-as.magicblock.app", "confirmed");
 const cf = new Coinflip({ ledger: new PublicKey("3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y"), app: new PublicKey("7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo") });

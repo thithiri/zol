@@ -21,7 +21,7 @@ import { hex, sessionFromSeed, unhex, type Session } from "../src/session";
 
 
 // The testnet deployment (dev-docs/reference/networks.md).
-const HOST = process.env.ZOL_HOST ?? "https://159-223-38-126.sslip.io";
+const HOST = process.env.ZOL_HOST ?? "https://zol.cash";
 const APP = "7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo"; // the games app (coin flip, Up/Down, auction)
 const LEDGER = "3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y";
 const VRF_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
