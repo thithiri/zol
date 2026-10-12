@@ -65,7 +65,9 @@
     <div><button id="pk-login" class="link">I already have a passkey</button></div>
     <p id="pk-help" class="small err" hidden></p>
     <p class="small muted">A passkey (Face ID, Touch ID, your password manager) holds your player key on every device it syncs to: nothing to write down. A session key stays in this browser: save it when the page shows it.</p>
-    <button id="nopk-new">Start with a session key</button>
+    <button id="nopk-new">Start with a fresh session key</button>
+    <div style="margin-top:10px"><button id="demo-new">Start with a demo session key</button></div>
+    <p class="small muted" style="margin:6px 0 0">The demo key is shared: anyone can play its balance, and its withdrawals go to the address its owner set.</p>
     <div class="restore">
       <label class="small muted" for="restore-text">Have a saved session key? Restore it:</label>
       <input id="restore-text" placeholder="zolsess1:…" />

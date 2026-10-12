@@ -112,6 +112,10 @@ $("pk-new").onclick = () => begin(async () => storeSession(S.app, await createPa
 $("pk-login").onclick = () => begin(async () => storeSession(S.app, await seedFromPasskey(S.app), localStorage, "passkey"));
 $("nopk-new").onclick = () => begin(async () => storeSession(S.app, crypto.getRandomValues(new Uint8Array(32)), localStorage, "backup"));
 $("restore-go").onclick = () => begin(async () => restoreSession(S.app, $<HTMLInputElement>("restore-text").value, localStorage));
+// A shared demo player, published on purpose so visitors can play at once. Anyone can play its
+// balance; its withdrawals can only go to the payout address fixed at its first deposit.
+const DEMO_SESSION = "zolsess1:7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo:d7e17f86d3b628b63d521b02231073fdc1efa736c7dd12d7e55e386cb66a9e6c:4400e123";
+$("demo-new").onclick = () => begin(async () => restoreSession(S.app, DEMO_SESSION, localStorage));
 $("logout-btn").onclick = () => {
   if (!confirm("Switch player? You can come back with your passkey, or with this player's session key.")) return;
   localStorage.removeItem(`zol:session:${S.app}`);
