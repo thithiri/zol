@@ -302,14 +302,14 @@ Build for the testnet beta:
 ```bash
 cd web
 python3 scripts/pages.py          # only after editing coinflip.html: regenerates play.html and updown.html
-VITE_GATEWAY=https://<host>/op0 VITE_BASE_RPC=https://<host>/solana VITE_ER_RPC=https://devnet-as.magicblock.app \
+VITE_GATEWAY=https://<host>/op0 VITE_BASE_RPC=https://api.devnet.solana.com VITE_ER_RPC=https://devnet-as.magicblock.app \
   VITE_VALIDATOR=MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57 \
   VITE_VRF_QUEUE=5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc npm run build
 rsync -a dist/ <user>@<host>:/var/www/zol/
 ```
 
 - `npm run build` is `tsc --noEmit && node scripts/docs.mjs && vite build` (the docs pages come from `dev-docs/`). The pages are the inputs listed in [`../web/vite.config.ts`](../web/vite.config.ts); add yours there.
-- `VITE_BASE_RPC=https://<host>/solana` is Caddy proxying to a dedicated devnet RPC, because browsers on the public devnet RPC get rate-limited. The proxy adds the API key server-side.
+- `VITE_BASE_RPC` is the public devnet RPC, called from each browser, so each visitor has their own rate limit. A dedicated provider's devnet endpoint returned stale account data on the testnet beta, so the hosted pages don't use one; if you do, verify it's fresh. The beta also serves a filtered, rate-limited proxy at `/solana` (allowed methods only, the key kept on the server: `web/house/rpc-proxy.ts`), never a raw keyed endpoint in the page.
 - `VITE_VRF_QUEUE` on devnet is `DEFAULT_EPHEMERAL_QUEUE` (`5hBR571x…`). The default `Sc9MJU…` is the local stack's.
 
 ## Checklist

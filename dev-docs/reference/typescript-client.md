@@ -60,7 +60,7 @@ From [`docs/ops/testnet-deploy.md`](../../docs/ops/testnet-deploy.md) and
 | Gateways | `https://zol.cash/op0`, `/op1`, `/op2` |
 | Ledger program | `3qh6GRqjmVSeVctB6R7oYYsdG68oFyRDwnXGvKamib3Y` |
 | App (zol-coinflip) program | `7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo` |
-| Solana (base) RPC | Solana devnet; the hosted page uses the proxy `https://zol.cash/solana` |
+| Solana (base) RPC | Solana devnet; the hosted pages call `https://api.devnet.solana.com` from the browser |
 | Rollup (ER) RPC | `https://devnet-as.magicblock.app` |
 | Rollup validator | `MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57` (the ER endpoint's `getIdentity`) |
 | VRF queue | `5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc` |

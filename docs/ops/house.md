@@ -46,7 +46,8 @@ Every step appears in the timeline:
   cd web && bun build --compile --target=bun-linux-x64 house/server.ts --outfile dist-house/zol-house
   ```
   - It runs under the systemd unit `zol-house`, with its config at `/home/zol/ops/house/house.json`.
-  - It listens on 127.0.0.1:8790; Caddy proxies `/house/*` to it.
+  - It listens on 127.0.0.1:8790; Caddy proxies `/house/*` and `/solana` to it.
+  - `/solana` is the filtered Solana RPC (`web/house/rpc-proxy.ts`): the pages' methods only, over HTTP POST, 10 calls a second per address, passed to `solanaUpstream` in `house.json` (a Helius URL with its key). `baseRpc`, the house's own RPC, stays the public devnet RPC (Helius's stale reads).
   - Its state is SQLite (`house.db`): games, plus rate-limit counters.
 - **Keys:**
   - **House session seed** (`house-session.hex`): the house's player key. Its ledger balance is the **bankroll**.

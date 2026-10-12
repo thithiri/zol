@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- The link-preview image (public/og.png, 1200×630). Render after editing:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+       --window-size=1200,630 --screenshot=public/og.png scripts/og-card.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  @font-face { font-family: "Chakra Petch"; font-weight: 700; src: url("../node_modules/@fontsource/chakra-petch/files/chakra-petch-latin-700-normal.woff2"); }
+  @font-face { font-family: "IBM Plex Sans"; font-weight: 400; src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2"); }
+  html, body { margin: 0; background: #140c2e; }
+  .card { width: 1200px; height: 630px; box-sizing: border-box; padding: 64px 72px; display: flex; gap: 48px; color: #edecfa; font-family: "IBM Plex Sans", sans-serif; }
+  .copy { flex: 1; display: flex; flex-direction: column; gap: 24px; }
+  h1 { margin: 0; font: 700 70px/1.02 "Chakra Petch", sans-serif; }
+  p { margin: 0; font-size: 24px; line-height: 1.45; color: #d6d3ee; max-width: 640px; }
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 24px; }
+  .pill { display: flex; align-items: center; gap: 8px; font: 500 15px/1 "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: #45f0c3; border: 1px solid #45f0c3; padding: 8px 12px; }
+  .pill i { width: 8px; height: 8px; background: #45f0c3; }
+  .url { font: 500 20px "IBM Plex Mono", monospace; color: #a39cc8; }
+  .art { display: flex; align-items: center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="copy">
+    <h1>Programmable Zcash privacy on Solana SVM.</h1>
+    <p>Solana programs take shielded ZEC, run real-time sessions in a MagicBlock/SVM rollup, and pay the result back to Zcash.</p>
+    <div class="foot">
+      <svg viewBox="0 0 67.5 23" width="138" height="47" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg>
+      <span class="pill"><i></i>Beta on testnet</span>
+      <span class="url">zol.cash</span>
+    </div>
+  </div>
+  <div class="art">
+    <svg viewBox="0 0 23 23" width="300" height="300" aria-hidden="true"><g fill="none" stroke="#2a2150" stroke-width="0.12"><rect x="0" y="6" width="5" height="5"/><rect x="6" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/></g><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg>
+  </div>
+</div>
+</body>
+</html>

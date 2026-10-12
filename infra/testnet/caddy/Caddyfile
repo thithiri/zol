@@ -1,6 +1,5 @@
-# The testnet beta's /etc/caddy/Caddyfile (root:caddy 0640). The Helius key comes from
-# Caddy's environment: HELIUS_API_KEY in /etc/caddy/caddy.env (see ../README.md). The live
-# host has the key written in place instead; either works.
+# The testnet beta's /etc/caddy/Caddyfile (root:caddy 0640), as on the host. It holds no secret:
+# /solana goes to the house, which keeps the RPC key in house.json (`solanaUpstream`).
 
 # Every site serves the same routes.
 (zol) {
@@ -18,13 +17,10 @@
 		handle_path /op2/* {
 			reverse_proxy 127.0.0.1:8702
 		}
-		# The page's Solana devnet RPC (HTTP and WebSocket), through Helius with the key
-		# added here so it never reaches the browser.
-		handle_path /solana {
-			rewrite * /?api-key={$HELIUS_API_KEY}
-			reverse_proxy https://devnet.helius-rpc.com {
-				header_up Host devnet.helius-rpc.com
-			}
+		# The pages' Solana RPC: the house filters it (allowed methods, a rate per address) and
+		# passes it to a dedicated RPC whose key stays in its config.
+		handle /solana {
+			reverse_proxy 127.0.0.1:8790
 		}
 		# The house service (single-player games); keeps its /house prefix.
 		handle /house/* {

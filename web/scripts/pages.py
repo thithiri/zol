@@ -15,6 +15,8 @@ def page(name: str, title: str, nav: str, how: str | None = None) -> str:
     s = src.replace('<body data-page="coinflip">', f'<body data-page="{name}">')
     s = s.replace("<title>Zcash coin flip</title>", f"<title>{title}</title>")
     s = s.replace("<h1>Zcash coin flip</h1>", f"<h1>{title}</h1>")
+    s = s.replace('<meta property="og:title" content="Zcash coin flip" />', f'<meta property="og:title" content="{title}" />')
+    s = s.replace('<meta property="og:url" content="https://zol.cash/coinflip.html" />', f'<meta property="og:url" content="https://zol.cash/{"play" if name == "home" else name}.html" />')
     s = re.sub(r'<nav class="small games">.*?</nav>', f'<nav class="small games">{nav}</nav>', s, flags=re.S)
     if how is not None:
         s = re.sub(r'(<summary>How it works, and what you trust</summary>\s*<ul class="small muted">).*?(</ul>)', lambda m: m.group(1) + how + m.group(2), s, flags=re.S)

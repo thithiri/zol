@@ -10,7 +10,7 @@ key files live only under `/home/zol/ops` (and in the encrypted backup).
 | [`systemd/zol-zcashd@.service`](systemd/zol-zcashd@.service) | `/etc/systemd/system/` | One `zol-zcashd` per operator (`@0`, `@1`, `@2`) |
 | [`systemd/zol-gateway@.service`](systemd/zol-gateway@.service) | `/etc/systemd/system/` | One gateway per operator; needs its daemon |
 | [`systemd/zol-house.service`](systemd/zol-house.service) | `/etc/systemd/system/` | The house (single-player games) |
-| [`caddy/Caddyfile`](caddy/Caddyfile) | `/etc/caddy/Caddyfile` (`root:caddy 0640`) | TLS for `zol.cash` (`www` and the old sslip.io name redirect pages to it), `/op{0,1,2}/*` to the gateways, `/peer/*` refused, `/solana` to Helius, `/house/*`, the pages |
+| [`caddy/Caddyfile`](caddy/Caddyfile) | `/etc/caddy/Caddyfile` (`root:caddy 0640`) | TLS for `zol.cash` (`www` and the old sslip.io name redirect pages to it), `/op{0,1,2}/*` to the gateways, `/peer/*` refused, `/solana` and `/house/*` to the house, the pages |
 | [`zakura/zakura.toml`](zakura/zakura.toml) | `/home/zol/zakura-testnet/zakura.toml` | The Zcash testnet node's config |
 | [`cron/zol-backup`](cron/zol-backup), [`cron/zol-status`](cron/zol-status) | `/etc/cron.d/` | Daily encrypted backup; checks and alerts every 5 minutes |
 | [`logrotate/zol`](logrotate/zol) | `/etc/logrotate.d/zol` | Weekly rotation of the status and backup logs |
@@ -43,14 +43,11 @@ docker run -d --name zakura-testnet --restart unless-stopped \
 
 The RPC port is published on 127.0.0.1 only; 18233 (P2P) is public.
 
-**Caddy** reads the Helius key from its environment. The live host has the key written into
-its Caddyfile instead; either works.
+**Caddy** holds no secret: `/solana` goes to the house, which filters it and keeps the RPC key
+in `house.json`.
 
 ```bash
 install -m 640 -o root -g caddy caddy/Caddyfile /etc/caddy/Caddyfile
-install -m 640 -o root -g caddy /dev/null /etc/caddy/caddy.env
-echo 'HELIUS_API_KEY=<key>' > /etc/caddy/caddy.env
-systemctl edit caddy     # [Service] EnvironmentFile=/etc/caddy/caddy.env
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && systemctl restart caddy
-curl -o /dev/null -w '%{http_code}\n' https://<host>/op0/peer/x     # must print 404
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && systemctl reload caddy
+curl -o /dev/null -w '%{http_code}\n' https://zol.cash/op0/peer/x     # must print 404
 ```

@@ -275,7 +275,10 @@ $D status --app 7G2o74qyLh477EuWUFdgumeB13kTCK1cuHgKoRqM1yUo
 
 ### The page's Solana RPC
 
-Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, from two windows on one IP. So Caddy serves `/solana` as a reverse proxy to Helius, adding the API key server-side (`rewrite * /?api-key=…`, both HTTP and WebSocket). The page is built with `VITE_BASE_RPC=https://<host>/solana`, and it now refreshes its Solana reads every 20 s, plus right after each action. The Caddyfile holds the key, so it is `root:caddy 0640`. Anyone can use the proxy to spend the trial's Helius credits; that's acceptable for a trial. Before a public launch it needs method filtering and rate limits.
+Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, from two windows on one IP. So Caddy first served `/solana` as a reverse proxy to Helius, adding the API key server-side, and the page was built with `VITE_BASE_RPC=https://<host>/solana`; it refreshes its Solana reads every 20 s, plus right after each action.
+
+- **Back to the public RPC (2026-10-11).** Helius devnet then returned stale account data ([`house.md`](house.md)), so the pages, the house and the gateways went back to `https://api.devnet.solana.com`. Each browser has its own rate limit there. Build with `VITE_BASE_RPC=https://api.devnet.solana.com`.
+- **`/solana` filtered (2026-10-12).** The proxy stays for scripts and a later switch, but the house now serves it (`web/house/rpc-proxy.ts`): JSON-RPC over HTTP POST only, the pages' methods only (no `getProgramAccounts`, no airdrops, no WebSockets), batches of at most 20, and 10 calls a second per address (bursts of 60). The key lives in `house.json` (`solanaUpstream`), not the Caddyfile. A recheck that day found no stale reads through it (25 of 25 fresh), but the pages stay on the public RPC until Helius has been fresh for longer.
 
 ### Second and third games (2026-10-11)
 

@@ -87,6 +87,11 @@ for (const md of files) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${esc(title)} · ZOL docs</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta property="og:site_name" content="ZOL" />
+  <meta property="og:title" content="${esc(title)} · ZOL docs" />
+  <meta property="og:url" content="https://zol.cash/docs/${page === "index.html" ? "" : page}" />
+  <meta property="og:image" content="https://zol.cash/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="/src/brand.css" />
   <link rel="stylesheet" href="/src/docs.css" />
 </head>

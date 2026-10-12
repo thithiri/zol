@@ -17,18 +17,23 @@
 //   POST /house/auction/open                opens one if none is running (the house sells a certificate)
 //   POST /house/auction/register {session} -> {id, tx}: the deposit, for the bidder to sign
 //   POST /house/auction/register/sign {id, tx}  the signed registration; co-signed and sent
+//   POST /solana                            the pages' Solana RPC: allowed methods only, rate-limited
+//                                           per address, passed to `solanaUpstream` (rpc-proxy.ts)
 // Build: bun build --compile --target=bun-linux-x64 house/server.ts --outfile dist-house/zol-house
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { Keypair } from "@solana/web3.js";
 import { House, HouseError, TERMINAL, type Game, type HouseConfig, type Store } from "./house";
 import { AuctionDesk } from "./auction";
+import { MAX_BODY, RateGate, rpcCalls } from "./rpc-proxy";
 
 interface FileConfig extends HouseConfig {
   listen: string; // host:port
   db: string;
   sessionSeedFile: string; // 64 hex chars
   feePayerFile: string; // Solana keypair JSON
+  /** The dedicated Solana RPC behind /solana, API key included; none: /solana is off. */
+  solanaUpstream?: string;
 }
 
 class SqliteStore implements Store {
@@ -72,6 +77,22 @@ const session = House.sessionFromSeedHex(readFileSync(cfg.sessionSeedFile, "utf8
 const feePayer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(cfg.feePayerFile, "utf8"))));
 const house = new House(cfg, session, feePayer, new SqliteStore(new Database(cfg.db)));
 const desk = new AuctionDesk(house);
+const rpcGate = new RateGate();
+
+/** /solana: one JSON-RPC request (or batch) of allowed methods, within the address's rate. */
+async function solanaRpc(req: Request, ip: string): Promise<Response> {
+  if (!cfg.solanaUpstream) return json(404, { error: "not found" });
+  if (req.method !== "POST") return json(405, { error: "JSON-RPC over HTTP POST only" });
+  const text = await req.text();
+  if (text.length > MAX_BODY) return json(413, { error: "request too large" });
+  let body: unknown;
+  try { body = JSON.parse(text); } catch { return json(400, { error: "body must be JSON" }); }
+  const n = rpcCalls(body);
+  if (typeof n === "string") return json(403, { error: n });
+  if (!rpcGate.take(ip, n)) return json(429, { error: "too many requests; slow down" });
+  const r = await fetch(cfg.solanaUpstream, { method: "POST", headers: { "content-type": "application/json" }, body: text });
+  return new Response(r.body, { status: r.status, headers: { "content-type": r.headers.get("content-type") ?? "application/json", "cache-control": "no-store" } });
+}
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? String(v) : v)), {
@@ -87,6 +108,7 @@ async function route(req: Request): Promise<Response> {
   const body = async () => {
     try { return (await req.json()) as any; } catch { throw new HouseError(400, "body must be JSON"); }
   };
+  if (p === "/solana") return solanaRpc(req, ip);
   if (req.method === "GET" && p === "/house/info") return json(200, await house.info());
   if (req.method === "POST" && p === "/house/play") {
     const b = await body();
