@@ -28,6 +28,10 @@
 		handle /house/* {
 			reverse_proxy 127.0.0.1:8790
 		}
+		# Pages are rechecked on every visit; built assets have hashed names and never change.
+		@html path / *.html */
+		header @html Cache-Control "no-cache"
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
 		root * /var/www/zol
 		file_server
 	}
