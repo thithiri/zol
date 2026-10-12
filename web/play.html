@@ -94,6 +94,17 @@
     </section>
 
 
+    <!-- New players (games page): the house sends a real 0.01 TAZ deposit to this player -->
+    <section id="faucet" class="card" hidden>
+      <div class="panel-title">New here? Get 0.01 TAZ free</div>
+      <p class="small muted" style="margin:0 0 10px">The house sends a shielded deposit to your player: about 10 flips. It's credited after one Zcash block, usually within a minute or two.</p>
+      <label class="small" id="faucet-addr">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
+        <input id="faucet-payout" placeholder="utest1…" autocomplete="off" /></label>
+      <div class="center" style="margin-top:12px"><button id="faucet-btn" class="primary">Get 0.01 TAZ free</button></div>
+      <div id="faucet-msg" class="small center" style="margin-top:8px" hidden></div>
+      <ol class="tl" id="faucet-tl"></ol>
+    </section>
+
     <!-- Withdraw -->
     <section id="withdraw" class="card" hidden>
       <button class="close" data-close="withdraw" aria-label="Close">×</button>

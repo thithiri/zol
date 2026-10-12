@@ -465,7 +465,7 @@ SESSION_FILE=./other-session.json npx vite-node examples/quickstart.ts status
 Devnet observations worth knowing before you test there:
 
 - Public devnet RPC rate-limits (429s) when several clients share an IP; scripts retry.
-- Zcash testnet confirms in ~25 s blocks. Credits come at early depth (3 blocks) only within the vault's float, otherwise at full depth (60). Payouts are marked paid at payout depth (60).
+- Zcash testnet confirms in ~25 s blocks. Credits come at early depth (1 block) only within the vault's float, otherwise at full depth (60). Payouts are marked paid at payout depth (60).
 - A session key held only in memory strands its balance if the script dies. The scripts write seeds to `keys/` before any money moves; do the same.
 
 ## 4. Gateway and web tests

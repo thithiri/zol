@@ -42,7 +42,7 @@ sign if the deployed ledger differs.
 | Pot open at most / session length | 1 hour / 1 minute to 2 hours |
 | Refund grace after the session deadline | 3,900 s |
 | App activation delay | 1 hour |
-| Credit depth | 3 blocks early (within the operators' float), 60 blocks full; payouts final at 60 |
+| Credit depth | 1 block early (within the operators' float; 3 before 2026-10-12), 60 blocks full; payouts final at 60 |
 
 Read the live values from the ledger's `Config` account or `GET /v1/apps/{app}`.
 

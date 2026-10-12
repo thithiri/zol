@@ -12,7 +12,7 @@ reasoning: [plan-house-mode.md](../plan-house-mode.md).
 2. **Deposit 0.01 TAZ**:
    - Enter your Zcash testnet address for winnings, a unified address `utest1…` with an Orchard receiver.
    - Pay the QR code or link from a wallet on the NU7 testnet: exactly 0.01 TAZ. The memo is filled in; if your wallet drops it, the deposit still counts.
-   - No wallet? **Fund me** pays 0.01 TAZ from the house's funding wallet, once per session and once per IP per day.
+   - No wallet? The games page's **Get 0.01 TAZ free** card (shown while the player's balance is 0) registers a 0.01 TAZ deposit and asks the house to pay it from its funding wallet, once per session and once per IP per day. It's a real deposit, so the player's payout address is fixed by it and withdrawals work as usual. Measured 2026-10-12: credited 84 s after the house sent it (1 block). `web/house/faucet-smoke.ts` repeats the measurement.
    - The deposit is credited after 3 Zcash blocks.
 3. **Flip the coin.** A stake is 99,700 zat (about 0.001 TAZ), a tenth of a 0.01 TAZ deposit after the entry fee.
    - The first flip opens a **session**: you and the house each put up to 10 stakes on one table, you sign once (no SOL needed), and the table moves into the rollup (about 5–10 s, once).
@@ -64,7 +64,7 @@ Every step appears in the timeline:
 - **Limits** (`house.json`):
   - `maxOpenGames` 2 (open sessions);
   - `playsPerIpPerHour` 10;
-  - fund-me: `fundPerDay` 3, `fundPerIpPerDay` 1, at `fundZat` 1,000,000 each.
+  - fund-me: `fundPerDay` 10 (3 before 2026-10-12), `fundPerIpPerDay` 1, at `fundZat` 1,000,000 each. Each grant spends 0.01 TAZ plus fees from op0's funding wallet: keep it topped up.
 - **How a session runs:** the house builds one transaction that creates the table, seats both the house and the player with the same number of stakes (`join_rounds`) and starts it (pot and table into the rollup). It is 1,155 bytes, so it fits; the house falls back to a separate `start` if it ever does not.
   - The player signs it; the house checks it's byte-for-byte the transaction it built, adds its signatures and sends it.
   - Either all of it happens or nothing does, so the house never strands an open table.

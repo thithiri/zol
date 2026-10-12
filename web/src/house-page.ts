@@ -191,11 +191,16 @@ async function pollBalance() {
   render();
 }
 let houseNote = "";
+/** The house's faucet ("fund me"): one deposit of `fundZat` per player, `fundLeft` left today. */
+let fundZat = 0n;
+let fundLeft = 0;
 async function pollHouse() {
   try {
     const i = await house("/info");
     stake = BigInt(i.stake);
     minExit = BigInt(i.min_exit ?? 0);
+    fundZat = BigInt(i.fund_me?.zat ?? 0);
+    fundLeft = Number(i.fund_me?.left_today ?? 0);
     // A stake is a tenth of a 0.01 TAZ deposit after the entry fee: 0.000997, shown as 0.001.
     houseNote = i.can_play || inRollup() ? "" : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
   } catch {
@@ -237,6 +242,16 @@ function render() {
   const canBet = ready && !s.stop && !lastTable?.bet.open && price !== null && seats![1] >= stake && seats![0] >= win;
   for (const id of ["up-btn", "down-btn"]) $<HTMLButtonElement>(id).disabled = busy || stake === 0n || !canBet;
   $<HTMLButtonElement>("cashout-btn").disabled = busy || total() === 0n || !!localStorage.getItem(K("withdraw-live"));
+  renderFaucet();
+}
+
+/** The faucet card (games page): offered while the player has nothing and the house can fund;
+ * kept, with its progress, from the house's send until the deposit is credited. */
+function renderFaucet() {
+  const sent = !!localStorage.getItem(K("fundtx"));
+  $("faucet").hidden = PAGE !== "home" || total() > 0n || fundZat === 0n || (!sent && fundLeft <= 0);
+  $("faucet-addr").hidden = sent || !!localStorage.getItem(payoutKey());
+  $("faucet-btn").hidden = sent;
 }
 
 // ---------------------------------------------------------------- add funds
@@ -267,7 +282,8 @@ $("add-btn").onclick = async () => {
   }
 };
 
-async function deposit(amount: bigint) {
+/** Registers a deposit of `amount` with every operator; `show` puts its QR code on screen. */
+async function deposit(amount: bigint, show = true): Promise<boolean> {
   try {
     if (sessionKind(S.app, localStorage) === "backup" && !isBackedUp(S.app, session!, localStorage)) {
       $("key-panel").hidden = false;
@@ -291,10 +307,12 @@ async function deposit(amount: bigint) {
     localStorage.setItem(K("since"), String(d.app.tip));
     localStorage.setItem(K("link"), d.link);
     localStorage.setItem(K("ua"), d.session.ua);
-    showPay(d.link, d.session.ua, amount);
+    if (show) showPay(d.link, d.session.ua, amount);
     renderAddress();
+    return true;
   } catch (e) {
     showError(e);
+    return false;
   }
 }
 function showPay(link: string, ua: string, amount: bigint) {
@@ -308,7 +326,8 @@ function showPay(link: string, ua: string, amount: bigint) {
   $("qr").innerHTML = qr.createSvgTag({ cellSize: 3, margin: 2 });
   // The house's "fund me" stays available in the API but is not offered on the page.
 }
-$("fund-btn").onclick = async () => {
+/** Asks the house to send its one deposit to this player's registered deposit link. */
+async function fundMe(msg: HTMLElement, sentText: string, otherwise: string): Promise<boolean> {
   try {
     const link = localStorage.getItem(K("link")) ?? "";
     // The browser Buffer polyfill has no "base64url": map it to standard base64 first.
@@ -316,14 +335,32 @@ $("fund-btn").onclick = async () => {
     const memo = Buffer.from(m.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
     const r = await house<{ txid: string }>("/fund", { session: hex(session!.publicKey), ...(memo.startsWith("ZOL1:") ? { memo } : {}) });
     localStorage.setItem(K("fundtx"), r.txid);
-    $("fund-btn").hidden = true;
-    $("fund-msg").hidden = false;
-    $("fund-msg").innerHTML = '<span class="ok">Sent: 0.01 TAZ is on its way to your address.</span>';
+    msg.hidden = false;
+    msg.innerHTML = `<span class="ok">${sentText}</span>`;
     void pollDeposits();
+    return true;
   } catch (e) {
     // Say why right here (most often: the once-a-day limit for this network address).
-    $("fund-msg").hidden = false;
-    $("fund-msg").innerHTML = `<span class="err">${esc(String((e as any)?.message ?? e).split("\n")[0])}.</span> Get testnet ZEC from <a href="https://faucet.testnet.valargroup.dev" target="_blank" rel="noopener">Valar's faucet</a> and pay the QR code instead.`;
+    msg.hidden = false;
+    msg.innerHTML = `<span class="err">${esc(String((e as any)?.message ?? e).split("\n")[0])}.</span> ${otherwise}`;
+    return false;
+  }
+}
+const VALAR = '<a href="https://faucet.testnet.valargroup.dev" target="_blank" rel="noopener">Valar\'s faucet</a>';
+$("fund-btn").onclick = async () => {
+  if (await fundMe($("fund-msg"), "Sent: 0.01 TAZ is on its way to your address.", `Get testnet ZEC from ${VALAR} and pay the QR code instead.`)) $("fund-btn").hidden = true;
+};
+$("faucet-btn").onclick = async () => {
+  const b = $<HTMLButtonElement>("faucet-btn");
+  b.disabled = true;
+  try {
+    // The deposit form reads the payout address from its own field.
+    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = $<HTMLInputElement>("faucet-payout").value;
+    if (!(await deposit(fundZat, false))) return;
+    await fundMe($("faucet-msg"), "Sent. It's credited after one Zcash block, usually within a minute or two.", `Or get testnet ZEC from ${VALAR} and use Deposit Zcash.`);
+  } finally {
+    b.disabled = false;
+    renderFaucet();
   }
 };
 
@@ -341,6 +378,7 @@ async function pollDeposits() {
       else items.push(`<li class="err">${taz(d.value)} ${d.state}: ${d.state === "held" ? "an operator will look at it" : "it will be refunded to your address"}</li>`);
     }
     $("deposit-tl").innerHTML = items.join("");
+    $("faucet-tl").innerHTML = items.join("");
     if (ds.some((d) => d.state === "credited")) void pollBalance();
   } catch {
     /* keep the last view */

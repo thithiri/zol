@@ -69,7 +69,7 @@ deposit 0.01 TAZ: seen, 2 confirmations
 balance: none yet
 ```
 
-After 3 Zcash blocks (about 75 seconds) two operators attest the deposit and it is credited:
+After 1 Zcash block (usually 1–2 minutes) two operators attest the deposit and it is credited:
 
 ```text
 deposit 0.01 TAZ: credited, 3 confirmations

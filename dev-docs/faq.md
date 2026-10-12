@@ -17,7 +17,7 @@ where withdrawals go. Players should trust an app's game logic as they would any
 **Why fixed deposit amounts?** So deposits don't fingerprint players, and so the operators can
 credit a deposit whose wallet dropped the memo.
 
-**How long does a deposit take?** On the testnet, about 75 s (3 blocks) for an early credit,
+**How long does a deposit take?** On the testnet, usually 1–2 minutes (1 block) for an early credit,
 within the operators' float; larger or later credits wait for 60 blocks.
 
 **How long does a withdrawal take?** A few minutes for the Zcash payout; the ledger marks it

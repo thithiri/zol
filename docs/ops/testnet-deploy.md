@@ -303,6 +303,12 @@ Browsers on the public devnet RPC hit "Connection rate limits exceeded" too, fro
 - **Consolidation** merges up to 3 notes into the head per transaction, at most once an hour, paid from the fee pool (20,000 zat each). The trial now consolidates at **6** spendable notes (it was 16); it limits itself as the note count drops.
 - **Follow-up (planner):** pick a larger padded size when the head plus `size − 1` notes don't cover the payouts. Every operator must derive the same plan, so it needs tests across operators.
 
+### Testnet depths (2026-10-12): early 1, full 60, payout 60
+
+- **Early credits after 1 block** (`depths.early` 1 in every `serve.json`; it was 3), so deposits and the games page's free 0.01 TAZ land after one block: 84 s measured, most of it waiting for the block.
+- **Risk:** a one-block reorg can undo a deposit already credited early. The float absorbs it, as with any early credit, and only deposits within the float are credited early.
+- All three operators must use the same depths: each decides from its own scan, and a credit needs 2 of 3.
+
 ### Testnet depths (2026-10-11): early 3, full 60, payout 60
 
 - **The float caps early credits.** Before full depth, credits must fit the vault's float (the genesis float, 5,000,000 here). At 300 blocks (about 2 h) for full depth, five 0.01 TAZ deposits within two hours (bankroll top-ups plus tests) used the whole float. A player's sixth deposit then waited about 75 minutes.

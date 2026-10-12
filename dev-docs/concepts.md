@@ -38,7 +38,7 @@ key** in the browser, which the player must save. See
    operators sign a **credit**, and a relayer submits it to the ledger, which adds the amount
    (less a 0.3% entry fee) to the player's **balance**.
 
-**Confirmation depth:** testnet credits early, after 3 blocks (usually 1–2 minutes), up to the
+**Confirmation depth:** testnet credits early, after 1 block (usually 1–2 minutes), up to the
 **float**: TAZ the operators keep in the vault to cover early credits. Deposits beyond it wait
 for full depth (60 blocks, about 25 minutes). A deposit that is never
 credited is **voided** and refunded to the payout address.
