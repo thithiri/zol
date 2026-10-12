@@ -267,6 +267,10 @@ function renderFaucet() {
     showFaucetPay();
   }
   const toHouse = box.checked;
+  // A player paid once with their own address can't be funded again; one whose withdrawals go to
+  // the house can, so their card comes back when they run out.
+  const houseOwned = !!localStorage.getItem(K("payout-house")) && localStorage.getItem(payoutKey()) === fundAddr;
+  if (!sent && localStorage.getItem(K("funded")) && !houseOwned) $("faucet").hidden = true;
   // Kept while the house's address is ticked, so the player can still untick it.
   $("faucet-addr").hidden = sent || (!!localStorage.getItem(payoutKey()) && !toHouse);
   $("faucet-house-row").hidden = !fundAddr;
@@ -358,6 +362,7 @@ async function fundMe(msg: HTMLElement, sentText: string, otherwise: string): Pr
     const memo = Buffer.from(m.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
     const r = await house<{ txid: string }>("/fund", { session: hex(session!.publicKey), ...(memo.startsWith("ZOL1:") ? { memo } : {}) });
     localStorage.setItem(K("fundtx"), r.txid);
+    localStorage.setItem(K("funded"), "1");
     msg.hidden = false;
     msg.innerHTML = `<span class="ok">${sentText}</span>`;
     void pollDeposits();
@@ -414,12 +419,12 @@ $("faucet-btn").onclick = async () => {
   try {
     // The deposit form reads the payout address from its own field.
     const toHouse = $<HTMLInputElement>("faucet-house").checked && !!fundAddr;
-    // With the house's address the deposit is already registered (its QR code is showing).
-    const registered = toHouse && localStorage.getItem(payoutKey()) === fundAddr && !!localStorage.getItem(K("link"));
-    if (!registered) {
-      if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = toHouse ? fundAddr : $<HTMLInputElement>("faucet-payout").value;
-      if (!(await deposit(fundZat, false))) return;
-      if (toHouse) localStorage.setItem(K("payout-house"), "1");
+    // Register a fresh deposit link (its memo expires; registering again is harmless).
+    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = toHouse ? fundAddr : $<HTMLInputElement>("faucet-payout").value;
+    if (!(await deposit(fundZat, false))) return;
+    if (toHouse) {
+      localStorage.setItem(K("payout-house"), "1");
+      showFaucetPay();
     }
     await fundMe($("faucet-msg"), "Sent. It's credited after one Zcash block, usually within a minute or two.", `Or get testnet ZEC from ${VALAR} and use Deposit Zcash.`);
   } finally {
@@ -440,6 +445,12 @@ async function pollDeposits() {
       if (d.state === "credited") items.push(`<li>${taz(d.value)} received and added to your balance</li>`);
       else if (d.state === "seen") items.push(`<li class="wait">${taz(d.value)} received; confirming ${Math.min(d.confirmations, app.early_depth)} of ${app.early_depth} blocks…</li>`);
       else items.push(`<li class="err">${taz(d.value)} ${d.state}: ${d.state === "held" ? "an operator will look at it" : "it will be refunded to your address"}</li>`);
+    }
+    // Once the house's deposit is credited, the faucet is done with it (it may offer another later).
+    if (fundTx && ds.some((d) => d.txid === fundTx && d.state === "credited")) {
+      localStorage.removeItem(K("fundtx"));
+      $("faucet-msg").hidden = true;
+      $("faucet-btn").hidden = false;
     }
     $("deposit-tl").innerHTML = items.join("");
     $("faucet-tl").innerHTML = items.join("");

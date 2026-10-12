@@ -16,6 +16,7 @@ import {
   allowedStakes, Coinflip, UPDOWN, decodeApp, decodeBalance, decodeLedgerParams, decodePot, decodeReceipt, decodeTable, DLP, sendSigned, sendTx,
 } from "../src/chain";
 import { hex, sessionFromSeed, unhex, type Session } from "../src/session";
+import { orchardReceiverFromUa } from "../src/ua";
 
 export interface HouseConfig {
   baseRpc: string;
@@ -662,7 +663,10 @@ export class House {
   async fund(sessionHex: string, ip: string, memo?: string) {
     if (!/^[0-9a-f]{64}$/.test(sessionHex)) throw new HouseError(400, "session must be 32-byte hex");
     const day = Date.now() - 86_400_000;
-    if (this.store.count(`fund:${sessionHex}`, 0) > 0) throw new HouseError(429, "this session was already funded once");
+    // A player whose withdrawals go to the house's own address (demo play) may be funded again:
+    // the TAZ comes back. Only the address and daily limits apply to them.
+    const toHouse = memo !== undefined && (await this.paysHouse(memo, sessionHex));
+    if (!toHouse && this.store.count(`fund:${sessionHex}`, 0) > 0) throw new HouseError(429, "this session was already funded once");
     if (this.store.count(`fund-ip:${ip}`, day) >= this.cfg.fundPerIpPerDay) throw new HouseError(429, "funding limit for your address reached today");
     if (this.store.count("fund", day) >= this.cfg.fundPerDay) throw new HouseError(429, "the house's daily funding is used up; use a testnet faucet");
     if (memo !== undefined && (!memo.startsWith("ZOL1:") || memo.length > 512)) throw new HouseError(400, "memo must be the ZOL1 text from your deposit link");
@@ -678,6 +682,23 @@ export class House {
     const t = await r.text();
     if (!r.ok) throw new HouseError(503, `the house's funding wallet could not pay: ${t.slice(0, 200)}`);
     return { txid: Buffer.from(JSON.parse(t).txid).reverse().toString("hex"), value: this.cfg.fundZat };
+  }
+
+  /** True when `memo` (the ZOL1 text) is this session's and names the house's funding address as
+   * the payout address, and the session isn't already tied to another payout address. */
+  private async paysHouse(memo: string, sessionHex: string): Promise<boolean> {
+    const ua = await this.fundingAddress();
+    if (!ua || !memo.startsWith("ZOL1:")) return false;
+    // The text form drops the canonical memo's first byte (0xff): session key at 5, payout at 37.
+    const b = Buffer.from(memo.slice(5), "base64url");
+    if (b.length < 80) return false;
+    const payout = b.subarray(37, 80).toString("hex");
+    if (b.subarray(5, 37).toString("hex") !== sessionHex || payout !== Buffer.from(orchardReceiverFromUa(ua)).toString("hex")) return false;
+    const r = await this.http(`${this.cfg.gateway}/v1/apps/${this.cfg.app}/sessions/${sessionHex}/payout`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: payout }),
+    }).catch(() => null);
+    const c = r?.ok ? ((await r.json()) as { bound: boolean; matches: boolean | null }) : null;
+    return !!c && (!c.bound || c.matches === true);
   }
 
   /** Confirmations of a Zcash transaction, from the operators' own node. */
