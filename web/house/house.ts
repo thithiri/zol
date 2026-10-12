@@ -199,6 +199,14 @@ export class House {
     }
   }
 
+  /** The funding wallet's address, offered to players without a wallet as their payout address
+   * (withdrawals then return to the house). Null when op0's daemon doesn't answer. */
+  private fundingUa: string | null = null;
+  private async fundingAddress(): Promise<string | null> {
+    if (!this.fundingUa) this.fundingUa = (await this.json(`${this.cfg.zcashd}/admin/funding`).catch(() => null))?.ua ?? null;
+    return this.fundingUa;
+  }
+
   private async computeInfo() {
     const stake = await this.stake();
     const bal = await this.balanceOf(this.session.keypair.publicKey);
@@ -213,7 +221,7 @@ export class House {
       open_games: open,
       max_open_games: this.cfg.maxOpenGames,
       can_play: bankroll >= stake && open < this.cfg.maxOpenGames,
-      fund_me: { zat: this.cfg.fundZat, left_today: Math.max(0, this.cfg.fundPerDay - this.store.count("fund", day)) },
+      fund_me: { zat: this.cfg.fundZat, left_today: Math.max(0, this.cfg.fundPerDay - this.store.count("fund", day)), address: await this.fundingAddress() },
       fee_payer_sol: (await this.base.getBalance(this.feePayer.publicKey)) / 1e9,
     };
   }

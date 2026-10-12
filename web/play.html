@@ -100,8 +100,13 @@
     <section id="faucet" class="card" hidden>
       <div class="panel-title">New here? Get 0.01 TAZ free</div>
       <p class="small muted" style="margin:0 0 10px">The house sends a shielded deposit to your player: about 10 flips. It's credited after one Zcash block, usually within a minute or two.</p>
-      <label class="small" id="faucet-addr">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
-        <input id="faucet-payout" placeholder="utest1…" autocomplete="off" /></label>
+      <div id="faucet-addr">
+        <label class="small">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
+          <input id="faucet-payout" placeholder="utest1…" autocomplete="off" /></label>
+        <label class="small" id="faucet-house-row" style="display: flex; gap: 8px; align-items: flex-start; margin-top: 10px" hidden>
+          <input type="checkbox" id="faucet-house" style="width: auto; margin-top: 3px" />
+          <span>No Zcash wallet? Use the house's address. For demo play: your withdrawals then go back to the house.</span></label>
+      </div>
       <div class="center" style="margin-top:12px"><button id="faucet-btn" class="primary">Get 0.01 TAZ free</button></div>
       <div id="faucet-msg" class="small center" style="margin-top:8px" hidden></div>
       <ol class="tl" id="faucet-tl"></ol>
@@ -117,6 +122,7 @@
         <div class="kv muted"><span>Zcash network fee</span><b>0.0002 TAZ</b></div>
         <div class="kv"><span>You receive</span><b id="w-net"></b></div>
         <div class="small muted" style="margin:6px 0">To <code id="w-addr"></code>, the address fixed at your first deposit.</div>
+        <div class="small muted" id="w-house" style="margin:6px 0" hidden>That's the house's address, chosen for demo play: the withdrawal goes back to the house.</div>
         <div class="center"><button id="withdraw-go" class="primary">Withdraw</button></div>
       </div>
       <ol class="tl" id="cashout-tl"></ol>

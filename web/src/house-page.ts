@@ -198,6 +198,8 @@ let houseNote = "";
 /** The house's faucet ("fund me"): one deposit of `fundZat` per player, `fundLeft` left today. */
 let fundZat = 0n;
 let fundLeft = 0;
+/** The house's own address, offered as the payout address to players without a wallet. */
+let fundAddr = "";
 async function pollHouse() {
   try {
     const i = await house("/info");
@@ -205,6 +207,7 @@ async function pollHouse() {
     minExit = BigInt(i.min_exit ?? 0);
     fundZat = BigInt(i.fund_me?.zat ?? 0);
     fundLeft = Number(i.fund_me?.left_today ?? 0);
+    fundAddr = i.fund_me?.address ?? "";
     // A stake is a tenth of a 0.01 TAZ deposit after the entry fee: 0.000997, shown as 0.001.
     houseNote = i.can_play || inRollup() ? "" : BigInt(i.bankroll) < stake ? "The house is out of bankroll for now" : "The house is busy; try in a minute";
   } catch {
@@ -255,6 +258,7 @@ function renderFaucet() {
   const sent = !!localStorage.getItem(K("fundtx"));
   $("faucet").hidden = PAGE !== "home" || total() > 0n || fundZat === 0n || (!sent && fundLeft <= 0);
   $("faucet-addr").hidden = sent || !!localStorage.getItem(payoutKey());
+  $("faucet-house-row").hidden = !fundAddr;
   $("faucet-btn").hidden = sent;
 }
 
@@ -354,13 +358,21 @@ const VALAR = '<a href="https://faucet.testnet.valargroup.dev" target="_blank" r
 $("fund-btn").onclick = async () => {
   if (await fundMe($("fund-msg"), "Sent: 0.01 TAZ is on its way to your address.", `Get testnet ZEC from ${VALAR} and pay the QR code instead.`)) $("fund-btn").hidden = true;
 };
+$("faucet-house").onchange = () => {
+  const on = $<HTMLInputElement>("faucet-house").checked;
+  const field = $<HTMLInputElement>("faucet-payout");
+  field.disabled = on;
+  if (on) field.value = "";
+};
 $("faucet-btn").onclick = async () => {
   const b = $<HTMLButtonElement>("faucet-btn");
   b.disabled = true;
   try {
     // The deposit form reads the payout address from its own field.
-    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = $<HTMLInputElement>("faucet-payout").value;
+    const toHouse = $<HTMLInputElement>("faucet-house").checked && !!fundAddr;
+    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = toHouse ? fundAddr : $<HTMLInputElement>("faucet-payout").value;
     if (!(await deposit(fundZat, false))) return;
+    if (toHouse) localStorage.setItem(K("payout-house"), "1");
     await fundMe($("faucet-msg"), "Sent. It's credited after one Zcash block, usually within a minute or two.", `Or get testnet ZEC from ${VALAR} and use Deposit Zcash.`);
   } finally {
     b.disabled = false;
@@ -720,6 +732,7 @@ $("cashout-btn").onclick = () => {
   $("w-net").textContent = all < minExit ? `nothing yet (the smallest withdrawal is ${taz(minExit)})` : net > 0n ? taz(net) : "nothing (below the fees)";
   const a = localStorage.getItem(payoutKey());
   $("w-addr").textContent = a ? `${a.slice(0, 14)}…${a.slice(-6)}` : "your address";
+  $("w-house").hidden = !localStorage.getItem(K("payout-house")) && !(fundAddr && a === fundAddr);
   $("withdraw-form").hidden = !!localStorage.getItem(K("withdraw-live"));
   $<HTMLButtonElement>("withdraw-go").disabled = net <= 0n || all < minExit;
 };
