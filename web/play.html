@@ -107,6 +107,11 @@
           <input type="checkbox" id="faucet-house" style="width: auto; margin-top: 3px" />
           <span>No Zcash wallet? Use the house's address. For demo play: your withdrawals then go back to the house.</span></label>
       </div>
+      <!-- With the house's address: the player's deposit link, as the Deposit Zcash panel shows it -->
+      <div id="faucet-pay" class="center" style="margin-top:14px" hidden>
+        <div class="qr" id="faucet-qr"></div>
+        <p class="small" style="margin:6px 0">Your deposit link: <b id="faucet-amount"></b> to your player. Any Zcash wallet can <a id="faucet-link">pay it</a>; below, the house pays it for you.</p>
+      </div>
       <div class="center" style="margin-top:12px"><button id="faucet-btn" class="primary">Get 0.01 TAZ free</button></div>
       <div id="faucet-msg" class="small center" style="margin-top:8px" hidden></div>
       <ol class="tl" id="faucet-tl"></ol>

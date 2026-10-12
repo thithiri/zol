@@ -257,8 +257,20 @@ function render() {
 function renderFaucet() {
   const sent = !!localStorage.getItem(K("fundtx"));
   $("faucet").hidden = PAGE !== "home" || total() > 0n || fundZat === 0n || (!sent && fundLeft <= 0);
-  $("faucet-addr").hidden = sent || !!localStorage.getItem(payoutKey());
+  // After a reload: the house's address was chosen and not yet paid, so tick it again.
+  const box = $<HTMLInputElement>("faucet-house");
+  if (!sent && !box.checked && !box.dataset.restored && fundAddr && localStorage.getItem(K("payout-house")) && localStorage.getItem(payoutKey()) === fundAddr) {
+    box.dataset.restored = "1";
+    box.checked = true;
+    $<HTMLInputElement>("faucet-payout").value = fundAddr;
+    $<HTMLInputElement>("faucet-payout").readOnly = true;
+    showFaucetPay();
+  }
+  const toHouse = box.checked;
+  // Kept while the house's address is ticked, so the player can still untick it.
+  $("faucet-addr").hidden = sent || (!!localStorage.getItem(payoutKey()) && !toHouse);
   $("faucet-house-row").hidden = !fundAddr;
+  $("faucet-pay").hidden = sent || !toHouse || !localStorage.getItem(K("link"));
   $("faucet-btn").hidden = sent;
 }
 
@@ -323,15 +335,18 @@ async function deposit(amount: bigint, show = true): Promise<boolean> {
     return false;
   }
 }
+function qrSvg(link: string) {
+  const qr = qrcode(0, "M");
+  qr.addData(link);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 3, margin: 2 });
+}
 function showPay(link: string, ua: string, amount: bigint) {
   $("pay").hidden = false;
   $<HTMLAnchorElement>("link").href = link;
   $("pay-amount").textContent = taz(amount);
   $("session-ua").textContent = ua;
-  const qr = qrcode(0, "M");
-  qr.addData(link);
-  qr.make();
-  $("qr").innerHTML = qr.createSvgTag({ cellSize: 3, margin: 2 });
+  $("qr").innerHTML = qrSvg(link);
   // The house's "fund me" stays available in the API but is not offered on the page.
 }
 /** Asks the house to send its one deposit to this player's registered deposit link. */
@@ -358,11 +373,40 @@ const VALAR = '<a href="https://faucet.testnet.valargroup.dev" target="_blank" r
 $("fund-btn").onclick = async () => {
   if (await fundMe($("fund-msg"), "Sent: 0.01 TAZ is on its way to your address.", `Get testnet ZEC from ${VALAR} and pay the QR code instead.`)) $("fund-btn").hidden = true;
 };
-$("faucet-house").onchange = () => {
-  const on = $<HTMLInputElement>("faucet-house").checked;
+/** The player's registered deposit link, drawn in the faucet card. */
+function showFaucetPay() {
+  const link = localStorage.getItem(K("link")) ?? "";
+  $("faucet-qr").innerHTML = qrSvg(link);
+  $<HTMLAnchorElement>("faucet-link").href = link;
+  $("faucet-amount").textContent = taz(fundZat);
+}
+// Ticking the house's address fills it in and registers the deposit, so its QR code shows.
+// Nothing is bound until a deposit is credited, so unticking first is free.
+$("faucet-house").onchange = async () => {
+  const box = $<HTMLInputElement>("faucet-house");
   const field = $<HTMLInputElement>("faucet-payout");
-  field.disabled = on;
-  if (on) field.value = "";
+  if (box.checked) {
+    field.value = fundAddr;
+    field.readOnly = true;
+    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = fundAddr;
+    if (await deposit(fundZat, false)) {
+      localStorage.setItem(K("payout-house"), "1");
+      showFaucetPay();
+    } else {
+      box.checked = false;
+      field.readOnly = false;
+      field.value = "";
+    }
+  } else {
+    field.readOnly = false;
+    field.value = "";
+    if (!localStorage.getItem(K("fundtx")) && localStorage.getItem(payoutKey()) === fundAddr) {
+      localStorage.removeItem(payoutKey());
+      localStorage.removeItem(K("payout-house"));
+    }
+  }
+  renderAddress();
+  renderFaucet();
 };
 $("faucet-btn").onclick = async () => {
   const b = $<HTMLButtonElement>("faucet-btn");
@@ -370,9 +414,13 @@ $("faucet-btn").onclick = async () => {
   try {
     // The deposit form reads the payout address from its own field.
     const toHouse = $<HTMLInputElement>("faucet-house").checked && !!fundAddr;
-    if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = toHouse ? fundAddr : $<HTMLInputElement>("faucet-payout").value;
-    if (!(await deposit(fundZat, false))) return;
-    if (toHouse) localStorage.setItem(K("payout-house"), "1");
+    // With the house's address the deposit is already registered (its QR code is showing).
+    const registered = toHouse && localStorage.getItem(payoutKey()) === fundAddr && !!localStorage.getItem(K("link"));
+    if (!registered) {
+      if (!localStorage.getItem(payoutKey())) $<HTMLInputElement>("payout").value = toHouse ? fundAddr : $<HTMLInputElement>("faucet-payout").value;
+      if (!(await deposit(fundZat, false))) return;
+      if (toHouse) localStorage.setItem(K("payout-house"), "1");
+    }
     await fundMe($("faucet-msg"), "Sent. It's credited after one Zcash block, usually within a minute or two.", `Or get testnet ZEC from ${VALAR} and use Deposit Zcash.`);
   } finally {
     b.disabled = false;
