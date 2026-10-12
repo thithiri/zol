@@ -6,7 +6,7 @@ Four layers, from seconds to hours:
 | --- | --- | --- | --- |
 | [LiteSVM harness](#1-the-litesvm-harness) | `tests/` crate | The ledger, your program, MagicBlock's delegation and VRF programs | Seconds |
 | [Local stack](#2-the-local-stack) | Zakura regtest, `zol-zcashd`, gateways, MagicBlock's local validator, rollup and VRF oracle | Everything except the Zcash wallet and miner | Minutes |
-| [Devnet](#3-devnet-and-the-testnet-trial) | Headless scripts against the testnet trial | Zcash testnet, Solana devnet, MagicBlock devnet | Minutes to hours |
+| [Devnet](#3-devnet-and-the-testnet-beta) | Headless scripts against the testnet beta | Zcash testnet, Solana devnet, MagicBlock devnet | Minutes to hours |
 | [Gateway and web tests](#4-gateway-and-web-tests) | `cargo test -p zol-gateway`, `vitest` | Operator code, the page's TypeScript client | Seconds to minutes |
 
 ## Test tiers
@@ -427,9 +427,9 @@ These pieces are hardwired to `zol-coinflip` (`7G2o74qy…`):
 A local run needs only one `register` from your program; the ledger accepts any number of
 apps.
 
-## 3. Devnet and the testnet trial
+## 3. Devnet and the testnet beta
 
-Headless scripts that run the pages' flows against the live trial
+Headless scripts that run the pages' flows against the live beta
 ([networks](reference/networks.md)). All run from `web/` with `npx vite-node`.
 
 | Script | What | Needs |

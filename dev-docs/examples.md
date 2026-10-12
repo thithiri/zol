@@ -13,7 +13,7 @@ table life cycle, which the other two reuse.
 
 ## Coin flip
 
-- **Table:** the player and the house each buy in up to 10 stakes (`join_rounds`); one stake
+- **Table:** the player and the house each buy in up to 10 stakes (`join_rounds`; 10 is the house's setting, the program allows 100); one stake
   is a tenth of a 0.01 TAZ deposit after the entry fee (99,700 zat).
 - **Flip:** a seated player calls `flip` in the rollup, which requests randomness from
   MagicBlock's VRF with the pinned oracle queue. The oracle calls back `land`, which moves one

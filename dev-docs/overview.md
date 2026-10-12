@@ -1,15 +1,16 @@
 # Overview
 
-ZOL lets an application accept shielded ZEC, run a real-time session, and pay the result back
-to Zcash. The ZEC never leaves Zcash: it sits in a threshold-controlled vault while a ledger
-program on Solana records who is owed what. Sessions run in MagicBlock ephemeral rollups, so
-apps are ordinary Solana (Anchor) programs.
+ZOL is programmable Zcash privacy on Solana's SVM. It lets an application accept shielded
+ZEC, run a real-time session, and pay the result back to Zcash. The ZEC never leaves Zcash: it
+sits in a threshold-controlled vault while a ledger program on Solana records who is owed
+what. Apps are ordinary Solana (SVM) programs, usually Anchor; sessions run in a MagicBlock
+ephemeral rollup, itself an SVM (the MagicBlock/SVM rollup).
 
 ## What a player sees
 
 1. **Deposit:** scan a payment link with any Zcash wallet and send shielded ZEC.
 2. **Play:** the app's page signs with a key held by the player's passkey (or a saved session
-   key). No Solana wallet, no SOL: fees are paid by the app or its operators.
+   key). No Solana wallet, no SOL: fees are paid by the app's service.
 3. **Withdraw:** the balance is paid back, shielded, to the Zcash address given at the first
    deposit.
 
@@ -43,14 +44,15 @@ flowchart LR
 | --- | --- |
 | Deposits are credited or voided, never both | One Solana account per deposit ID, written by a 2-of-3 attestation |
 | An app cannot create value, add or swap a player, touch another app's money, or change a payout address | The ledger: apps only move value between seats of their own pots; payouts go to the receipt's players; payout addresses are fixed at first deposit |
-| A player is never trapped | Unstarted pots can be left; a pot that never returns from the rollup is refunded after its deadline; exits are open to every balance |
+| A player is never trapped | Unstarted pots can be left; a pot that never returns from the rollup is refunded after its session deadline plus 65 minutes; a frozen app still returns pots and takes exit requests (payouts resume when it's unfrozen) |
 | Payouts go only where the player said | The ledger stores a keyed commitment to the payout address; each operator checks a payout against it before signing |
-| Nobody links a player's session key to their Zcash wallet | Deposits and payouts are shielded; Solana sees only session keys and commitments |
+| Nothing public links a player's session key to their Zcash wallet | Deposits and payouts are shielded; Solana sees only session keys and commitments. The operators see both sides, and timing can correlate the chains ([Privacy](session-keys.md#privacy)) |
 
 What you **trust**:
 
-- **The operators** (2 of 3) for liveness and for not signing a false credit. They cannot move
-  a balance or pay anyone the ledger didn't settle.
+- **The operators** (2 of 3) to stay live, sign only true credits, and not collude: a quorum
+  holds the vault's spend key. Each honest operator pays only what the ledger settled, to the
+  committed address, and the ledger rejects any credit it can't reconcile.
 - **The rollup validator** for pot outcomes while a pot is delegated (it can reorder or
   withhold; withholding turns into a refund).
 - **Your own app's logic** for who wins: the ledger checks that seats add up, not that the
@@ -61,7 +63,7 @@ Details: [`../docs/design-v0.3.1.md`](../docs/design-v0.3.1.md) ("Trust model").
 ## What you can build
 
 Anything with a **session**: players bring money in, interact in real time, and leave with a
-result. On the testnet trial:
+result. On the testnet beta:
 
 - **Coin flip** against the house: verifiable randomness, many flips per table.
 - **ZEC Up/Down**: 30-second price bets settled on a live Pyth feed in the rollup.

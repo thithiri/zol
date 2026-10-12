@@ -56,7 +56,7 @@ ephemeral-rollups-sdk = { version = "0.17.3", features = ["anchor", "vrf", "cran
 `register` CPIs the ledger's `register_app` with your program and its `zol-app` signer. The
 app starts `Pending`; the ledger's admin activates it with your vault's address and genesis
 note, then a 1-hour delay runs before deposits are accepted, and the admin sets a deposit cap.
-On the testnet trial, onboarding is admin-run: send the operators your program id and source,
+On the testnet beta, onboarding is admin-run: send the operators your program id and source,
 and they register, activate and cap it ([Deploying](deploying.md); endpoints in
 [Networks](reference/networks.md)).
 

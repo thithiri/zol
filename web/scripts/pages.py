@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates index.html (home: deposit, withdraw, the games) and updown.html from coinflip.html,
+"""Generates play.html (the games page: deposit, withdraw, the games) and updown.html from coinflip.html,
 the one source for the three pages that share src/house-page.ts. Run after editing coinflip.html:
 
     python3 scripts/pages.py
@@ -21,10 +21,10 @@ def page(name: str, title: str, nav: str, how: str | None = None) -> str:
     return "<!-- Generated from coinflip.html by scripts/pages.py; edit coinflip.html. -->\n" + s
 
 
-games = '<a href="/">Home</a> · {} · {} · <a href="/auction.html">Sealed-bid auction</a>'
-(web / "index.html").write_text(page(
+games = '<a href="/play.html">Games</a> · {} · {} · <a href="/auction.html">Sealed-bid auction</a>'
+(web / "play.html").write_text(page(
     "home", "ZOL games",
-    '<b>Home</b> · <a href="/coinflip.html">Coin flip</a> · <a href="/updown.html">ZEC Up/Down</a> · <a href="/auction.html">Sealed-bid auction</a>',
+    '<b>Games</b> · <a href="/coinflip.html">Coin flip</a> · <a href="/updown.html">ZEC Up/Down</a> · <a href="/auction.html">Sealed-bid auction</a>',
     """
           <li>Deposit shielded ZEC from your Zcash wallet: it goes to the app's vault, held by three operators (2 of 3 sign everything), and a Solana ledger keeps your balance.</li>
           <li>Play any of the games with that balance. Each runs in a MagicBlock rollup; the money only moves as the ledger allows.</li>
@@ -40,4 +40,4 @@ games = '<a href="/">Home</a> · {} · {} · <a href="/auction.html">Sealed-bid 
           <li>The table returns to Solana when you stop, run out, or leave it idle; the payout to your balance happens as it returns.</li>
         """,
 ))
-print("wrote index.html, updown.html")
+print("wrote play.html, updown.html")

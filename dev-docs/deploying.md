@@ -1,7 +1,7 @@
 # Deploying an app to the testnet
 
-From code to a live app on the testnet trial: Zcash testnet, Solana devnet, MagicBlock's
-devnet rollup. Facts come from the trial's runbooks:
+From code to a live app on the testnet beta: Zcash testnet, Solana devnet, MagicBlock's
+devnet rollup. Facts come from the beta's runbooks:
 [`testnet-deploy.md`](../docs/ops/testnet-deploy.md), [`house.md`](../docs/ops/house.md),
 [`multihost.md`](../docs/ops/multihost.md).
 
@@ -16,7 +16,7 @@ devnet rollup. Facts come from the trial's runbooks:
 | 7 | — | Wait the activation delay (1 h); any guardian can cancel in that time |
 | 8 | You | [Run your app service](#8-run-an-app-service) and [publish your pages](#9-pages) |
 
-On the trial, onboarding is **admin-run**: deploy your program, then send the operators its
+On the testnet beta, onboarding is **admin-run**: deploy your program, then send the operators its
 program id and source. They review it against the [security checklist](security.md#what-your-app-must-get-right),
 register it if you haven't, and run steps 4 to 6 (their runbook:
 [`onboard-app.md`](../docs/ops/onboard-app.md)).
@@ -55,7 +55,7 @@ IDL (the README's command for the ledger; use your crate's name for yours):
 solana program deploy -u devnet -k <payer.json> --program-id keys/<your_app>-keypair.json target/deploy/<your_app>.so
 ```
 
-- **Cost.** About rent for the program's size, and briefly twice that for the upload buffer. On the trial: 3.67 SOL rent for the ledger, 2.56 SOL for `zol-coinflip`.
+- **Cost.** About rent for the program's size, and briefly twice that for the upload buffer. On the testnet beta: 3.67 SOL rent for the ledger, 2.56 SOL for `zol-coinflip`.
 - **Upgrade authority.** `-k` is the default upgrade authority. Pass `--upgrade-authority <keypair>` to use another. Keep the upgrade authority keypair out of the repo.
 
 **Upgrades** use the same command. The program id stays; the bytes change.
@@ -102,7 +102,7 @@ Otherwise send it with your own client.
 ## 4. Operators: add the app, vault and genesis
 
 The vault is per app, derived from the operators' shared keys, so no new key ceremony is
-needed. On the trial, `zol-add-app <program id> --apply` does items 1 to 3 on the host
+needed. On the testnet beta, `zol-add-app <program id> --apply` does items 1 to 3 on the host
 ([`onboard-app.md`](../docs/ops/onboard-app.md)). The operators:
 
 1. **Add the app id to every `zol-zcashd`** (`apps = ["<app id hex>"]` in each `zcashd.toml`) and restart. A new app is scanned from the current tip on, so do this **before** the genesis is broadcast. Removing an app later is refused.
@@ -124,7 +124,7 @@ needed. On the trial, `zol-add-app <program id> --apply` does items 1 to 3 on th
    curl -s -X POST http://127.0.0.1:18300/admin/genesis -H 'content-type: application/json' -d @genesis.json | jq
    ```
 
-   It returns `{head_cmx, txid, head_value}`. Record `head_cmx` as hex (`bytes(head_cmx).hex()`) for activation. The float caps credits at early depth: on the trial, 5,000,000 zat let five 0.01 TAZ deposits through before later ones waited for full depth. Errors: 422 when the wallet is short (it never mines), 409 when the app already has a genesis or one is pending.
+   It returns `{head_cmx, txid, head_value}`. Record `head_cmx` as hex (`bytes(head_cmx).hex()`) for activation. The float caps credits at early depth: on the testnet beta, 5,000,000 zat let five 0.01 TAZ deposits through before later ones waited for full depth. Errors: 422 when the wallet is short (it never mines), 409 when the app already has a genesis or one is pending.
 
 5. **Check it.** After it is mined, every daemon must show the same `chain[0]` and no fault:
 
@@ -152,7 +152,7 @@ on the testnet). The vault address never changes once active.
 
 **Wait for full depth first.** During the delay every guardian checks that the genesis head is
 in its own scan, in the vault's internal scope, with a genesis memo for this app, at least
-`depths.full` blocks deep (60 on the trial since 2026-10-11; 300 before, and on mainnet). If not,
+`depths.full` blocks deep (60 on the testnet beta since 2026-10-11; 300 before, and on mainnet). If not,
 it cancels: one guardian's `freeze_app` puts an `Activating` app back to `Pending` and clears
 the vault and head. The admin can then activate again.
 
@@ -199,10 +199,10 @@ ZOL_RPC=https://api.devnet.solana.com $D status --app <program id>     # ZOL_RPC
 | `unfreeze --app <b58> --payer <kp> --guardians <g1.json,g2.json>` | A threshold of guardians | `unfreeze_app` |
 
 Every app command takes `--app`, so a cap or an activation never lands on the wrong app.
-`init`, `set-min-exit` and `set-max-seats` are ledger-wide; `init`'s params are the trial's
+`init`, `set-min-exit` and `set-max-seats` are ledger-wide; `init`'s params are the beta's
 live values (`min_exit` 50,000, `max_seats` 16).
 
-## 7. Ledger upgrades and the code pin
+## Ledger upgrades and the code pin
 
 Only the operators upgrade the ledger. App upgrades need none of this.
 
@@ -224,12 +224,12 @@ So a ledger upgrade means:
 
 2. Update the hash in the [README](../README.md#program-hash).
 3. Deploy (as in [step 2](#2-deploy-to-solana-devnet)) and verify the dump.
-4. Update `ledger_code` in **every** operator's `serve.json` and restart each gateway (`zol-gateway@<op>` under systemd on the trial). Gateways whose pin and deployment disagree stop signing until they match.
+4. Update `ledger_code` in **every** operator's `serve.json` and restart each gateway (`zol-gateway@<op>` under systemd on the testnet beta). Gateways whose pin and deployment disagree stop signing until they match.
 
 ## 8. Run an app service
 
 An app holds no ZEC and no player keys, but it may need a service that pays Solana fees, builds
-transactions for players to sign, and closes what players abandon. The trial's is the
+transactions for players to sign, and closes what players abandon. The beta's is the
 **house**, `zol-house` ([`../web/house/server.ts`](../web/house/server.ts),
 [`../web/house/house.ts`](../web/house/house.ts)): the counterparty in the single-player games.
 It is written for `zol-coinflip`; use it as the pattern.
@@ -250,7 +250,7 @@ It drives open games every 1.5 s and keeps its state in SQLite (games, rate-limi
 
 `house.json` (`FileConfig` in `server.ts`, `HouseConfig` in `house.ts`):
 
-| Field | What | Trial value |
+| Field | What | Beta value |
 | --- | --- | --- |
 | `listen` | `host:port` | `127.0.0.1:8790` |
 | `db` | SQLite file | `house.db` |
@@ -275,9 +275,9 @@ It drives open games every 1.5 s and keeps its state in SQLite (games, rate-limi
 Because fund-me and payout tracking use `/admin/*` and `/head` on `zol-zcashd`, the house runs
 on the same host as op0's daemon.
 
-Operations on the trial ([`house.md`](../docs/ops/house.md)):
+Operations on the testnet beta ([`house.md`](../docs/ops/house.md)):
 
-- **systemd unit** `zol-house`. **Caddy** proxies `/house/*` to `127.0.0.1:8790`. The service matches paths that start with `/house/`, so keep the prefix (Caddy `handle`, not `handle_path`). The trial's unit and Caddyfile are in [`../infra/testnet/`](../infra/testnet/README.md). Wrap Caddy rules in `route { … }` to keep their written order ([`testnet-deploy.md`](../docs/ops/testnet-deploy.md#layout-user-zol-everything-06000700)).
+- **systemd unit** `zol-house`. **Caddy** proxies `/house/*` to `127.0.0.1:8790`. The service matches paths that start with `/house/`, so keep the prefix (Caddy `handle`, not `handle_path`). The beta's unit and Caddyfile are in [`../infra/testnet/`](../infra/testnet/README.md). Wrap Caddy rules in `route { … }` to keep their written order ([`testnet-deploy.md`](../docs/ops/testnet-deploy.md#layout-user-zol-everything-06000700)).
 - **Bankroll**: ordinary deposits to the house session without auto-exit, `cd web && npx vite-node house/bankroll.ts -- <count>` with an SSH tunnel to op0's `zol-zcashd`.
 - **Escrow**: return actions are paid from the delegation program escrow of the app's rent vault; the house tops it up from its fee payer.
 - **Monitoring**: `zol-status` ([`../infra/testnet/zol-status.sh`](../infra/testnet/zol-status.sh)) reads `127.0.0.1:8790/house/info` and flags a bankroll below one stake or a fee payer below 0.3 SOL.
@@ -292,23 +292,23 @@ variables.
 | `VITE_GATEWAY` | Page API base URL(s). The two-player page takes a comma-separated list | `http://127.0.0.1:8787` |
 | `VITE_BASE_RPC` | Solana RPC | `http://127.0.0.1:28899` |
 | `VITE_ER_RPC` | Rollup RPC | `http://127.0.0.1:27799` |
-| `VITE_LEDGER`, `VITE_APP` | Program ids | The trial's ledger and `zol-coinflip` |
+| `VITE_LEDGER`, `VITE_APP` | Program ids | The beta's ledger and `zol-coinflip` |
 | `VITE_VRF_QUEUE` | VRF queue | The local test queue `Sc9MJU…` |
 | `VITE_VALIDATOR` | Rollup validator identity (from the endpoint's `getIdentity`) | Empty: ask the rollup |
 | `VITE_HOUSE` | The house service | `/house` |
 
-Build for the trial:
+Build for the testnet beta:
 
 ```bash
 cd web
-python3 scripts/pages.py          # only after editing coinflip.html: regenerates index.html and updown.html
+python3 scripts/pages.py          # only after editing coinflip.html: regenerates play.html and updown.html
 VITE_GATEWAY=https://<host>/op0 VITE_BASE_RPC=https://<host>/solana VITE_ER_RPC=https://devnet-as.magicblock.app \
   VITE_VALIDATOR=MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57 \
   VITE_VRF_QUEUE=5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc npm run build
 rsync -a dist/ <user>@<host>:/var/www/zol/
 ```
 
-- `npm run build` is `tsc --noEmit && vite build`. The pages are the inputs listed in [`../web/vite.config.ts`](../web/vite.config.ts); add yours there.
+- `npm run build` is `tsc --noEmit && node scripts/docs.mjs && vite build` (the docs pages come from `dev-docs/`). The pages are the inputs listed in [`../web/vite.config.ts`](../web/vite.config.ts); add yours there.
 - `VITE_BASE_RPC=https://<host>/solana` is Caddy proxying to a dedicated devnet RPC, because browsers on the public devnet RPC get rate-limited. The proxy adds the API key server-side.
 - `VITE_VRF_QUEUE` on devnet is `DEFAULT_EPHEMERAL_QUEUE` (`5hBR571x…`). The default `Sc9MJU…` is the local stack's.
 

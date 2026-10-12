@@ -1,185 +1,305 @@
-<!-- Generated from coinflip.html by scripts/pages.py; edit coinflip.html. -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ZOL games</title>
+  <title>ZOL · Zcash Operating Layer</title>
+  <meta name="description" content="Programmable Zcash privacy on Solana SVM. ZOL lets Solana programs take shielded ZEC, run real-time sessions in a MagicBlock/SVM rollup, and pay the result back to Zcash, and no public link between a player's play and their Zcash wallet." />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/src/brand.css" />
   <style>
-    .card { position: relative; }
-    .close { position: absolute; top: 4px; right: 4px; min-height: 0; border: 0; background: none; font-size: 22px; line-height: 1; padding: 8px 12px; color: var(--muted); }
-    .panel-title { margin: 0 0 8px; font-size: 18px; }
-    button .ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 8px; }
-    /* Your call: ringed and kept bright while the coin is in the air; the other side fades. */
-    button.chosen { box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--fg); }
-    button.chosen:disabled { opacity: 1; }
-    button.unchosen:disabled { opacity: .25; }
-    .balance { font: 500 40px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin: 6px 0 0; }
-    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    /* The coin is drawn as one SVG (milled edge of cells, rim, the face). */
-    .coin { width: 160px; height: 160px; margin: 12px auto 8px; user-select: none; }
-    .coin > svg { width: 100%; height: 100%; filter: drop-shadow(0 8px 18px rgba(0,0,0,.5)); }
-    .coin.spin { animation: spin .6s linear infinite; }
-    .restore { margin-top: 18px; text-align: left; } .restore button { display: block; margin: 10px auto 0; }
-    .keybtn { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); color: var(--muted); }
-    .keybtn svg { width: 20px; height: 20px; }
-    .keybtn .dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; background: var(--err); }
-    .keypanel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); text-align: left; }
-    a.game { display: flex; gap: 14px; align-items: center; padding: 12px; border: 1px solid var(--line); margin: 8px 0; color: var(--fg); text-decoration: none; }
+    body { max-width: none; padding: 0; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 96px 0; border-top: 1px solid var(--line); }
+    .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+    h2 { font: 700 40px/1.1 var(--display); margin: 0 0 16px; max-width: 760px; }
+    h3 { font: 600 20px/1.25 var(--display); margin: 0 0 8px; }
+    .lede { font-size: 18px; line-height: 1.6; color: #d6d3ee; max-width: 680px; margin: 0; }
+    a.btn { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 20px; font: 600 16px/1.2 var(--text); text-decoration: none; border: 1px solid var(--edge); color: var(--fg); }
+    a.btn:hover { border-color: var(--haze); color: var(--fg); }
+    a.btn.primary { background: var(--shield); border-color: var(--shield); color: var(--ink); }
+    a.btn.primary:hover { background: #b68fff; border-color: #b68fff; color: var(--ink); }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .tile { background: var(--raised); border: 1px solid var(--line); padding: 24px; }
+    .tile p { margin: 0; color: #d6d3ee; line-height: 1.55; }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+    /* Top bar */
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; }
+    .top .logo svg { height: 28px; width: auto; display: block; }
+    .top nav { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; justify-content: flex-end; }
+    .top nav a { color: var(--muted); text-decoration: none; font-size: 15px; }
+    .top nav a:hover { color: var(--fg); }
+    .top nav a.btn { color: var(--ink); min-height: 40px; padding: 8px 14px; font-size: 14px; }
+    @media (max-width: 720px) { .top nav a:not(.btn) { display: none; } }
+
+    /* Hero */
+    .hero { display: flex; flex-wrap: wrap; align-items: center; gap: 56px; padding: 72px 0 96px; }
+    .hero .copy { flex: 999 1 480px; min-width: 0; }
+    .hero h1 { font: 700 64px/1.02 var(--display); margin: 0 0 22px; }
+    .hero .lede { font-size: 20px; }
+    .hero .ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 32px; }
+    .hero .art { flex: 1 1 300px; display: flex; justify-content: center; }
+    .hero .art svg { width: 100%; max-width: 360px; height: auto; }
+    .hero .legend { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; font: 13px var(--mono); color: var(--muted); }
+    .hero .legend span { display: flex; align-items: center; gap: 10px; }
+    .hero .legend i { width: 10px; height: 10px; display: inline-block; }
+    @media (max-width: 720px) { .hero h1 { font-size: 44px; } h2 { font-size: 32px; } section { padding: 72px 0; } }
+    /* The crossing: the violet cells light in turn, top row to bottom row. */
+    .cross { animation: cross 2.4s ease-in-out infinite; }
+    .cross.b { animation-delay: .3s; }
+    @keyframes cross { 0%, 60%, 100% { opacity: 1 } 30% { opacity: .35 } }
+    @media (prefers-reduced-motion: reduce) { .cross { animation: none; } }
+
+    /* Steps */
+    .steps { counter-reset: step; }
+    .step .n { font: 500 13px var(--mono); color: var(--shield); margin-bottom: 18px; display: block; }
+    .step .time { margin-top: 16px; font: 13px var(--mono); color: var(--mint); }
+
+    /* Architecture */
+    .arch { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; margin-top: 48px; }
+    .arch .side { flex: 1 1 280px; border: 1px solid var(--line); background: var(--raised); padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+    .arch .mid { flex: 0 1 260px; border: 1px solid var(--shield); padding: 24px; display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+    .arch .label { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .arch .mid .label { color: var(--shield); }
+    .node { border: 1px solid var(--edge); padding: 12px 14px; }
+    .node b { display: block; font: 600 16px/1.3 var(--display); }
+    .node span { display: block; font-size: 14px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+
+    /* Guarantees */
+    .guar { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0; margin-top: 40px; border-top: 1px solid var(--line); }
+    .guar div { padding: 22px 24px 22px 0; border-bottom: 1px solid var(--line); display: flex; gap: 14px; }
+    .guar div::before { content: ""; flex: 0 0 10px; height: 10px; margin-top: 7px; background: var(--mint); }
+    .guar p { margin: 0; line-height: 1.55; color: #d6d3ee; } .guar strong { color: var(--fg); }
+    .trust { margin-top: 32px; border: 1px solid var(--line); padding: 24px; }
+    .trust ul { margin: 12px 0 0; padding-left: 20px; color: #d6d3ee; line-height: 1.6; }
+
+    /* Games */
+    a.game { display: flex; flex-direction: column; gap: 18px; text-decoration: none; color: var(--fg); }
     a.game:hover { border-color: var(--shield); color: var(--fg); }
-    a.game > svg { width: 40px; height: 40px; flex-shrink: 0; }
-    a.game b { display: block; font: 600 17px/1.3 var(--display); } a.game span span { display: block; }
-    .spark { width: 100%; height: 96px; display: block; margin: 6px 0 0; }
-    .spark .line { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
-    .spark .entry { stroke: var(--fg); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .7; }
-    .spark.win .line { stroke: var(--ok); } .spark.lose .line { stroke: var(--err); }
-    .spark .area { opacity: .14; } .spark.win .area { fill: var(--ok); } .spark.lose .area { fill: var(--err); }
-    .lead { font: 500 16px/1.5 var(--mono); min-height: 24px; font-variant-numeric: tabular-nums; }
-    .lead.win { color: var(--ok); } .lead.lose { color: var(--err); }
-    .bar { height: 6px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
-    .bar > div { height: 100%; width: 0; background: var(--mint); transition: width 1s linear; }
-    .bar.final > div { animation: pulse .5s ease-in-out infinite alternate; }
-    @keyframes pulse { from { opacity: 1 } to { opacity: .35 } }
-    .price { font: 500 40px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
-    .betline { min-height: 22px; font: 14px var(--mono); margin-top: 6px; font-variant-numeric: tabular-nums; }
-    @keyframes spin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
-    .status { min-height: 26px; font-weight: 600; }
-    #flips, #table-note, #stake-note { font-family: var(--mono); }
-    .qr svg { width: 200px; height: 200px; background: #fff; padding: 8px; }
-    ol.tl { list-style: none; padding: 0; margin: 6px 0; font-size: 13px; }
-    ol.tl li { padding: 2px 0 2px 18px; position: relative; } ol.tl li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 7px; height: 7px; background: var(--ok); }
-    ol.tl li.wait::before { background: none; border: 1px solid var(--muted); }
-    .hist li { list-style: none; border-top: 1px solid var(--line); padding: 6px 0; font-size: 14px; }
+    a.game svg { width: 56px; height: 56px; }
+    a.game .go { margin-top: auto; font: 500 14px var(--mono); color: var(--shield); }
+
+    /* Build */
+    .build { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; }
+    .build .copy { flex: 1 1 380px; min-width: 0; }
+    .build pre { flex: 1 1 440px; min-width: 0; margin: 0; background: var(--ink); border: 1px solid var(--line); padding: 22px; overflow-x: auto; font: 13px/1.65 var(--mono); color: #d6d3ee; }
+    .build pre .c { color: #7a74a3; } .build pre .k { color: var(--shield); } .build pre .f { color: var(--mint); }
+    .build ul { list-style: none; padding: 0; margin: 24px 0 0; display: flex; flex-direction: column; gap: 12px; }
+    .build li { display: flex; gap: 12px; line-height: 1.5; color: #d6d3ee; }
+    .build li b { color: var(--fg); font-weight: 600; }
+    .build li a { color: var(--fg); } .build li a:hover { color: var(--shield); }
+    .build li::before { content: ""; flex: 0 0 8px; height: 8px; margin-top: 8px; background: var(--shield); }
+
+    /* Status */
+    .status { display: flex; flex-wrap: wrap; gap: 16px; }
+    .status .tile { flex: 1 1 300px; }
+    .status dl { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 15px; }
+    .status dt { color: var(--muted); } .status dd { margin: 0; }
+
+    footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+    footer svg { height: 22px; width: auto; display: block; }
   </style>
 </head>
-<body data-page="home">
-  <header class="brand"><a class="logo" href="/" aria-label="ZOL home"><svg viewBox="0 0 67.5 23" role="img" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg></a><span class="pill">Testnet · no real money</span></header>
-  <h1>ZOL games</h1>
-  <nav class="small games"><b>Home</b> · <a href="/coinflip.html">Coin flip</a> · <a href="/updown.html">ZEC Up/Down</a> · <a href="/auction.html">Sealed-bid auction</a></nav>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="logo" href="#" aria-label="ZOL"><svg viewBox="0 0 67.5 23" role="img" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg></a>
+      <nav aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#guarantees">Guarantees</a>
+        <a href="#build">Build</a>
+        <a href="/docs/">Docs</a>
+        <a class="btn primary" href="/play.html">Play on testnet</a>
+      </nav>
+    </header>
 
-  <!-- First visit: a player key held by a passkey -->
-  <section id="start" class="card center" hidden>
-    <p style="margin-top:0">Play against the house with <b>shielded ZEC</b>. Your money goes in and out of a Zcash vault; the games run on Solana and a MagicBlock rollup.</p>
-    <button id="pk-new" class="primary">Start with a passkey</button>
-    <div><button id="pk-login" class="link">I already have a passkey</button></div>
-    <p id="pk-help" class="small err" hidden></p>
-    <p class="small muted">A passkey (Face ID, Touch ID, your password manager) holds your player key on every device it syncs to: nothing to write down. A session key stays in this browser: save it when the page shows it.</p>
-    <button id="nopk-new">Start with a session key</button>
-    <div class="restore">
-      <label class="small muted" for="restore-text">Have a saved session key? Restore it:</label>
-      <input id="restore-text" placeholder="zolsess1:…" />
-      <button id="restore-go">Restore</button>
+    <div class="hero">
+      <div class="copy">
+        <p class="eyebrow">Zcash Operating Layer</p>
+        <h1>Programmable Zcash privacy on Solana SVM.</h1>
+        <p class="lede">ZOL lets any Solana program take shielded ZEC, run real-time sessions in a MagicBlock/SVM rollup, and pay the result back to Zcash. Apps get the speed and composability of the SVM; players keep Zcash privacy: no SOL, no Solana wallet, and nothing public that links their play to their Zcash wallet.</p>
+        <div class="ctas">
+          <a class="btn primary" href="/play.html">Play on testnet</a>
+          <a class="btn" href="/docs/">Read the docs</a>
+        </div>
+      </div>
+      <div class="art">
+        <div>
+          <svg viewBox="-0.5 -0.5 24 24" role="img" aria-label="The ZOL mark: two rows joined by a violet crossing">
+            <g fill="none" stroke="#2a2150" stroke-width="0.12"><rect x="0" y="6" width="5" height="5"/><rect x="6" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/></g>
+            <g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g>
+            <rect class="cross" fill="#a374ff" x="12" y="6" width="5" height="5"/><rect class="cross b" fill="#a374ff" x="6" y="12" width="5" height="5"/>
+          </svg>
+          <div class="legend">
+            <span><i style="background: var(--mist)"></i>Zcash: the shielded vault</span>
+            <span><i style="background: var(--shield)"></i>The shielded crossing</span>
+            <span><i style="background: var(--mist)"></i>Solana SVM: the ledger and the rollup</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2>Deposit, play, withdraw. The ZEC never leaves Zcash.</h2>
+      <p class="lede">It sits in the app's shielded vault while a ledger on Solana records who is owed what. Play happens in a MagicBlock/SVM rollup, at rollup speed.</p>
+      <div class="grid steps" style="margin-top: 40px">
+        <div class="tile step">
+          <span class="n">01</span>
+          <h3>Deposit shielded ZEC</h3>
+          <p>Scan a payment link with a Zcash wallet. The operators see the shielded note arrive and credit the player's balance on the ledger.</p>
+          <div class="time">Credited after 3 blocks, usually 1–2 min</div>
+        </div>
+        <div class="tile step">
+          <span class="n">02</span>
+          <h3>Play in the rollup</h3>
+          <p>A key held by the player's passkey signs every move. No Solana wallet, no SOL: transactions in the rollup are free and land in milliseconds.</p>
+          <div class="time">A coin flip lands in about a second</div>
+        </div>
+        <div class="tile step">
+          <span class="n">03</span>
+          <h3>Withdraw to Zcash</h3>
+          <p>The balance is paid back, shielded, to the address given at the first deposit. The ledger fixes that address, and every operator checks it before signing.</p>
+          <div class="time">Usually paid within a few minutes</div>
+        </div>
+      </div>
+
+      <div class="arch" aria-label="Architecture">
+        <div class="side">
+          <span class="label">On Zcash</span>
+          <div class="node"><b>Player's wallet</b><span>Sends and receives shielded ZEC only</span></div>
+          <div class="node"><b>The app's vault</b><span>One shielded address per app; its spend key is split among the operators</span></div>
+        </div>
+        <div class="mid">
+          <span class="label">The crossing</span>
+          <div class="node" style="border-color: var(--shield)"><b>Three operators, 2 of 3</b><span>Attest credits to Solana, and co-sign payouts on Zcash (FROST). Each checks every payout against the ledger before signing.</span></div>
+        </div>
+        <div class="side">
+          <span class="label">On Solana</span>
+          <div class="node"><b>zol-ledger</b><span>Balances, pots and settlements for every app. It never calls apps</span></div>
+          <div class="node"><b>Your app</b><span>A Solana (SVM) program, such as Anchor, that opens pots, seats players and decides outcomes</span></div>
+          <div class="node"><b>MagicBlock/SVM rollup</b><span>Where sessions run: verifiable randomness, live price feeds, scheduled tasks</span></div>
+        </div>
+      </div>
     </div>
   </section>
 
-  <main id="main" hidden>
-    <!-- Balance -->
-    <section class="card center">
-      <button id="key-btn" class="keybtn" title="Your player key" aria-label="Your player key" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><rect x="3" y="11" width="8" height="8"/><path d="M10 12L19 3M15 7L18 10"/></svg><span id="key-warn" class="dot" hidden></span></button>
-      <div class="muted small">Game balance</div>
-      <div class="balance" id="balance">…</div>
-      <div class="muted small" id="flips">&nbsp;</div>
-      <div class="row" style="margin-top:10px" id="funds-buttons">
-        <button id="add-btn">Deposit Zcash</button>
-        <button id="cashout-btn">Withdraw Zcash</button>
+  <section id="guarantees">
+    <div class="wrap">
+      <p class="eyebrow">Guarantees</p>
+      <h2>What ZOL guarantees, and who enforces it.</h2>
+      <div class="guar">
+        <div><p><strong>No wrapped ZEC.</strong> ZEC stays in a shielded vault on Zcash; balances are ledger entries, not tokens. Nothing to bridge, nothing to depeg.</p></div>
+        <div><p><strong>No value created.</strong> A pot returns exactly what went in; balances only move between a player, pots and exits.</p></div>
+        <div><p><strong>Payouts go where the player said.</strong> The ledger fixes the payout address at the first deposit, as a commitment, and each operator checks a payout against it before signing.</p></div>
+        <div><p><strong>Nobody is trapped.</strong> A pot that never comes back from the rollup is refunded after its session deadline plus 65 minutes, and a frozen app still returns pots and accepts exit requests.</p></div>
+        <div><p><strong>Apps stay in their lane.</strong> An app can't add or swap a player, touch another app's money, or change a payout address.</p></div>
+        <div><p><strong>Play and wallet stay apart in public.</strong> Solana sees session keys and commitments; Zcash sees shielded notes. Nothing public links the two; the operators can.</p></div>
       </div>
-      <div class="small muted" id="funds-link" hidden style="margin-top:6px"><a href="/">Deposit or withdraw on the home page</a></div>
-      <div id="key-panel" class="keypanel small" hidden>
-        <div>Player key: <span id="key-kind"></span></div>
-        <div><button id="backup-btn" class="link" hidden>show session key</button> <button id="logout-btn" class="link">switch player</button></div>
-        <div id="backup-out" hidden><code id="backup-text"></code><br /><span class="muted">Keep it somewhere safe: it is the only way back to this balance without a passkey.</span></div>
-      </div>
-    </section>
-
-
-    <!-- Withdraw -->
-    <section id="withdraw" class="card" hidden>
-      <button class="close" data-close="withdraw" aria-label="Close">×</button>
-      <div class="panel-title">Withdraw Zcash</div>
-      <div id="withdraw-form">
-        <div class="kv"><span>Your balance</span><b id="w-balance"></b></div>
-        <div class="kv muted"><span>Exit fee (0.3%)</span><b id="w-fee"></b></div>
-        <div class="kv muted"><span>Zcash network fee</span><b>0.0002 TAZ</b></div>
-        <div class="kv"><span>You receive</span><b id="w-net"></b></div>
-        <div class="small muted" style="margin:6px 0">To <code id="w-addr"></code>, the address fixed at your first deposit.</div>
-        <div class="center"><button id="withdraw-go" class="primary">Withdraw</button></div>
-      </div>
-      <ol class="tl" id="cashout-tl"></ol>
-    </section>
-
-    <!-- Add funds -->
-    <section id="add" class="card" hidden>
-      <button class="close" data-close="add" aria-label="Close">×</button>
-      <div class="panel-title">Deposit Zcash</div>
-      <div id="addr-step">
-        <label class="small">Your Zcash testnet address, where withdrawals go (<code>utest1…</code>)
-          <input id="payout" placeholder="utest1…" autocomplete="off" /></label>
-        <p class="small muted" style="margin:6px 0 0">Asked once. It is fixed to your player, so even someone with your key could only pay you.</p>
-      </div>
-      <div id="addr-known" class="small muted" hidden>Withdrawals go to <code id="addr-short"></code></div>
-      <div class="row" style="margin-top:10px" id="amounts"></div>
-      <div id="pay" class="center" style="margin-top:18px" hidden>
-        <div class="qr" id="qr"></div>
-        <p style="margin:6px 0">Scan with your Zcash wallet or <a id="link">open the payment link</a>. Pay <b id="pay-amount"></b> exactly.</p>
-        <code id="session-ua" hidden></code>
-        <button id="fund-btn" class="link" hidden>No wallet? The house funds 0.01 TAZ once</button>
-        <div id="fund-msg" class="small" hidden></div>
-      </div>
-      <ol class="tl" id="deposit-tl"></ol>
-    </section>
-
-    <!-- Home: the games -->
-    <section class="card" id="games" hidden>
-      <div class="panel-title">Games</div>
-      <!-- Each game's glyph is drawn on the logo's 4 × 4 grid and keeps its two violet cells. -->
-      <a class="game" href="/coinflip.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="6" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>Coin flip</b><span class="small muted">Z heads or Zakura tails, decided by a verifiable random draw in the rollup. 0.001 TAZ a flip, win 2×.</span></span></a>
-      <a class="game" href="/updown.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>ZEC Up/Down</b><span class="small muted">Will ZEC/USD be higher or lower in 30 s? Live Pyth price in the rollup. A right call pays 1.9×.</span></span></a>
-      <a class="game" href="/auction.html"><svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg><span><b>Sealed-bid auction</b><span class="small muted">Bid on a ZOL certificate: seal your bid, reveal it, the highest bid wins. 0.005 TAZ deposit.</span></span></a>
-      <div class="small muted" style="margin-top:8px">Also: the <a href="/two-player.html">two-player table</a>, the original developer page.</div>
-    </section>
-
-    <!-- The game: a coin flip or ZEC Up/Down -->
-    <section class="card center" id="game-card">
-      <div class="coin" id="coin"></div>
-      <div id="updown" hidden>
-        <div class="price" id="price">$—</div>
-        <div class="small muted">ZEC/USD · Pyth, live in the MagicBlock rollup</div>
-        <svg id="spark" class="spark" viewBox="0 0 300 96" preserveAspectRatio="none" aria-hidden="true">
-          <path class="area" id="spark-area" d="" />
-          <line class="entry" id="spark-entry" x1="0" x2="300" y1="-10" y2="-10" />
-          <polyline class="line" id="spark-line" points="" />
-        </svg>
-        <div class="bar" id="bar" hidden><div id="bar-fill"></div></div>
-        <div class="lead" id="lead"></div>
-        <div class="betline" id="betline"></div>
-      </div>
-      <div class="status" id="status">&nbsp;</div>
-      <div class="row">
-        <button id="start-table" class="primary" hidden>Start table</button>
-        <button id="heads" class="primary" hidden><span id="ico-heads"></span>Heads</button>
-        <button id="tails" class="primary" hidden><span id="ico-tails"></span>Tails</button>
-        <button id="up-btn" class="primary" hidden>▲ Up</button>
-        <button id="down-btn" class="primary" hidden>▼ Down</button>
-      </div>
-      <div class="small" id="table-note" style="margin-top:12px"></div>
-      <div class="small muted" id="stake-note">&nbsp;</div>
-    </section>
-
-    <section class="card">
-      <details id="hist-d"><summary>Your rounds and their proof</summary><ul class="hist" id="hist" style="padding:0"></ul></details>
-      <details><summary>How it works, and what you trust</summary>
-        <ul class="small muted">
-          <li>Deposit shielded ZEC from your Zcash wallet: it goes to the app's vault, held by three operators (2 of 3 sign everything), and a Solana ledger keeps your balance.</li>
-          <li>Play any of the games with that balance. Each runs in a MagicBlock rollup; the money only moves as the ledger allows.</li>
-          <li>Withdraw to the address you gave at your first deposit: the ledger fixes it, and the operators can't send it elsewhere.</li>
+      <div class="trust">
+        <h3>What you still trust</h3>
+        <ul>
+          <li><b>The operators</b> (2 of 3) to stay live, sign only true credits, and not collude: a quorum holds the vault's spend key. Each honest operator pays only what the ledger settled, to the committed address. They also see which session key belongs to which Zcash address.</li>
+          <li><b>The rollup validator</b> for outcomes while a pot is in the rollup. It can reorder or withhold; withholding turns into a refund.</li>
+          <li><b>The app's own logic</b> for who wins. The ledger checks that seats add up, not that the right seat won.</li>
         </ul>
-      </details>
-    </section>
+      </div>
+    </div>
+  </section>
 
-  </main>
-  <p id="err" class="err small center"></p>
-  <script type="module" src="/src/house-page.ts"></script>
+  <section id="build">
+    <div class="wrap build">
+      <div class="copy">
+        <p class="eyebrow">For developers</p>
+        <h2>Your app is a Solana program with Zcash privacy.</h2>
+        <p class="lede">Write it in Anchor, like any Solana program. ZOL handles the money: shielded deposits, balances, exits and payouts. You write the rules: open a pot, seat players, let the rollup decide, and the ledger pays the seats when the pot comes home.</p>
+        <ul>
+          <li><span><a href="/docs/quickstart.html"><b>Quickstart</b></a>: a player key, a shielded deposit, coin flips and a withdrawal, from code, in about 15 minutes.</span></li>
+          <li><span><a href="/docs/build-an-app.html"><b>Build an app</b></a>: the anatomy of a ZOL app, walked through on the coin flip.</span></li>
+          <li><span><a href="/docs/security.html"><b>Security model</b></a>: who can do what, and a review checklist for your app.</span></li>
+          <li><span><a href="/docs/deploying.html"><b>Deploying</b></a>: on the testnet, send the operators your program id and source; they register, activate and cap it.</span></li>
+        </ul>
+        <div class="ctas" style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px">
+          <a class="btn primary" href="/docs/">Read the docs</a>
+          <a class="btn" href="/docs/quickstart.html">Quickstart</a>
+        </div>
+      </div>
+      <pre aria-label="Code sketch"><span class="c">// Open a pot and seat a player (on Solana)</span>
+<span class="k">zol_ledger</span>::cpi::<span class="f">open_pot</span>(ctx, pot_id, now + open_secs)?;
+<span class="k">zol_ledger</span>::cpi::<span class="f">buy_in</span>(ctx, stake * rounds)?;
+
+<span class="c">// In the rollup: your rules move value
+// between seats. VRF, prices, timers.</span>
+<span class="k">zol_ledger</span>::cpi::<span class="f">move_seat</span>(ctx, from, to, stake)?;
+
+<span class="c">// Bring it home; the ledger pays every seat
+// back to the players' balances.</span>
+<span class="k">zol_ledger</span>::cpi::<span class="f">close_pot</span>(ctx, Some(cash_out))?;</pre>
+    </div>
+  </section>
+
+  <section id="games">
+    <div class="wrap">
+      <p class="eyebrow">Live demo on testnet</p>
+      <h2>Three games, one Solana program.</h2>
+      <p class="lede">Play them with testnet ZEC (TAZ). Each shows a different way to decide an outcome in the rollup.</p>
+      <div class="grid" style="margin-top: 40px">
+        <a class="tile game" href="/coinflip.html">
+          <svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="6" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg>
+          <div><h3>Coin flip</h3><p>Against the house, decided by verifiable randomness in the rollup. Many flips per table, about 0.001 TAZ each.</p></div>
+          <span class="go">Flip a coin →</span>
+        </a>
+        <a class="tile game" href="/updown.html">
+          <svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg>
+          <div><h3>ZEC Up/Down</h3><p>Will ZEC/USD be higher in 30 seconds? Settled on a live Pyth price inside the rollup. A right call pays 1.9×.</p></div>
+          <span class="go">Call the price →</span>
+        </a>
+        <a class="tile game" href="/auction.html">
+          <svg viewBox="0 0 23 23" aria-hidden="true"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="6" width="5" height="5"/><rect x="18" y="6" width="5" height="5"/><rect x="0" y="12" width="5" height="5"/><rect x="18" y="12" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g></svg>
+          <div><h3>Sealed-bid auction</h3><p>Commit a hidden bid, reveal it, highest bid wins. No trusted hardware: a hash, a salt and a penalty for not revealing.</p></div>
+          <span class="go">Place a bid →</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section id="status">
+    <div class="wrap">
+      <p class="eyebrow">Status</p>
+      <h2>A fully functional beta on testnet.</h2>
+      <p class="lede">Everything works end to end today: shielded deposits on Zcash, play on Solana and MagicBlock's devnet rollup, payouts back to Zcash. Players use testnet ZEC (TAZ).</p>
+      <div class="status" style="margin-top: 32px">
+        <div class="tile">
+          <h3>Running now</h3>
+          <dl>
+            <dt>Zcash</dt><dd>Testnet, NU7</dd>
+            <dt>Solana</dt><dd>Devnet</dd>
+            <dt>Rollup</dt><dd>MagicBlock devnet</dd>
+            <dt>Operators</dt><dd>Three, 2 of 3, on one host</dd>
+            <dt>Review</dt><dd>Internal only</dd>
+          </dl>
+        </div>
+        <div class="tile">
+          <h3>Before mainnet</h3>
+          <dl>
+            <dt>Review</dt><dd>An external audit of the ledger</dd>
+            <dt>Operators</dt><dd>Separate hosts and providers</dd>
+            <dt>Keys</dt><dd>A distributed key generation, not a dealer</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <svg viewBox="0 0 67.5 23" role="img" aria-label="ZOL"><g fill="#edecfa"><rect x="0" y="0" width="5" height="5"/><rect x="6" y="0" width="5" height="5"/><rect x="12" y="0" width="5" height="5"/><rect x="18" y="0" width="5" height="5"/><rect x="0" y="18" width="5" height="5"/><rect x="6" y="18" width="5" height="5"/><rect x="12" y="18" width="5" height="5"/><rect x="18" y="18" width="5" height="5"/></g><g fill="#a374ff"><rect x="12" y="6" width="5" height="5"/><rect x="6" y="12" width="5" height="5"/></g><g fill="#edecfa" transform="translate(29 6) scale(1.1)"><path d="M0 0H10V2L3.2 8H10V10H0V8L6.8 2H0Z"/><path fill-rule="evenodd" d="M15.5 0H20.5L23 2.5V7.5L20.5 10H15.5L13 7.5V2.5ZM16.67 2H19.33L21 3.67V6.33L19.33 8H16.67L15 6.33V3.67Z"/><path d="M26 0H28V8H35V10H26Z"/></g></svg>
+      <span>Zcash Operating Layer · beta on testnet</span>
+    </div>
+  </footer>
 </body>
 </html>

@@ -26,7 +26,7 @@ paid at payout depth (60 blocks).
 **Can my app call other Solana programs?** In the rollup, programs that are delegated or
 cloned there (VRF, price oracle). On Solana, anything. The ledger never calls apps.
 
-**Can I run my own operators?** Not yet: the testnet trial has one operator set for every app.
+**Can I run my own operators?** Not yet: the testnet beta has one operator set for every app.
 Per-app signer sets are a later tier of the design.
 
 ## Glossary

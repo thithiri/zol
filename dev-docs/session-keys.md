@@ -67,7 +67,10 @@ house keeps its seed the same way, outside the repository.
 ## Privacy
 
 - Solana sees the key's actions; Zcash sees only shielded payments into the vault and out to
-  the payout address. Nothing links the two.
+  the payout address. Nothing public links the two.
+- The operators see both: every deposit memo, payout address and amount. A public observer can
+  still correlate the chains by timing and transaction shape; the design's measures reduce
+  that but don't remove it ([design](../docs/design-v0.3.1.md), "Privacy").
 - One key per app: the same player in two apps is two unrelated keys.
 - A player who wants separate histories can use a fresh key (and passkey) per session; each
   key's payout address is fixed at its own first deposit.

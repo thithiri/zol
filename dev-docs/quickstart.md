@@ -1,12 +1,12 @@
 # Quickstart
 
-About 15 minutes, on the testnet trial: create a player key, deposit shielded testnet ZEC
+About 15 minutes, on the testnet beta: create a player key, deposit shielded testnet ZEC
 (TAZ), flip coins against the house in the MagicBlock rollup, and withdraw back to your
 Zcash wallet. Everything runs from one script, [`../web/examples/quickstart.ts`](../web/examples/quickstart.ts),
 using the TypeScript client in [`../web/src/`](../web/src/).
 
 Prefer clicking? The same flow is on the pages at
-<https://159-223-38-126.sslip.io/>.
+<https://159-223-38-126.sslip.io/play.html>.
 
 ## You need
 

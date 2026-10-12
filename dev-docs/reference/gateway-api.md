@@ -15,7 +15,7 @@ Sources:
 
 ## Base URLs
 
-Testnet trial (Zcash testnet, Solana devnet), three operators behind one Caddy:
+Testnet beta (Zcash testnet, Solana devnet), three operators behind one Caddy:
 
 | Operator | Base URL |
 |---|---|
@@ -293,10 +293,9 @@ What the code does:
 
 Recommendation: register with every URL in `AppInfo.operators` and check
 `intent_registered` on each (via `GET …/sessions/{session}`) rather than relying on gossip
-alone. Note that the doc comment on `prepareDeposit` still says "gateways do not share
-intents"; that predates the gossip in `server.rs` and is out of date. The web home page
-(`main.ts`) registers with every gateway in its comma-separated `VITE_GATEWAY`; the house page
-(`house-page.ts`) registers with one and relies on gossip.
+alone. The two-player page (`main.ts`) registers with every gateway in its comma-separated
+`VITE_GATEWAY`; the games pages (`house-page.ts`) register with every URL in
+`AppInfo.operators`.
 
 ## Deposit memo
 

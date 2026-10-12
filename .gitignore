@@ -9,5 +9,7 @@ spikes/**/node_modules/
 spikes/**/*-keypair.json
 web/dist/
 web/dist-house/
+# Generated from dev-docs by web/scripts/docs.mjs.
+web/docs/
 __pycache__/
 web/zol-session.json

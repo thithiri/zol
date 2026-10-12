@@ -9,11 +9,11 @@ get right. The full analysis is in [`../docs/design-v0.3.1.md`](../docs/design-v
 
 | Party | Can | Cannot |
 | --- | --- | --- |
-| **Operators (2 of 3)** | Stall deposits and payouts; sign a false credit (a dishonest quorum) | Move a balance; pay a settlement anywhere but the committed address; pay one settlement twice (every payout spends the vault's head note); sign anything for a ledger whose code differs from their pin |
+| **Operators (2 of 3)** | Stall deposits and payouts. A colluding quorum can sign a false credit (reconciliation then freezes the app) or spend the vault: the design has no bound on that yet | Move a ledger balance; as honest operators, pay a settlement anywhere but the committed address, or pay one twice (every payout spends the vault's head note); sign anything for a ledger whose code differs from their pin |
 | **One operator** | Freeze an app as a guardian (a threshold unfreezes) | Sign alone; unfreeze |
 | **Rollup validator** | Reorder or withhold rollup transactions; commit wrong seat amounts for pots it holds | Change who sits in a pot (the receipt stays on Solana); touch another pot; keep a pot forever (refund after the deadline) |
 | **Your app** | Decide every outcome in its own pots; choose when to close them | Create value; add or replace a player; move a balance without the player's signature; touch another app; change a payout address; block an exit of unstaked funds |
-| **Ledger admin** | Register settings within program caps, activate apps, set caps, pause | Unfreeze; change guardians; move funds |
+| **Ledger admin** | Register settings within program caps, activate apps, set caps, pause; rotate the attestor key (bounded by reconciliation); hand over the admin role | Unfreeze; change guardians; move funds |
 | **A player's key** | Play its balance, request an exit | Redirect a payout |
 
 ## What the ledger guarantees your players
@@ -22,7 +22,8 @@ get right. The full analysis is in [`../docs/design-v0.3.1.md`](../docs/design-v
   player, pots and exits.
 - **Payouts only to the receipt's players**, in seat order, whoever calls `cash_out`.
 - **Nobody trapped:** players leave an unstarted pot; a pot that doesn't return is refunded after
-  its session deadline plus 65 minutes; a frozen app still lets players out.
+  its session deadline plus 65 minutes; a frozen app still returns pots and takes exit requests,
+  and payouts resume once it's unfrozen.
 - **Return actions are confined:** a `close_pot` action may call only the pot's own app, with
   bounded size; it runs signed only by the app's escrow.
 

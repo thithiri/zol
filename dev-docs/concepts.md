@@ -30,7 +30,7 @@ key** in the browser, which the player must save. See
    session key**.
 2. It **registers the intent** with every operator (`POST /v1/apps/{app}/intents`) and gets
    back a **session address**: a diversified receiver of the vault, unique to the session.
-3. The player pays a **fixed amount** (the app's denominations: 0.01 or 0.1 TAZ on testnet) to
+3. The player pays a **fixed amount** (the ledger's denominations: 0.01 or 0.1 TAZ on testnet) to
    that address from any Zcash wallet, through a ZIP 321 link that carries the memo as text
    (`ZOL1:…`). If the wallet drops the memo, the deposit still counts: the session address and
    the registered intent identify it.
@@ -38,8 +38,9 @@ key** in the browser, which the player must save. See
    operators sign a **credit**, and a relayer submits it to the ledger, which adds the amount
    (less a 0.3% entry fee) to the player's **balance**.
 
-**Confirmation depth:** testnet credits early, after 3 blocks (about 75 s), within a float the
-operators keep; deeper credits wait for full depth (60 blocks). A deposit that is never
+**Confirmation depth:** testnet credits early, after 3 blocks (usually 1–2 minutes), up to the
+**float**: TAZ the operators keep in the vault to cover early credits. Deposits beyond it wait
+for full depth (60 blocks, about 25 minutes). A deposit that is never
 credited is **voided** and refunded to the payout address.
 
 The **payout address is fixed at the first deposit**. The ledger stores only a keyed
@@ -112,5 +113,6 @@ before it starts, a session of 1 to 120 minutes.
 
 Each operator also runs a **guardian**: it reconciles the ledger against the vault and can
 **freeze** an app on a mismatch (one guardian freezes; a threshold unfreezes). A frozen app
-takes no new value in but still lets players out. Separately, every operator **pins the
+takes no new value in, still returns pots and takes exit requests, and pays out once it's
+unfrozen. Separately, every operator **pins the
 ledger's code** and signs nothing if the deployed program differs.

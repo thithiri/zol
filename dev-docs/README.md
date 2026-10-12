@@ -1,8 +1,10 @@
 # ZOL developer docs
 
-ZOL (Zcash Operating Layer) lets an app accept **shielded ZEC**, run a real-time session in a
-**MagicBlock rollup**, and pay the result back to **Zcash**. Players never handle SOL or a
-Solana wallet, and nobody can link their in-app identity to their Zcash wallet.
+ZOL (Zcash Operating Layer) is **programmable Zcash privacy on Solana's SVM**. Apps are
+Solana programs: they accept **shielded ZEC**, run real-time sessions in a **MagicBlock/SVM
+rollup**, and pay the result back to **Zcash**. Players never handle SOL or a Solana wallet,
+and nothing public links their in-app identity to their Zcash wallet. New to the terms? See
+[Concepts](concepts.md) or the [glossary](faq.md#glossary).
 
 These pages are for developers building apps on ZOL. Internal designs, plans and runbooks
 live in [`../docs/`](../docs/).
@@ -44,7 +46,8 @@ live in [`../docs/`](../docs/).
 
 ## Status
 
-ZOL runs as a **testnet trial**: Zcash testnet (NU7), Solana devnet, MagicBlock's devnet
-rollup, three operators on one host. Nothing here holds real money. The design is reviewed
+ZOL runs as a **fully functional beta on testnet**: Zcash testnet (NU7), Solana devnet,
+MagicBlock's devnet rollup, three operators on one host. Players use testnet ZEC (TAZ). The
+live demo is at [`/play.html`](/play.html). The design is reviewed
 in [`../docs/design-v0.3.1.md`](../docs/design-v0.3.1.md); the ledger has had internal review
 only.

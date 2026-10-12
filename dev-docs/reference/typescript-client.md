@@ -16,8 +16,6 @@ the ledger and the zol-coinflip program.
 | [`deposit.ts`](#depositts) | `prepareDeposit`: memo → intents → payment link |
 | [`chain.ts`](#chaints) | instruction builders, PDAs, account decoders, `sendTx` / `sendSigned` |
 
-`wire.ts` and `memo.ts` are not in the original module list but `deposit.ts` depends on them, so
-they are documented too.
 
 ## Using the modules
 
@@ -55,7 +53,7 @@ Tests: [`web/test/`](../../web/test/) (`npm test` in `web/`).
 ### Testnet values
 
 From [`docs/ops/testnet-deploy.md`](../../docs/ops/testnet-deploy.md) and
-[`web/scripts/testnet-smoke.ts`](../../web/scripts/testnet-smoke.ts) (testnet trial; may change):
+[`web/scripts/testnet-smoke.ts`](../../web/scripts/testnet-smoke.ts) (testnet beta; may change):
 
 | Setting | Value |
 |---|---|
@@ -479,8 +477,6 @@ await sendTx(base, [cf.requestExit(me), cf.settle(feePayer.publicKey, app.nextSe
 
 ## Notes and open points
 
-- `deposit.ts`'s doc comment says gateways do not share intents; `gateway/src/server.rs` now gossips
-  them (best-effort). Registering with every operator remains the safe choice.
 - Balances below the ledger's `minExit` (`decodeLedgerParams`) cannot be withdrawn. The house
   page disables withdrawal below it; `main.ts` does not check it before `requestExit`.
 - The decoders use fixed byte offsets matching the current program layouts; they are not
